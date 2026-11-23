@@ -26,12 +26,27 @@
       ]
     },
     {
-      "id": "provenance-keyless-kms",
-      "area": "Execution provenance — keyless and managed KMS",
+      "id": "provenance-keyless-signing",
+      "area": "Execution provenance — opt-in GitHub Actions OIDC signing",
+      "state": "supported",
+      "claim": "The CLI supports opt-in Sigstore keyless signing using GitHub Actions OIDC, public-good Fulcio and Rekor v1, and offline verification with independently supplied trusted roots and certificate identity policy.",
+      "verification": "Generate with --signer sigstore-keyless and --trusted-root. Verify with --trusted-root, --certificate-oidc-issuer and exactly one certificate identity policy; require valid Fulcio chain, Rekor inclusion evidence, signed integrated time and the exact Waza DSSE signature, then recompute all execution claims.",
+      "limitations": "Signing needs GitHub Actions OIDC permission and service egress and discloses identity and digests publicly. Tests use fake CA/log services, not live public-good acceptance. Signing is opt-in, not a release requirement. No keyless trust controls exist in the Lab/API. No CT SCT or revocation check, no automatic trust distribution, and image/version claims still need verifier pins.",
+      "issues": [769],
+      "schemas": ["schemas/provenance-bundle-1.0.schema.json", "schemas/provenance-verification-1.0.schema.json"],
+      "evidence": [
+        { "label": "Keyless prerequisites and operator workflow", "path": "docs/EXECUTION_PROVENANCE.md" },
+        { "label": "Fake CA and transparency log regressions", "path": "internal/provenance/keyless_test.go" },
+        { "label": "CLI keyless generation and offline verification", "path": "cmd/waza/cmd_runner_provenance_keyless_test.go" }
+      ]
+    },
+    {
+      "id": "provenance-managed-kms",
+      "area": "Execution provenance — managed KMS",
       "state": "unavailable",
-      "claim": "The Waza execution-provenance CLI has no Sigstore keyless or managed-KMS signer.",
-      "verification": "Requesting either Waza signer returns the documented unavailable state. Separately, the release qualification workflow produces GitHub artifact attestations for exact binaries and the OCI image digest and verifies their bundles offline.",
-      "limitations": "Waza execution provenance supports only local Ed25519 signing; it does not provide external identity, KMS, keyless signing, key rotation, or managed trust distribution. GitHub artifact attestations cover build outputs and do not sign Waza execution outcomes.",
+      "claim": "The Waza execution-provenance CLI has no managed-KMS signer.",
+      "verification": "Requesting managed-kms returns the documented unavailable state. GitHub artifact attestations separately authenticate build outputs, not Waza execution outcomes.",
+      "limitations": "Managed signing, key rotation and managed trust distribution remain unavailable or operator-owned.",
       "issues": [769, 756],
       "schemas": ["schemas/provenance-verification-1.0.schema.json"],
       "evidence": [
@@ -216,11 +231,11 @@
       "id": "untrusted-signing-key",
       "boundary": "Signing identity and verifier trust store",
       "threat": "A compromised or misidentified local key creates signatures that an operator mistakes for trusted publisher provenance.",
-      "controls": "The verifier accepts only public keys supplied out of band and checks the signed statement against bundle members.",
-      "residual_risk": "Waza local-key generation, custody, distribution, rotation, identity binding, keyless signing, and managed KMS remain operator responsibilities or unavailable. GitHub artifact attestations establish workflow identity for build evidence, not execution outcomes.",
+      "controls": "Local verification accepts only public keys supplied out of band. Keyless CLI verification requires an independently supplied Sigstore root and exact issuer plus workflow identity policy. Both check signed claims against bundle members.",
+      "residual_risk": "Local-key custody and root distribution remain operator responsibilities. A trusted workflow can sign false declared image/version claims unless pinned. Keyless signing is public-good, no revocation or CT SCT check is provided, and managed KMS is unavailable. GitHub artifact attestations establish workflow identity for build evidence, not execution outcomes.",
       "evidence": [
         { "label": "Signing modes and trust-anchor requirements", "path": "docs/EXECUTION_PROVENANCE.md" },
-        { "label": "Keyless and KMS unavailable state", "path": "cmd/waza/cmd_runner_provenance_test.go" }
+        { "label": "Keyless identity and trust rejection tests", "path": "cmd/waza/cmd_runner_provenance_keyless_test.go" }
       ]
     },
     {
@@ -301,8 +316,8 @@
     },
     {
       "id": "verify-provenance",
-      "action": "Generate and verify execution provenance for completed work, with a locally managed Ed25519 key and a public trust anchor distributed out of band.",
-      "acceptance": "Require a verified report bound to the exact request, image, artifact manifest, artifact objects, and terminal outcome. Record unavailable keyless/KMS signing as a deployment gap.",
+      "action": "If adopting optional execution provenance, select local Ed25519 or GitHub Actions OIDC signing and distribute verifier trust out of band.",
+      "acceptance": "For opted-in provenance, require a verified report bound to the exact request, pinned image/version, artifact manifest, objects and outcome. Keyless additionally requires workflow identity/issuer policy and approved root. Signing is not a release requirement; managed KMS remains unavailable.",
       "evidence": [
         { "label": "Provenance CLI and verification procedure", "path": "docs/EXECUTION_PROVENANCE.md" },
         { "label": "Provenance contract schemas", "path": "schemas/provenance-statement-1.0.schema.json" }
@@ -365,7 +380,7 @@
   ],
   "verification_limits": [
     "This package describes the v0.42.0 source candidate and the listed public contract profiles; it does not certify every Waza binary, image, host, runtime, scheduler, model, or deployment.",
-    "Waza local Ed25519 signatures are offline-verifiable only relative to a verifier-supplied trust anchor; Waza keyless Sigstore and managed-KMS signers remain unavailable. GitHub artifact attestations separately cover qualification outputs and are not Waza execution provenance.",
+    "Waza local Ed25519 and opt-in GitHub Actions OIDC signatures are offline-verifiable only relative to independently supplied trust; keyless additionally requires workflow identity and issuer policy. Fake-service conformance is not live public-good signing evidence. Managed KMS remains unavailable. Signing is not a release requirement; GitHub artifact attestations separately cover qualification outputs.",
     "Candidate image and inventory evidence remains in workflow-run artifacts. Registry publication and inventory attestation occur only in the qualified tag-release path; previously published digests are not retroactively covered.",
     "Telemetry is derived from completed runner documents and can be exported as files or OTLP/HTTP JSON; there is no live execution-path telemetry emission.",
     "Budgets enforce wall time, model-turn, and tool-call limits only. CPU and memory observations are process-scoped on supported OSes and are not per-attempt limits; disk and process-count accounting are unavailable.",

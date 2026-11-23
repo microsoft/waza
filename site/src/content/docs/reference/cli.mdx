@@ -5,7 +5,7 @@ description: Complete reference for all waza commands and flags.
 
 Complete reference for all `waza` CLI commands and their options.
 
-**Version boundary (November 13, 2026):** published standalone `v0.41.0`
+**Version boundary (November 21, 2026):** published standalone `v0.42.0`
 includes the bounded runner/text and selected AgentV assertion adapter, task-level
 MCP mocks, program-grader context, host lifecycle evidence and Lab conversations.
 These were added in v0.40.0. It also retains the `waza dev SKILL.md` file-target
@@ -13,7 +13,7 @@ fix and v0.39.0 scenario flags, preflight,
 selected-file evidence/regrade, assurance profiles, controlled policy commands
 and `serve --lab`. Install the release or run `waza update`; a source build is
 optional. Explicit opt-in and platform restrictions remain; see the
-[feature/platform matrix](../releases/#upcoming-main-only-capabilities).
+[feature/platform matrix](../releases/#feature-availability).
 The azd extension is versioned separately; verify its own help rather than
 assuming prefix parity.
 
@@ -149,9 +149,9 @@ implementations. See [Dependency Recovery](/waza/guides/dependency-recovery/).
 | `--snapshot-max-total-bytes` | | int64 | 10485760 | Positive aggregate input/sanitized byte limit (10 MiB). |
 | `--snapshot-env-allow` | | string[] | | Allow-list of environment variable name patterns to embed in snapshots (default-deny; supports `WAZA_*` wildcards). |
 | `--redact` | | string | | Custom snapshot redaction policy; replaces defaults unless `extend: true`. |
-| `--isolation-request` | | string | | Unreleased (v0.42.0): isolation request JSON; the run is rejected (exit 2) before any execution when a requested boundary cannot be proved. See [Execution isolation](/waza/guides/execution-isolation/). |
-| `--isolation-host` | | string | | Unreleased (v0.42.0): host isolation declaration JSON whose claimed boundaries are probed before execution. |
-| `--isolation-report` | | string | | Unreleased (v0.42.0): write the isolation preflight report JSON; requires `--isolation-request` or `--isolation-host` and is created exclusively and never replaces an existing file, an input or another output (selected evals, `--output` and derived files, JUnit reporters, the OpenTelemetry `--otel-file`, and paths inside `--output-dir`, `--snapshot`, `--transcript-dir`, an enabled cache or session-log directory are refused, after resolving symlinked ancestors). Written on rejection, or after every selected eval passes isolation checks. |
+| `--isolation-request` | | string | | Available in v0.42.0: isolation request JSON; the run is rejected (exit 2) before any execution when a requested boundary cannot be proved. See [Execution isolation](/waza/guides/execution-isolation/). |
+| `--isolation-host` | | string | | Available in v0.42.0: host isolation declaration JSON whose claimed boundaries are probed before execution. |
+| `--isolation-report` | | string | | Available in v0.42.0: write the isolation preflight report JSON; requires `--isolation-request` or `--isolation-host` and is created exclusively and never replaces an existing file, an input or another output (selected evals, `--output` and derived files, JUnit reporters, the OpenTelemetry `--otel-file`, and paths inside `--output-dir`, `--snapshot`, `--transcript-dir`, an enabled cache or session-log directory are refused, after resolving symlinked ancestors). Written on rejection, or after every selected eval passes isolation checks. |
 
 ### Examples
 
@@ -1750,7 +1750,7 @@ See [manifest examples, recovery and migration](../../guides/immutable-artifacts
 
 ## waza isolation preflight
 
-Unreleased; targeted for v0.42.0. Probes the isolation boundaries an available
+Available in v0.42.0. Probes the isolation boundaries an available
 provider claims by attempting each violation, then matches them against a
 request and prints the `waza.execution-isolation-preflight` 1.0 report. Waza
 enforces no boundary itself; the Copilot-native sandbox (#544) is reported
@@ -1814,7 +1814,7 @@ Save stdout with `> validation.json`; identity is not proof of execution or
 duplicate suppression. See [logical identity fields and migration](../../guides/runner-identities/).
 See [Runner contract, schemas, API and migration](../../guides/runner-contract/).
 
-### Execution budgets (main-only, after v0.41.0)
+### Execution budgets (available in v0.42.0)
 
 ```bash
 waza runner budgets
@@ -1860,7 +1860,7 @@ the store is unavailable, truncated or contains unreadable records.
 [logical work and attempts](https://github.com/microsoft/waza/blob/main/docs/EXECUTION_ATTEMPTS.md#public-submission-and-lineage)
 and [execution lifecycle](../../guides/immutable-artifacts/#execution-lifecycle-and-recovery).
 
-### Telemetry command (main branch, not yet released)
+### Telemetry command (available in v0.42.0)
 
 ```bash
 waza runner telemetry --terminal terminal.json --manifest manifest.json --out-dir telemetry/
@@ -1923,7 +1923,7 @@ A reference can survive a failed publication and is not a success claim.
 See the [complete workflow and recovery limits](../../guides/immutable-artifacts/#checkpoint-public-source-preview).
 Installed v0.40.x artifacts do not contain these commands.
 
-### External adapter commands (unreleased, v0.42.0)
+### External adapter commands (available in v0.42.0)
 
 ```bash
 waza runner adapter translate < descriptor.json
@@ -1952,7 +1952,7 @@ adapter limits verifier runtime and I/O, but treats its executable as
 operator-trusted and does not authenticate its assertion. See
 [portable external execution adapters](../../guides/runner-adapters/).
 
-### Provenance commands (unreleased, planned for v0.42.0)
+### Provenance commands (available in v0.42.0)
 
 ```bash
 waza runner provenance keygen --private-key signing.pem --public-key signing.pub.pem
@@ -1971,23 +1971,69 @@ statement binds the canonical request digest, runner API version, runner image
 digest, Waza version, policy, runtime and model identity, artifact manifest and
 objects, and the terminal outcome. Every claim is required; generation exits 2
 rather than emit a bundle with an unavailable claim. `--signer` defaults to
-`local-ed25519`; `sigstore-keyless` and `managed-kms` exit 5 (signer unavailable)
-in this build. `--bind kind=path` adds a member bound by digest for a registered
+`local-ed25519` (unchanged). Opt-in `sigstore-keyless` uses GitHub Actions OIDC
+and public-good Fulcio/Rekor v1; `managed-kms` remains unavailable (exit 5).
+Keyless generation requires `--trusted-root FILE` and job permissions
+`id-token: write` / `contents: read`, GitHub's ambient OIDC URL/token and HTTPS
+egress. Missing OIDC or signing-service failure exits 5; bad inputs/root exit 2.
+`--bind kind=path` adds a member bound by digest for a registered
 binding kind.
 
 `verify` runs offline and prints one
 [`waza.provenance-verification`](/waza/schemas/provenance-verification-1.0.schema.json)
 report: exit 0 when every check passed, 1 when any check failed (altered,
 missing or unbound member, untrusted key, false claim), 2 for invalid flags or
-keys. Trust comes only from `--public-key`; `--expect-image-digest`,
+keys or trust/identity policy. Local-key trust comes from `--public-key`.
+Keyless verification requires the trusted root, exact issuer, and **exactly
+one** of the two identity flags:
+
+| Flag | Keyless contract |
+| --- | --- |
+| `--trusted-root FILE` | Verifier-owned Sigstore trusted-root JSON acquired separately through authenticated TUF; also required for keyless generation |
+| `--certificate-oidc-issuer ISSUER` | Exact issuer; GitHub is `https://token.actions.githubusercontent.com` |
+| `--certificate-identity IDENTITY` | Exact workflow certificate SAN, including repository, workflow path and ref |
+| `--certificate-identity-regexp REGEXP` | Alternative to exact identity, not an additional flag; must be anchored with `^` and `$` and narrowly scoped |
+
+```bash
+waza runner provenance generate --signer sigstore-keyless \
+  --trusted-root trust/sigstore-trusted-root.json \
+  --request unit.json --manifest manifest.json --artifacts objects/ \
+  --policy release-policy.json --image-reference "$RUNNER_IMAGE_REFERENCE" \
+  --image-digest "$RUNNER_IMAGE_DIGEST" --waza-version "$WAZA_VERSION" \
+  --out provenance/
+waza runner provenance verify --bundle provenance/ \
+  --trusted-root trust/sigstore-trusted-root.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity 'https://github.com/OWNER/REPO/.github/workflows/execution-provenance.yml@refs/heads/main' \
+  --expect-image-digest "$EXPECTED_RUNNER_IMAGE_DIGEST" \
+  --expect-waza-version "$EXPECTED_WAZA_VERSION"
+```
+
+These commands consume the actual completed request/manifest/objects/policy;
+set the image/version values from actual execution records and the verifier's
+independent expectations. Keyless generation runs **in Actions**, not a local
+terminal. Do not combine `--public-key` with keyless flags (exit 2).
+Waza never downloads a root or trusts one from the execution bundle.
+`sigstore.bundle.json` retains the certificate, matching DSSE and transparency
+evidence for network-free verification. Invalid evidence exits 1 with a failed
+report; invalid root/flags exit 2. The exact identity rejects other repositories,
+workflow paths and refs; use `@refs/tags/TAG` for a separately approved tag policy.
+
+`--expect-image-digest`,
 `--expect-waza-version` and `--expect-policy-sha256` pin declared claims. See
-[execution provenance](../../guides/execution-provenance/).
+[execution provenance](../../guides/execution-provenance/) for the prerequisite
+checklist, authenticated TUF acquisition commands, full workflow, scoped
+regexp example and troubleshooting. Public-good signing publishes certificate
+identity and digests in Rekor and sends the statement to the service; do not
+sign secrets/private artifacts. Signing stays opt-in, is not a release
+requirement, and adds no pipeline automatically. Lab/API verification remains
+local-key only.
 
 `--bind component-inventory=runner.cdx.json` binds a runner image component
 inventory; `verify --require-inventory` fails with `binding_required_missing`
 unless the bundle binds one for the signed image digest.
 
-### Component inventory commands (unreleased, planned for v0.42.0)
+### Component inventory commands (available in v0.42.0)
 
 ```bash
 waza runner inventory generate --name ghcr.io/org/waza-runner --digest sha256:<64 hex> \

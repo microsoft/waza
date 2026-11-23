@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -26,7 +28,7 @@ const embeddedAssets = embeddedFiles.flatMap((path) =>
   [...read(path).matchAll(/^\/\/go:embed (\S+)$/gm)]
     .map((match) => `internal/embedded/${match[1]}`));
 const releaseInputs = [
-  'version.txt', 'registry.json', 'go.mod', 'CHANGELOG.md',
+  'version.txt', 'extension.yaml', 'registry.json', 'go.mod', 'CHANGELOG.md',
   'internal/models/schema_version.go', ...embeddedFiles, ...embeddedAssets,
 ];
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
@@ -316,6 +318,20 @@ test('every catalog, release, Docker and dashboard media input enables PR site c
       '.github/workflows/docker-ci.yml', serveCommandInput]);
 });
 
+test('release manifest discovery rejects omission from either production selector', () => {
+  const workflow = read('.github/workflows/site-ci.yml');
+  const input = 'extension.yaml';
+  assertSiteDiscovery(workflow, [input]);
+  for (const [selector, line, diagnostic] of [
+    ['PR site filter', `              - '${input}'\n`, /PR site filter excludes documentation input/],
+    ['main push', `      - '${input}'\n`, /main push gate excludes documentation input/],
+  ]) {
+    const mutated = workflow.replace(line, '');
+    assert.notEqual(mutated, workflow, `${selector} mutation must remove the actual selector`);
+    assert.throws(() => assertSiteDiscovery(mutated, [input]), diagnostic, selector);
+  }
+});
+
 test('dashboard media guard discovery rejects removal from either production selector', () => {
   const workflow = read('.github/workflows/site-ci.yml');
   assertSiteDiscovery(workflow, dashboardMediaInputs);
@@ -568,12 +584,12 @@ test('concepts distinguish repeated trials from discarded retry outputs', () => 
 });
 
 test('release articles are linked from Releases and retain their existing screenshot assets', () => {
-  for (const slug of ['v0-41-0', 'v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
+  for (const slug of ['v0-42-0', 'v0-41-0', 'v0-40-1', 'v0-40-0', 'v0-39-0', 'dashboard-lab']) {
     const article = read(`site/src/content/docs/releases/${slug}.mdx`);
     assert.ok(read('site/astro.config.mjs').includes(`slug: 'releases/${slug}'`));
     assert.ok(read('site/src/content/docs/reference/releases.mdx').includes(`](../../releases/${slug}/)`));
     const screenshots = [...article.matchAll(/<ZoomImage src="([^"]+)" alt="([^"]+)" \/>/g)];
-    assert.equal(screenshots.length, /^v0-(?:40|41)-/.test(slug) ? 0 : 3, slug);
+    assert.equal(screenshots.length, /^v0-(?:40|41|42)-/.test(slug) ? 0 : 3, slug);
     for (const [, source] of screenshots) {
       assert.match(source, /^\/images\/.+\.png$/);
       assert.ok(existsSync(resolve(root, `site/public${source}`)), `missing release screenshot: ${source}`);
@@ -619,7 +635,313 @@ test('v0.41.0 article is a published release record with its limits', () => {
   const changelog = read('CHANGELOG.md');
   assert.match(changelog, /historical v0\.40\.1 tags retain `0\.39\.1`/);
   assert.match(changelog.split('## [0.41.0]')[1]?.split('## [0.40.1]')[0] ?? '', /### Moved to v0\.42\.0[\s\S]*#825[\s\S]*#835[\s\S]*#974[\s\S]*#981/);
-  assert.doesNotMatch(read('site/astro.config.mjs'), /\(pending\)/);
+  assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.41.0', slug: 'releases/v0-41-0' }"));
+});
+
+test('v0.42.0 published article retains production integration limits', () => {
+  const article = read('site/src/content/docs/releases/v0-42-0.mdx').replace(/\r\n/g, '\n');
+  const visible = article.replace(/<!--[\s\S]*?-->/g, '');
+  assert.match(article, /^title: "Waza v0\.42\.0: verifiable production integration"$/m);
+  assert.match(visible, /\*\*Released November 21, 2026\.\*\*/);
+  assert.doesNotMatch(visible, /publication pending|\*\*Draft|preview|is pending/i);
+  assert.match(read('version.txt'), /^0\.42\.0\s*$/);
+  assert.match(read('extension.yaml'), /^version: 0\.42\.0$/m);
+  const changelog = read('CHANGELOG.md');
+  const candidate = changelog.split('## [0.42.0] - 2026-11-21')[1]?.split('## [0.41.0]')[0];
+  assert.ok(candidate, 'candidate must own the folded Unreleased entries');
+  assert.doesNotMatch(candidate, /pending|preparation only|downloads remain/i);
+  for (const link of ['releases/tag/v0.42.0', 'releases/tag/azd-ext-microsoft-azd-waza_0.42.0',
+    'site/src/content/docs/releases/v0-42-0.mdx', 'site/src/content/docs/reference/releases.mdx']) {
+    assert.ok(candidate.includes(link), `tagged changelog must link ${link}`);
+  }
+  const frontier = candidate.match(/scope merged on current `main`\s+`([a-f0-9]{40})`, compared with published v0\.41\.0/)?.[1];
+  assert.ok(frontier, 'release frontier must be a full commit SHA');
+  assert.ok(visible.includes(`frontier is \`${frontier}\``), 'article and changelog frontiers must agree');
+  assert.ok(visible.includes(`compare/v0.41.0..${frontier})`), 'comparison must use the same source frontier');
+  assert.match(candidate, /Product usage telemetry/);
+  assert.match(candidate, /Independent inline prompt graders/);
+  assert.match(changelog, /^\[0\.42\.0\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.41\.0\.\.\.v0\.42\.0$/m);
+  for (const issue of [756, 769, 770, 771, 772, 773, 774, 775, 835, 898, 905,
+    937, 964, 974, 981, 984, 1024, 1025, 1027, 1029, 1030, 1056, 1057, 1071]) {
+    assert.ok(visible.includes(`issues/${issue})`), `milestone issue #${issue} must be inventoried`);
+  }
+  for (const limit of ['#544', '#545', 'loopback', 'post-run', 'managed-KMS',
+    'Windows peak memory', 'External schedulers', 'previously published images']) {
+    assert.ok(visible.includes(limit), `retain limit: ${limit}`);
+  }
+  assert.match(visible, /Managed-KMS signing is unavailable \(exit 5\)/);
+  assert.match(visible, /Keyless signing is optional and is not a\s+release requirement; local Ed25519 remains the default signer/);
+  for (const gap of ['verifier-supplied Sigstore trusted root', 'certificate-transparency', 'Lab/API keyless verification',
+    'GitHub Enterprise\nServer or custom OIDC issuers', 'live public-good acceptance testing', 'pull/1086)']) {
+    assert.ok(visible.includes(gap), `keyless release note must state: ${gap}`);
+  }
+  assert.match(candidate, /Keyless execution signing is opt-in and optional, not a release requirement/);
+  assert.match(candidate, /Managed-KMS signing\s+is\s+unavailable/);
+  const publication = visible.split('## Publication record')[1]?.split('\n## ')[0];
+  assert.ok(publication, 'release evidence must be recorded separately from the source frontier');
+  for (const evidence of ['releases/tag/v0.42.0', 'releases/download/v0.42.0/checksums.txt',
+    'releases/tag/azd-ext-microsoft-azd-waza_0.42.0', '0dffb882834bedd3c798ca9d2917a2bf20b353cf',
+    'actions/runs/44981911687', 'pull/1104', 'actions/runs/44986511723']) {
+    assert.ok(publication.includes(evidence), `missing publication evidence: ${evidence}`);
+  }
+  assert.match(publication, /policy\s+denied its registry PR creation[\s\S]*manually/);
+  assert.match(publication, /passed its native smoke matrix using a same-source rebuild, not the published bytes/);
+  assert.doesNotMatch(changelog + article, /PENDING SIGNER FOLLOW-UP|Date TBD|## \[0\.42\.0\] - TBD/);
+  assert.match(read('README.md'), /\*\*v0\.42\.0 adds\*\*/);
+  assert.ok(read('site/astro.config.mjs').includes("{ label: 'Waza v0.42.0', slug: 'releases/v0-42-0' }"));
+  const reference = read('site/src/content/docs/reference/releases.mdx');
+  assert.ok(reference.includes('[**Waza v0.42.0: verifiable production integration**](../../releases/v0-42-0/)'));
+  assert.doesNotMatch(reference + read('README.md'), /v0\.42\.0 preview|still being finalized/);
+});
+
+test('v0.42.0 availability labels and Pages publication gate are consistent', () => {
+  for (const path of [
+    'README.md',
+    'docs/COMPONENT_INVENTORY.md',
+    'docs/EXECUTION_BUDGETS.md',
+    'docs/EXECUTION_ISOLATION.md',
+    'docs/EXECUTION_PROVENANCE.md',
+    'docs/EXECUTION_TELEMETRY.md',
+    'site/src/content/docs/guides/component-inventory.mdx',
+    'site/src/content/docs/guides/execution-budgets.mdx',
+    'site/src/content/docs/guides/execution-isolation.mdx',
+    'site/src/content/docs/guides/execution-provenance.mdx',
+    'site/src/content/docs/guides/execution-telemetry.mdx',
+    'site/src/content/docs/guides/runner-adapters.mdx',
+    'site/src/content/docs/reference/cli.mdx',
+    'site/src/content/docs/reference/releases.mdx',
+  ]) {
+    const text = read(path);
+    assert.doesNotMatch(text,
+      /unreleased,? (?:planned|targeted) for v0\.42\.0|main-only,? after v0\.41\.0|main branch, not yet released|available on main; not yet in a release/i,
+      path);
+  }
+  assert.match(read('site/src/content/docs/reference/releases.mdx'), /Capabilities available in v0\.42\.0/);
+
+  const pages = read('.github/workflows/pages.yml');
+  assert.match(pages, /publication_ready: \$\{\{ steps\.publication\.outputs\.ready \}\}/);
+  assert.match(pages, /git ls-remote origin "refs\/tags\/v\$\{version\}"/);
+  assert.match(pages, /actions\/workflows\/release\.yml\/runs\?head_sha=/);
+  assert.match(pages, /if: needs\.build\.outputs\.publication_ready == 'true'/);
+});
+
+test('Pages publication checks the checked-out release before admitting every event', () => {
+  const pages = read('.github/workflows/pages.yml').replace(/\r\n/g, '\n');
+  const assertPublicationGate = (workflow) => {
+    workflow = workflow.replace(/\r\n/g, '\n');
+    const gate = workflow.match(/id: publication\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+    assert.ok(gate, 'expected the production publication step');
+    assert.match(gate, /^ +shell: bash$/m, 'GitHub Actions must enable pipefail for the API pipelines');
+    assert.match(gate, /run: \|\n +version="\$\(tr -d '\\r\\n' < version\.txt\)"/,
+      'every event must start by checking the checked-out version');
+    assert.equal((gate.match(/echo "ready=true"/g) ?? []).length, 1,
+      'publication must have only one successful admission');
+    assert.match(gate, /if \[\[ "\$successful_release" != "true" \]\]; then[\s\S]*?if \[\[ "\$published_release" != "true" \]\]; then\s+echo "ready=false"/,
+      'a non-successful Release must pass the publication fallback');
+    assert.doesNotMatch(gate, /EVENT_NAME|github\.event_name/,
+      'publication must not bypass release checks based on event type');
+  };
+  assertPublicationGate(pages);
+  assertPublicationGate(pages.replace(/\n/g, '\r\n'));
+  const mutated = pages.replace('        run: |\n', `        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+`);
+  assert.notEqual(mutated, pages, 'mutation must restore the bypass in the actual workflow');
+  assert.throws(() => assertPublicationGate(mutated),
+    /every event must start by checking the checked-out version/);
+  assert.throws(() => assertPublicationGate(mutated.replace(/\n/g, '\r\n')),
+    /every event must start by checking the checked-out version/);
+});
+
+test('checkpoint command warning preserves the v0.41.0 release boundary', () => {
+  const cli = read('site/src/content/docs/reference/cli.mdx');
+  const checkpoint = cli.split('### Checkpoint commands (v0.41.0+)')[1]?.split('\n### ')[0];
+  assert.ok(checkpoint, 'expected the checkpoint command section');
+  assert.match(checkpoint, /^Installed v0\.40\.x artifacts do not contain these commands\.$/m);
+  assert.doesNotMatch(checkpoint, /Installed v0\.41\.x artifacts do not contain these commands/);
+});
+
+test('Pages shell requires a successful Release or verified publication fallback for the checked-out tag', () => {
+  const workflow = read('.github/workflows/pages.yml').replace(/\r\n/g, '\n');
+  const extractShell = (source) => {
+    const step = source.match(/id: publication\n([\s\S]*?)(?=^      - name:)/m)?.[1];
+    const shell = step?.split('        run: |\n')[1]?.replace(/^          /gm, '');
+    assert.ok(shell, 'expected the actual Pages publication shell step');
+    return shell;
+  };
+  const script = extractShell(workflow);
+  const tagSha = 'a'.repeat(40);
+  const otherSha = 'b'.repeat(40);
+  const failedPush = { id: 42, run_attempt: 2, head_sha: tagSha, head_branch: 'v0.42.0',
+    event: 'push', status: 'completed', conclusion: 'failure' };
+  const step = (name, conclusion) => ({ name, conclusion });
+  const steps = [step('Publish Extension', 'success'), step('Publish Extension Provenance', 'success'),
+    step('Create Release PR', 'failure')];
+  const extensionJob = { name: 'Release Extension', conclusion: 'failure', steps };
+  const qualification = 'Shared candidate and release qualification';
+  const validation = `${qualification} / Run exact-source release validation`;
+  const requiredJobs = ['Setup Version', `${validation} / Complete exact-source release validation`,
+    `${qualification} / Build, attest, verify and package qualification evidence`,
+    'Publish qualified release runner image / Publish Linux AMD64 release image', 'Release CLI'];
+  // Job inventory of Release run 44981911687 (latest attempt).
+  const jobs = [
+    'Setup Version', `${qualification} / Resolve exact candidate or tag source`,
+    `${validation} / Release lint`, `${validation} / Windows release validation`,
+    `${validation} / Release build and remaining tests`,
+    ...[2, 3, 1, 4, 0].map((shard) => `${validation} / native-test-shards / Native regression shard ${shard}`),
+    `${validation} / Complete exact-source release validation`,
+    `${qualification} / Build, attest, verify and package qualification evidence`,
+    'Publish qualified release runner image / Validate exact release tag',
+    'Publish qualified release runner image / Publish Linux AMD64 release image', 'Release CLI',
+  ].map((name) => ({ name, conclusion: 'success' }))
+    .concat([extensionJob, { name: 'Native package smoke', conclusion: 'skipped' }]);
+  assert.equal(jobs.length, 17);
+  const withExtension = (job) => jobs.map((entry) => entry.name === 'Release Extension' ? job : entry);
+  const published = { tag_name: 'v0.42.0', draft: false, assets: [{ name: 'checksums.txt' }] };
+  const fallback = { tag: tagSha, release: tagSha, conclusion: 'failure', runs: [failedPush], jobs, published };
+  const wrongStep = { ...fallback, name: 'different failed step', ready: false,
+    jobs: withExtension({ ...extensionJob, steps: [...steps.slice(0, 2), step('Pack Extension', 'failure')] }) };
+  const skippedRequired = requiredJobs.map((required) => ({ ...fallback, name: `${required} skipped`, ready: false,
+    jobs: jobs.map((job) => job.name === required ? { ...job, conclusion: 'skipped' } : job) }));
+  const missingRequired = requiredJobs.map((required) => ({ ...fallback, name: `${required} missing`, ready: false,
+    jobs: jobs.filter((job) => job.name !== required) }));
+  const duplicateRequired = requiredJobs.map((required) => ({ ...fallback, name: `${required} duplicated`, ready: false,
+    jobs: [...jobs, { name: required, conclusion: 'success' }] }));
+  const cases = [
+    { name: 'absent tag', tag: '', release: tagSha, conclusion: 'success', ready: false },
+    { name: 'failed release', tag: tagSha, release: tagSha, conclusion: 'failure', ready: false },
+    { name: 'mismatched release', tag: tagSha, release: otherSha, conclusion: 'success', ready: false },
+    { name: 'matching successful release', tag: tagSha, release: tagSha, conclusion: 'success', ready: true },
+    { name: 'older workflow_run after main advances', tag: '', release: otherSha,
+      conclusion: 'success', event: 'workflow_run', ready: false },
+    { name: 'workflow_run matching current release', tag: tagSha, release: tagSha,
+      conclusion: 'success', event: 'workflow_run', ready: true },
+    { ...fallback, name: 'registry PR only failed', ready: true, usedFallback: true },
+    wrongStep,
+    { ...fallback, name: 'different failed job', ready: false,
+      jobs: jobs.map((job) => job.name === 'Release CLI' ? { ...extensionJob, name: 'Release CLI' }
+        : job.name === 'Release Extension' ? { ...job, conclusion: 'success' } : job) },
+    { ...fallback, name: 'additional failed job', ready: false,
+      jobs: [...jobs, { name: 'Publish image', conclusion: 'failure' }] },
+    { ...fallback, name: 'additional skipped job', ready: false,
+      jobs: [...jobs, { name: 'Publish image', conclusion: 'skipped' }] },
+    ...skippedRequired,
+    ...missingRequired,
+    ...duplicateRequired,
+    { ...fallback, name: 'additional failed step', ready: false,
+      jobs: withExtension({ ...extensionJob, steps: [...steps, step('Cleanup', 'failure')] }) },
+    { ...fallback, name: 'extension publish skipped', ready: false,
+      jobs: withExtension({ ...extensionJob, steps: [step('Publish Extension', 'skipped'), ...steps.slice(1)] }) },
+    { ...fallback, name: 'extension provenance skipped', ready: false,
+      jobs: withExtension({ ...extensionJob, steps: [steps[0], step('Publish Extension Provenance', 'skipped'), steps[2]] }) },
+    { ...fallback, name: 'draft release', ready: false, published: { ...published, draft: true } },
+    { ...fallback, name: 'release has no checksums', ready: false, published: { ...published, assets: [] } },
+    { ...fallback, name: 'missing release', ready: false, published: null, apiError: true },
+    { ...fallback, name: 'API fails after returning a page', ready: false, runsApiError: true, apiError: true },
+    { ...fallback, name: 'another source SHA', ready: false, runs: [{ ...failedPush, head_sha: otherSha }] },
+    { ...fallback, name: 'another tag', ready: false, runs: [{ ...failedPush, head_branch: 'v0.41.0' }] },
+    { ...fallback, name: 'manual dispatch', ready: false, runs: [{ ...failedPush, event: 'workflow_dispatch' }] },
+    { ...fallback, name: 'job inventory truncated', ready: false, jobTotal: jobs.length + 1 },
+  ];
+  const stubs = `
+git() {
+  printf '%s\\n' "$*" >> calls
+  [[ "$*" == "ls-remote origin refs/tags/v0.42.0 refs/tags/v0.42.0^{}" ]] || return 91
+  if [[ -n "$FAKE_TAG_SHA" ]]; then
+    printf '%s\\trefs/tags/v0.42.0\\n%s\\trefs/tags/v0.42.0^{}\\n' "$FAKE_TAG_OBJECT" "$FAKE_TAG_SHA"
+  fi
+}
+gh() {
+  printf '%s\\n' "$*" >> calls
+  case "$*" in
+    "api repos/microsoft/waza/actions/workflows/release.yml/runs?head_sha=$FAKE_TAG_SHA&status=success&per_page=100 --jq "*)
+      printf '%s\\n' "$FAKE_SUCCESS_RUNS" | jq "$4" ;;
+    "api --paginate repos/microsoft/waza/actions/workflows/release.yml/runs?head_sha=$FAKE_TAG_SHA&event=push&branch=v0.42.0&status=failure&per_page=100")
+      printf '%s\\n' "$FAKE_FAILED_RUNS"
+      if [[ "$FAKE_RUNS_API_ERROR" == true ]]; then
+        echo 'gh: Failed to fetch next page (HTTP 500)' >&2
+        return 1
+      fi ;;
+    "api --paginate --slurp repos/microsoft/waza/actions/runs/42/attempts/2/jobs?per_page=100")
+      printf '%s\\n' "$FAKE_JOBS" ;;
+    "api repos/microsoft/waza/releases/tags/v0.42.0")
+      if [[ "$FAKE_PUBLISHED" == null ]]; then
+        echo 'gh: Not Found (HTTP 404)' >&2
+        return 1
+      fi
+      printf '%s\\n' "$FAKE_PUBLISHED" ;;
+    *) echo "Unexpected GitHub API call: $*" >&2; return 92 ;;
+  esac
+}
+`;
+  const assertCase = (shell, scenario) => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'waza-pages-'));
+    try {
+      writeFileSync(resolve(dir, 'version.txt'), '0.42.0\r\n');
+      writeFileSync(resolve(dir, 'output'), '');
+      writeFileSync(resolve(dir, 'summary'), '');
+      writeFileSync(resolve(dir, 'calls'), '');
+      const result = spawnSync('bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail'], {
+        cwd: dir, input: stubs + shell, encoding: 'utf8', timeout: 10_000,
+        env: { ...process.env, BASH_ENV: '', GH_TOKEN: 'offline-test',
+          GITHUB_REPOSITORY: 'microsoft/waza', GITHUB_OUTPUT: 'output', GITHUB_STEP_SUMMARY: 'summary',
+          EVENT_NAME: scenario.event ?? 'push', GITHUB_EVENT_NAME: scenario.event ?? 'push',
+          FAKE_TAG_OBJECT: otherSha, FAKE_TAG_SHA: scenario.tag,
+          FAKE_SUCCESS_RUNS: JSON.stringify({ workflow_runs: scenario.release === scenario.tag
+            && scenario.conclusion === 'success' ? [{ conclusion: 'success' }] : [] }),
+          FAKE_FAILED_RUNS: JSON.stringify({ workflow_runs: scenario.runs ?? [] }),
+          FAKE_RUNS_API_ERROR: String(scenario.runsApiError ?? false),
+          FAKE_JOBS: JSON.stringify([{ total_count: scenario.jobTotal ?? scenario.jobs?.length ?? 0,
+            jobs: scenario.jobs ?? [] }]),
+          FAKE_PUBLISHED: JSON.stringify(scenario.published ?? null) },
+      });
+      assert.ifError(result.error);
+      assert.equal(result.status, scenario.apiError ? 1 : 0, `${scenario.name}: ${result.stderr}`);
+      if (scenario.apiError) {
+        assert.equal(readFileSync(resolve(dir, 'output'), 'utf8'), '', scenario.name);
+        assert.match(result.stderr, scenario.runsApiError ? /HTTP 500/ : /HTTP 404/);
+        return;
+      }
+      assert.equal(readFileSync(resolve(dir, 'output'), 'utf8'), `ready=${scenario.ready}\n`, scenario.name);
+      const calls = readFileSync(resolve(dir, 'calls'), 'utf8').trim().split('\n');
+      if (!scenario.tag || scenario.conclusion === 'success' && scenario.release === scenario.tag) {
+        assert.equal(calls.length, scenario.tag ? 2 : 1, `${scenario.name}: preserve the original admission path`);
+      }
+      assert.match(calls[0], /^ls-remote origin refs\/tags\/v0\.42\.0 refs\/tags\/v0\.42\.0\^\{\}$/);
+      const summary = readFileSync(resolve(dir, 'summary'), 'utf8');
+      if (scenario.usedFallback) {
+        assert.match(summary, /fallback used for v0\.42\.0: Release run 42/);
+      } else if (!scenario.ready) {
+        assert.ok(summary.includes(scenario.tag ? 'no successful Release run or verified publication fallback' : 'v0.42.0 is not tagged.'),
+          `${scenario.name}: withheld publication must be explained`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  for (const scenario of cases) assertCase(script, scenario);
+  const mutated = workflow.replace('        run: |\n', `        run: |
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          exit 0
+`);
+  assert.notEqual(mutated, workflow, 'mutation must force admission in the actual workflow');
+  assert.throws(() => assertCase(extractShell(mutated), cases[4]), /older workflow_run after main advances/);
+  const noStepName = script.replace(' | .name] == ["Create Release PR"]', '] | length == 1');
+  assert.notEqual(noStepName, script, 'mutation must remove the actual failed-step name check');
+  assertCase(noStepName, { ...wrongStep, ready: true, usedFallback: true });
+  assert.throws(() => assertCase(noStepName, wrongStep), /different failed step/);
+  const noRequiredJobs = script.replace(
+    /\n +all\(\("Setup Version",[\s\S]*?== \["success"\]\) and\n +all\(\$jobs\[\] \| select\(\.conclusion == "skipped"\); \.name == "Native package smoke"\) and/,
+    '');
+  assert.notEqual(noRequiredJobs, script, 'mutation must remove the actual required-job and skip checks');
+  for (const scenario of [...skippedRequired, ...missingRequired]) {
+    assertCase(noRequiredJobs, { ...scenario, ready: true, usedFallback: true });
+    assert.throws(() => assertCase(noRequiredJobs, scenario), new RegExp(scenario.name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')));
+  }
 });
 
 test('v0.41 features are labeled as released in v0.41.0', () => {
@@ -639,8 +961,17 @@ test('v0.40.1 article owns hotfix detail while the homepage leads with the curre
   const homepage = read('site/src/content/docs/index.mdx');
   const intro = homepage.split('## What can waza do?')[0];
   assert.doesNotMatch(intro, /<Aside\b/);
-  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-41-0\/\)/g) ?? []).length, 1);
-  assert.match(intro, /\*\*New in v0\.41\.0:\*\*/);
+  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-42-0\/\)/g) ?? []).length, 1);
+  assert.match(intro, /\*\*New in v0\.42\.0:\*\*/);
+  assert.doesNotMatch(intro, /New in v0\.41\.0/);
+  const announcement = intro.replace(/\s+/g, ' ');
+  for (const boundary of [
+    'Provenance.',
+    'Keyless signing: opt-in',
+    'trusted roots',
+    'Windows peak memory unsupported',
+    'No sandbox or deployment approval',
+  ]) assert.ok(announcement.includes(boundary), boundary);
   assert.match(homepage, /A mock pass proves harness wiring, not agent quality/);
   assert.match(homepage, /authentication, permissions and possible-cost prerequisites/);
   assert.match(read('README.md'), /https:\/\/microsoft\.github\.io\/waza\/releases\/v0-40-1\//);
@@ -707,14 +1038,14 @@ test('Dashboard Lab article distinguishes saved results, synthetic examples, and
 
 test('release overview identifies the published version and retains the former availability anchor', () => {
   const overview = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(overview, /## Current published standalone release: v0\.41\.0/);
+  assert.match(overview, /## Current published standalone release: v0\.42\.0/);
   assert.match(overview, /id="upcoming-main-only-capabilities"/);
-  const downloads = [...overview.matchAll(/releases\/download\/v0\.41\.0\/(waza-[^)\s]+)/g)].map((match) => match[1]);
+  const downloads = [...overview.matchAll(/releases\/download\/v0\.42\.0\/(waza-[^)\s]+)/g)].map((match) => match[1]);
   assert.deepEqual(downloads.toSorted(), [
     'waza-darwin-amd64', 'waza-darwin-arm64', 'waza-linux-amd64',
     'waza-linux-arm64', 'waza-windows-amd64.exe', 'waza-windows-arm64.exe',
   ]);
-  assert.match(overview, /releases\/download\/v0\.41\.0\/checksums\.txt/);
+  assert.match(overview, /releases\/download\/v0\.42\.0\/checksums\.txt/);
   assert.match(overview, /publication does not\s+by itself establish execution on every platform/);
   assert.doesNotMatch(overview, /releases\/(?:download|tag)\/v0\.38\.10/);
   assert.match(read('site/src/content/docs/guides/dashboard-lab.mdx'), /Available in v0\.39\.0 and opt-in/);
@@ -735,19 +1066,18 @@ test('extension installation guidance identifies the current registry version', 
   assert.match(section, /azd waza --version/);
   assert.match(section, /azd waza <command> --help/);
   assert.doesNotMatch(section, /published `0\.38\.10` is a separate extension artifact/);
-  assert.match(section, /releases\/tag\/azd-ext-microsoft-azd-waza_0\.41\.0/);
-  assert.match(section, /registry and version metadata are synchronized\s+to `0\.41\.0`/);
-  assert.match(section, /existing source\s+or installation may need updating before it selects v0\.41\.0/);
+  assert.match(section, /existing source or installation\s+may need updating before it selects v0\.42\.0/);
   const release = read('site/src/content/docs/reference/releases.mdx');
-  assert.match(release, /commit `c385f6d12d393e9c23c54b2cc19478936604cd86`/);
+  assert.match(release, /commit `00c037e76ec1797b53722c01f2a8cab3c2cf86aa`/);
   assert.match(release, /exactly six platform URLs, entrypoints and SHA-256 values matching the\s+published archives/);
-  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.41\.0/);
-  assert.match(release, /repository registry lists through `0\.41\.0`/);
+  assert.match(release, /does not establish execution on all six platforms or prove that an existing\s+installation has updated to v0\.42\.0/);
+  assert.match(release, /repository registry lists through `0\.42\.0`/);
   assert.doesNotMatch(section + release, /not yet merged to main|merge to main\s+remains pending|registry still lists through `0\.39\.1`/);
   for (const text of [read('README.md'), section, release]) {
     assert.match(text, /source (?:URL above|below) follows `main`/);
-    assert.match(text, /release-sync PR #987/);
-    assert.doesNotMatch(text, /before (?:the\s+)?(?:\[release-sync PR #987\][^\n]*|merge)|after the merge it includes/i);
+    assert.ok(text.includes('releases/tag/azd-ext-microsoft-azd-waza_0.42.0)'));
+    assert.ok(text.includes('[release-sync PR #1104](https://github.com/microsoft/waza/pull/1104)'));
+    assert.doesNotMatch(text, /before (?:the\s+)?(?:\[release-sync PR #1104\][^\n]*|merge)|after the merge it includes/i);
   }
 });
 
@@ -883,19 +1213,20 @@ test('release scope does not claim the legacy multi-trial timeout is fixed', () 
     assert.doesNotMatch(text, /remains open\/backlogged/, path);
   }
   const changelog = read('CHANGELOG.md');
-  const unreleased = changelog.split('## [Unreleased]')[1]?.split('## [0.40.1]')[0];
+  const laterReleases = changelog.split('## [0.42.0]')[1]?.split('## [0.40.1]')[0];
   const hotfix = changelog.split('## [0.40.1]')[1]?.split('## [0.40.0]')[0];
-  assert.match(unreleased ?? '', /Trial timeout recovery and result persistence/);
-  assert.match(unreleased ?? '', /pull\/870/);
-  assert.doesNotMatch(unreleased ?? '', /\*\*JavaScript `code` grader input\*\*/);
+  assert.match(laterReleases ?? '', /Trial timeout recovery and result persistence/);
+  assert.match(laterReleases ?? '', /pull\/870/);
+  assert.doesNotMatch(laterReleases ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(hotfix ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(hotfix ?? '', /pull\/882/);
-  assert.match(changelog, /^\[Unreleased\]: https:\/\/github\.com\/microsoft\/waza\/compare\/v0\.41\.0\.\.\.HEAD$/m);
+  const candidateVersion = read('version.txt').trim().replaceAll('.', '\\.');
+  assert.match(changelog, new RegExp(`^\\[Unreleased\\]: https://github\\.com/microsoft/waza/compare/v${candidateVersion}\\.\\.\\.HEAD$`, 'm'));
   const published = changelog.split('## [0.40.0]')[1]?.split('## [0.39.1]')[0];
   assert.doesNotMatch(published ?? '', /\*\*Trial timeout recovery and result persistence\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*JavaScript `code` grader input\*\*/);
   assert.match(read('README.md'), /\*\*Post-v0\.40\.0 source behavior:\*\* The following cleanup notes describe/);
-  assert.match(unreleased ?? '', /\*\*Cancellation force-stop join\*\*/);
+  assert.match(laterReleases ?? '', /\*\*Cancellation force-stop join\*\*/);
   assert.doesNotMatch(published ?? '', /\*\*Cancellation force-stop join\*\*/);
 });
 
@@ -960,8 +1291,8 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
   assert.match(release, /-ldflags "-X main\.version=\$\{VERSION\}"/);
   for (const path of ['README.md', 'site/src/content/docs/reference/releases.mdx']) {
     const text = read(path);
-    assert.match(text, /git clone --branch v0\.41\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
-    assert.match(text, /make build VERSION=0\.41\.0/, path);
+    assert.match(text, /git clone --branch v0\.42\.0 https:\/\/github\.com\/microsoft\/waza\.git/, path);
+    assert.match(text, /make build VERSION=0\.42\.0/, path);
     assert.match(text, /`version\.txt` and `extension\.yaml`/, path);
     assert.match(text, /defaults to `VERSION=0\.0\.0-dev`/, path);
     assert.match(text, /`d537bf00d4d442a1935ceba2fbc664b9ccb497b2`/, path);
@@ -1034,7 +1365,7 @@ test('published workflow guides do not require unreleased main for v0.39.0 featu
     const text = read(path);
     assert.match(text, /v0\.39\.0/, path);
     assert.doesNotMatch(text, /(?:upcoming|current source)\/main-only|source-build-only|require upcoming main|build upcoming main/i, path);
-    assert.match(text, /reference\/releases|releases\/#upcoming-main-only-capabilities/, path);
+    assert.match(text, /reference\/releases|releases\/#(?:upcoming-main-only-capabilities|feature-availability)/, path);
   }
 });
 
@@ -1152,7 +1483,18 @@ test('production integration assurance package, site navigation and schema route
     assert.ok(page.includes(`#${issue}`), `missing rendered evidence link for #${issue}`);
   }
   assert.match(page, /no new Lab dashboard view/i);
-  assert.match(page, /Waza execution-provenance CLI has no Sigstore keyless or managed-KMS signer/i);
+  assert.match(page, /CLI supports opt-in Sigstore keyless signing using GitHub Actions OIDC/i);
+  assert.match(page, /Waza execution-provenance CLI has no managed-KMS signer/i);
+  for (const path of ['docs/EXECUTION_PROVENANCE.md', 'site/src/content/docs/guides/execution-provenance.mdx']) {
+    const provenance = read(path);
+    for (const requirement of ['id-token: write', 'contents: read', '--trusted-root',
+      '--certificate-identity', '--certificate-oidc-issuer', 'https://fulcio.sigstore.dev',
+      'https://rekor.sigstore.dev', 'cosign initialize', 'publicly recorded']) {
+      assert.ok(provenance.includes(requirement), `${path} must explain ${requirement}`);
+    }
+    assert.match(provenance, /not an installed Waza release requirement/i);
+    assert.match(provenance, /does \*\*not\*\* verify certificate-transparency SCTs/i);
+  }
   assert.match(page, /Candidate qualification retains inventory and attestation evidence in workflow-run artifacts only/i);
   assert.match(page, /Registry publication and inventory attestation occur only in the qualified tag-release path/i);
   assert.match(page, /no live execution-path telemetry emission/i);

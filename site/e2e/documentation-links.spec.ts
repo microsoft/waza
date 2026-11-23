@@ -82,16 +82,34 @@ test('all built internal page routes, fragments and image assets resolve under t
   expect(failures).toEqual([]);
 });
 
-test('published release navigation links the v0.41.0 article and downloads', async ({ page }) => {
+test('v0.42.0 downloads retain navigation to the published release article', async ({ page }) => {
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
-  await expect(main).toContainText('Current published standalone release: v0.41.0');
-  const downloads = main.locator('a[href*="/releases/download/v0.41.0/waza-"]');
+  await expect(main).toContainText('Released: November 21, 2026.');
+  await expect(main).toContainText('Current published standalone release: v0.42.0');
+  await expect(main.locator('a[href*="/releases/download/v0.42.0/waza-"]')).toHaveCount(6);
+  await main.getByRole('link', { name: 'Waza v0.42.0: verifiable production integration', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/releases\/v0-42-0\/$/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.42.0: verifiable production integration');
+  await expect(page.locator('main')).toContainText('Released November 21, 2026.');
+  await expect(page.locator('main')).toContainText('Native sandbox provider work');
+  await expect(page.locator('main')).toContainText('Managed-KMS signing is unavailable (exit 5)');
+  await page.locator('#starlight__sidebar').getByRole('link', { name: 'Waza v0.42.0', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/releases\/v0-42-0\/$/);
+  await page.locator('main').getByRole('link', { name: 'current published standalone and azd releases', exact: true }).click();
+  await expect(page).toHaveURL(/\/waza\/reference\/releases\/$/);
+});
+
+test('current downloads retain the historical v0.41.0 publication record', async ({ page }) => {
+  await page.goto('/waza/reference/releases/');
+  const main = page.locator('main');
+  await expect(main).toContainText('Current published standalone release: v0.42.0');
+  const downloads = main.locator('a[href*="/releases/download/v0.42.0/waza-"]');
   await expect(downloads).toHaveCount(6);
   await main.getByRole('link', { name: 'Waza v0.41.0: recover durable work, keep the evidence', exact: true }).click();
   await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0: recover durable work, keep the evidence');
-  const article = page.locator('main');
+  const article = page.locator('main .sl-markdown-content');
   await expect(article).toContainText('Released November 13, 2026');
   await expect(article).not.toContainText(/pending|Draft/i);
   await expect(article).toContainText('d537bf00d4d442a1935ceba2fbc664b9ccb497b2');
@@ -106,14 +124,15 @@ test('published release navigation links the v0.41.0 article and downloads', asy
 
 test('beginner learning order and published release availability are visible', async ({ page }) => {
   await page.goto('/waza/');
-  await expect(page.locator('main')).toContainText('New in v0.41.0');
+  await expect(page.locator('main')).toContainText('New in v0.42.0');
+  await expect(page.locator('main')).not.toContainText('New in v0.41.0');
   await expect(page.locator('main')).not.toContainText('building upcoming main');
   await page.goto('/waza/quick-start/');
   const navigation = page.getByRole('navigation', { name: 'Main' });
   for (const name of ['Concepts and Learning Path', 'Project Configuration', 'Statistical Fields']) {
     await expect(navigation.getByRole('link', { name, exact: true })).toBeVisible();
   }
-  await expect(page.locator('main')).toContainText('Published standalone v0.41.0');
+  await expect(page.locator('main')).toContainText('Published standalone v0.42.0');
   await expect(page.locator('main')).toContainText('no source build is required');
   await expect(page.locator('main')).toContainText('If you prefer to build from source');
   await expect(page.locator('main')).toContainText('expect exit 1');
@@ -135,8 +154,8 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.goto('/waza/');
     const main = page.locator('main');
     await expect(main.locator('.starlight-aside')).toHaveCount(0);
-    const announcement = main.getByRole('link', { name: 'Read the release article', exact: true });
-    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-41-0/');
+    const announcement = main.getByRole('link', { name: 'Release article', exact: true });
+    await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-42-0/');
     await expect(announcement).toBeInViewport();
     await expect(main.getByRole('heading', { name: 'What can waza do?', exact: true })).toBeInViewport();
     const paragraph = announcement.locator('..');
@@ -149,6 +168,12 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     }
 
     await announcement.click();
+    await expect(page).toHaveURL(/\/waza\/releases\/v0-42-0\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.42.0: verifiable production integration');
+    await expect(page.locator('main')).toContainText('Native sandbox provider work');
+    await expect(page.locator('main')).toContainText('Managed-KMS signing is unavailable (exit 5)');
+
+    await page.goto('/waza/releases/v0-41-0/');
     await expect(page).toHaveURL(/\/waza\/releases\/v0-41-0\/$/);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Waza v0.41.0: recover durable work, keep the evidence');
     for (const text of [

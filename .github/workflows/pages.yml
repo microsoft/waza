@@ -15,6 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -29,9 +30,88 @@ jobs:
     runs-on: ubuntu-latest
     name: Build
     timeout-minutes: 20
+    outputs:
+      publication_ready: ${{ steps.publication.outputs.ready }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check release publication before deploying Pages
+        id: publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '\r\n' < version.txt)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version in version.txt: $version" >&2
+            exit 1
+          fi
+
+          tag_sha="$(git ls-remote origin "refs/tags/v${version}" "refs/tags/v${version}^{}" |
+            awk '$2 ~ /\^\{\}$/ { peeled = $1 } $2 !~ /\^\{\}$/ { direct = $1 } END { print peeled != "" ? peeled : direct }')"
+          if [[ -z "$tag_sha" ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Pages deploy: v${version} is not tagged." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          successful_release="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?head_sha=${tag_sha}&status=success&per_page=100" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")] | length > 0')"
+          if [[ "$successful_release" != "true" ]]; then
+            runs_url="repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs"
+            failed_runs="$(gh api --paginate "$runs_url?head_sha=${tag_sha}&event=push&branch=v${version}&status=failure&per_page=100" |
+              jq -r --arg sha "$tag_sha" --arg tag "v${version}" '
+                .workflow_runs[] |
+                select(.head_sha == $sha and .head_branch == $tag and .event == "push"
+                  and .status == "completed" and .conclusion == "failure") |
+                [.id, .run_attempt] | @tsv')"
+            fallback_run=""
+            while IFS=$'\t' read -r run_id attempt; do
+              [[ -n "$run_id" ]] || continue
+              [[ "$run_id" =~ ^[0-9]+$ && "$attempt" =~ ^[1-9][0-9]*$ ]] || exit 1
+              matching_jobs="$(gh api --paginate --slurp \
+                "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/attempts/${attempt}/jobs?per_page=100" |
+                jq '
+                  (map(.jobs[])) as $jobs |
+                  ([.[] | .total_count] | unique) == [($jobs | length)] and
+                  all($jobs[]; .conclusion == "success" or .conclusion == "skipped" or .conclusion == "failure") and
+                  all(("Setup Version",
+                    "Shared candidate and release qualification / Run exact-source release validation / Complete exact-source release validation",
+                    "Shared candidate and release qualification / Build, attest, verify and package qualification evidence",
+                    "Publish qualified release runner image / Publish Linux AMD64 release image",
+                    "Release CLI"); . as $name |
+                    [$jobs[] | select(.name == $name) | .conclusion] == ["success"]) and
+                  all($jobs[] | select(.conclusion == "skipped"); .name == "Native package smoke") and
+                  ([$jobs[] | select(.conclusion == "failure")] |
+                    length == 1 and .[0].name == "Release Extension" and
+                    (.[0].steps |
+                      all(.[]; .conclusion == "success" or .conclusion == "skipped" or .conclusion == "failure") and
+                      ([.[] | select(.conclusion == "failure") | .name] == ["Create Release PR"]) and
+                      ([.[] | select(.name == "Publish Extension") | .conclusion] == ["success"]) and
+                      ([.[] | select(.name == "Publish Extension Provenance") | .conclusion] == ["success"])))')"
+              if [[ "$matching_jobs" == "true" ]]; then
+                fallback_run="$run_id"
+                break
+              fi
+            done <<< "$failed_runs"
+
+            published_release="false"
+            if [[ -n "$fallback_run" ]]; then
+              published_release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${version}" |
+                jq --arg tag "v${version}" \
+                  '.tag_name == $tag and .draft == false and any(.assets[]; .name == "checksums.txt")')"
+            fi
+            if [[ "$published_release" != "true" ]]; then
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              echo "Skipping Pages deploy: no successful Release run or verified publication fallback for v${version}." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Pages publication fallback used for v${version}: Release run ${fallback_run} failed only at Create Release PR." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -56,6 +136,7 @@ jobs:
 
   deploy:
     needs: build
+    if: needs.build.outputs.publication_ready == 'true'
     runs-on: ubuntu-latest
     name: Deploy
     timeout-minutes: 15

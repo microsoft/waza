@@ -246,8 +246,12 @@ func TestVerifyTrustAndSignerStates(t *testing.T) {
 		}
 		changed := maps.Clone(files)
 		changed[IndexPath] = bytes.Replace(files[IndexPath], []byte(ModeLocalEd25519), []byte(mode), 1)
-		if got := failure(verifyFiles(t, changed, Options{Verifier: f.verifier}), "signature"); got.Code != "signer_unavailable" {
-			t.Fatalf("%s verification should be unavailable, got %+v", mode, got)
+		code := "signer_unavailable"
+		if mode == ModeSigstoreKeyless {
+			code = "signer_mode_mismatch"
+		}
+		if got := failure(verifyFiles(t, changed, Options{Verifier: f.verifier}), "signature"); got.Code != code {
+			t.Fatalf("%s verification should reject mismatched or unavailable trust, got %+v", mode, got)
 		}
 	}
 	report := verifyFiles(t, files, Options{Verifier: f.verifier, ExpectImageDigest: "sha256:" + strings.Repeat("2", 64), ExpectWazaVersion: "9.9.9"})

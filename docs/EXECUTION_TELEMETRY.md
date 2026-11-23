@@ -1,5 +1,8 @@
 # Execution telemetry and correlation contract
 
+**Available in v0.42.0.** Installed v0.41.0 artifacts do not include the
+`waza runner telemetry` command.
+
 `waza runner telemetry` derives vendor-neutral, OpenTelemetry-shaped traces,
 metrics and logs from Waza's public runner contract documents. Every signal is
 correlated through deterministic identifiers, so an external scheduler, a

@@ -141,7 +141,19 @@ func Generate(ctx context.Context, in GenerateInput, signer Signer) (*Bundle, er
 	if err != nil {
 		return nil, err
 	}
-	envelope, err := signEnvelope(ctx, signer, payload)
+	var envelope Envelope
+	var evidence []byte
+	if signer.Mode() == ModeSigstoreKeyless {
+		provider, ok := signer.(interface {
+			SignEnvelope(context.Context, []byte) (Envelope, []byte, error)
+		})
+		if !ok {
+			return nil, fmt.Errorf("%w: keyless signer cannot supply atomic Sigstore evidence", ErrSignerUnavailable)
+		}
+		envelope, evidence, err = provider.SignEnvelope(ctx, payload)
+	} else {
+		envelope, err = signEnvelope(ctx, signer, payload)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("signing statement: %w", err)
 	}
@@ -162,6 +174,12 @@ func Generate(ctx context.Context, in GenerateInput, signer Signer) (*Bundle, er
 		RequestPath:                     in.Request,
 		ManifestPath:                    in.Manifest,
 		statement.Predicate.Policy.Path: in.Policy,
+	}
+	if signer.Mode() == ModeSigstoreKeyless {
+		if len(evidence) == 0 || len(evidence) > maxEnvelopeBytes {
+			return nil, fmt.Errorf("%w: keyless signer supplied no Sigstore evidence", ErrSignerUnavailable)
+		}
+		files[SigstoreEvidencePath] = evidence
 	}
 	for name, data := range in.Objects {
 		files[ObjectsDir+"/"+name] = data

@@ -135,6 +135,60 @@ test('actual API/model/schema and container paths select production consumers; u
   }
 });
 
+test('a manifest-only PR selects site through production completeness admission', (t) => {
+  const directory = scratch(t);
+  const git = (...args) => execFileSync('git', args, { cwd: directory, encoding: 'utf8' }).trim();
+  git('init', '-q', '-b', 'main');
+  git('config', 'core.autocrlf', 'false');
+  git('config', 'user.name', 'Offline Control');
+  git('config', 'user.email', 'offline-control@example.invalid');
+  git('config', 'commit.gpgsign', 'false');
+  const manifest = path.join(directory, 'extension.yaml');
+  fs.writeFileSync(manifest, 'version: 0.41.0\n');
+  git('add', 'extension.yaml');
+  git('commit', '-qm', 'control base');
+  const base = git('rev-parse', 'HEAD');
+  git('checkout', '-qb', 'manifest-change');
+  fs.writeFileSync(manifest, 'version: 0.42.0\n');
+  git('add', 'extension.yaml');
+  git('commit', '-qm', 'control manifest change');
+  const head = git('rev-parse', 'HEAD');
+  git('checkout', '-q', 'main');
+  git('merge', '--no-ff', '-qm', 'control tested merge', head);
+  const tested = git('rev-parse', 'HEAD');
+  const eventPath = path.join(directory, 'event.json');
+  fs.writeFileSync(eventPath, JSON.stringify({
+    action: 'synchronize', number: 900,
+    pull_request: { head: { sha: head }, base: { sha: base, ref: 'main' } },
+  }));
+  const outputPath = path.join(directory, 'github-output');
+  const planDir = path.join(directory, 'plan');
+  const env = {
+    ...process.env, GITHUB_EVENT_PATH: eventPath, GITHUB_REPOSITORY: 'microsoft/waza',
+    GITHUB_EVENT_NAME: 'pull_request', GITHUB_WORKFLOW: 'Go Build and Test',
+    GITHUB_SHA: tested, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1', GITHUB_OUTPUT: outputPath,
+  };
+  const result = spawnSync(process.execPath,
+    [path.join(__dirname, 'pr-completeness-admission.cjs'), 'plan', planDir],
+    { cwd: directory, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const plan = JSON.parse(fs.readFileSync(path.join(planDir, 'plan.json'), 'utf8'));
+  assert.deepEqual(plan.paths, ['extension.yaml']);
+  const expected = {
+    go: true, dashboard: false, site: true, examples: false,
+    assurance: false, container: false, tools: false, runtime: false,
+  };
+  assert.deepEqual(plan.applicable, expected);
+  const outputs = JSON.parse(result.stdout);
+  assert.deepEqual(outputs, { plan_artifact: 'pr-completeness-plan-123-1', ...expected });
+  const workflowOutputs = Object.fromEntries(fs.readFileSync(outputPath, 'utf8').trim().split('\n')
+    .map((line) => line.split('=')));
+  assert.deepEqual(workflowOutputs, Object.fromEntries(Object.entries(outputs).map(([key, value]) => [key, String(value)])));
+  for (const nearMiss of ['extension.yml', 'extension.yaml.backup', 'config/extension.yaml']) {
+    assert.equal(applicability([nearMiss]).site, false, nearMiss);
+  }
+});
+
 test('plan applicability is a superset of every workflow-internal change filter it replaced', () => {
   const read = (file) => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8').replace(/\r\n/g, '\n');
   const globs = (workflow, filter) => {

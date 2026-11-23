@@ -74,8 +74,8 @@ func TestRunnerProvenanceGenerateVerifyAndTamper(t *testing.T) {
 	if out, code := generate("local-ed25519", bundle); code != 0 || !strings.Contains(out, `"status":"signed"`) {
 		t.Fatalf("generate failed: %d %s", code, out)
 	}
-	if _, code := generate("sigstore-keyless", filepath.Join(dir, "keyless")); code != 5 {
-		t.Fatalf("keyless signer should be unavailable (exit 5), got %d", code)
+	if _, code := generate("sigstore-keyless", filepath.Join(dir, "keyless")); code != 2 {
+		t.Fatalf("keyless signing without a trusted root must reject input (exit 2), got %d", code)
 	}
 	if err := os.WriteFile(filepath.Join(artifacts, "terminal.json"), append(bytes.Clone(terminal), make([]byte, 1<<20)...), 0o644); err != nil {
 		t.Fatal(err)
