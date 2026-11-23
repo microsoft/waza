@@ -64,6 +64,9 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 func CreateTestCaseFromCopilotEvents(events []copilot.SessionEvent, options *CreateTestCaseFromCopilotLogOptions) (*models.TestCase, error) {
 	return createTestCaseFromCopilotEvents(func(yield func(copilot.SessionEvent, error) bool) {
 		for _, event := range events {
+			if event.Type() == copilot.SessionEventTypeAssistantMessageDelta {
+				continue
+			}
 			if !yield(event, nil) {
 				return
 			}

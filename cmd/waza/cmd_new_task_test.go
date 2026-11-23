@@ -13,6 +13,7 @@ import (
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
+	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/microsoft/waza/internal/workspace"
@@ -315,7 +316,7 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFileWithoutSessionLog(t *te
 				Identifier: "check-response",
 				Kind:       models.GraderKindText,
 				Parameters: models.TextGraderParameters{
-					ContainsCS: []string{"yesyes"},
+					ContainsCS: []string{"yes"},
 				},
 			},
 		},
@@ -328,6 +329,15 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFileWithoutSessionLog(t *te
 	require.JSONEq(t, string(expectedJSON), string(actualJSON))
 	require.Equal(t, expected.Validators, actual.Validators)
 	require.NotEmpty(t, actual.SourceBytes())
+
+	responseCheck := actual.Validators[2]
+	params, ok := responseCheck.Parameters.(models.TextGraderParameters)
+	require.True(t, ok)
+	responseGrader, err := graders.Create(responseCheck.Identifier, params)
+	require.NoError(t, err)
+	result, err := responseGrader.Grade(context.Background(), &graders.Context{Output: "yes"})
+	require.NoError(t, err)
+	require.True(t, result.Passed)
 }
 
 func TestNewTaskFromPromptCommand_TextOnlyWithoutUserMessage(t *testing.T) {
