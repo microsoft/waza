@@ -573,6 +573,10 @@ Create a new skill with its evaluation suite. In interactive mode, the wizard co
 
 **Flags:**
 - `--template, -t` — Template pack (coming soon)
+- `--output-dir` — Explicit scaffold destination; do not redirect output to an ancestor workspace
+
+An explicit output directory bounds workspace discovery for the scaffold.
+Without `--output-dir`, existing ancestor workspace discovery is unchanged.
 
 **Modes:**
 
@@ -608,6 +612,10 @@ EOF
 ### `waza new task from-prompt <prompt> <task-path>`
 
 Record a prompt execution and generate a reusable task YAML from the observed run.
+
+The completed execution's returned events supply the recording; a separate
+home-directory session `events.jsonl` is not required. Recording needs Copilot
+authentication and can incur model charges.
 
 The generated task includes inferred validators based on:
 - Assistant response content

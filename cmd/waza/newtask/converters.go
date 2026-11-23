@@ -1,6 +1,8 @@
 package newtask
 
 import (
+	"errors"
+	"iter"
 	"regexp"
 	"strings"
 	"time"
@@ -55,6 +57,24 @@ type CreateTestCaseFromCopilotLogOptions struct {
 }
 
 func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFromCopilotLogOptions) (*models.TestCase, error) {
+	return createTestCaseFromCopilotEvents(utils.NewCopilotLogIterator(copilotLog), options)
+}
+
+// CreateTestCaseFromCopilotEvents generates a task without requiring a persisted session log.
+func CreateTestCaseFromCopilotEvents(events []copilot.SessionEvent, options *CreateTestCaseFromCopilotLogOptions) (*models.TestCase, error) {
+	return createTestCaseFromCopilotEvents(func(yield func(copilot.SessionEvent, error) bool) {
+		for _, event := range events {
+			if event.Type() == copilot.SessionEventTypeAssistantMessageDelta {
+				continue
+			}
+			if !yield(event, nil) {
+				return
+			}
+		}
+	}, options)
+}
+
+func createTestCaseFromCopilotEvents(events iter.Seq2[copilot.SessionEvent, error], options *CreateTestCaseFromCopilotLogOptions) (*models.TestCase, error) {
 	if options == nil {
 		options = &CreateTestCaseFromCopilotLogOptions{}
 	}
@@ -84,7 +104,7 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 
 	responses := &strings.Builder{}
 
-	for e, err := range utils.NewCopilotLogIterator(copilotLog) {
+	for e, err := range events {
 		if err != nil {
 			return nil, err
 		}
@@ -151,6 +171,10 @@ func CreateTestCaseFromCopilotLog(copilotLog string, options *CreateTestCaseFrom
 				})
 			}
 		}
+	}
+
+	if responses.Len() == 0 {
+		return nil, errors.New("no assistant response was captured; refusing to generate an always-passing response check")
 	}
 
 	if len(skills) > 0 {

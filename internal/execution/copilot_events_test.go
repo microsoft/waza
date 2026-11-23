@@ -138,6 +138,121 @@ func TestCopilotExecuteSnapshotsActiveTerminalEvent(t *testing.T) {
 	}
 }
 
+func TestCopilotExecuteWaitsForTerminalEventCallback(t *testing.T) {
+	for _, deliverCallback := range []bool{true, false} {
+		name := "callbacks arrive after SendAndWait"
+		if !deliverCallback {
+			name = "callbacks never arrive before deadline"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			client := newClientMock(ctrl)
+			session := newSessionMock(ctrl)
+			const sessionID = "completion-event-session"
+			client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+			client.EXPECT().DeleteSession(gomock.Any(), sessionID)
+			session.EXPECT().SessionID().Return(sessionID).AnyTimes()
+			session.EXPECT().Disconnect()
+
+			var handlers []func(copilot.SessionEvent)
+			session.EXPECT().On(gomock.Any()).Times(3).DoAndReturn(func(handler func(copilot.SessionEvent)) func() {
+				handlers = append(handlers, handler)
+				return func() {}
+			})
+
+			assistantEvent := copilot.SessionEvent{
+				ID:   "assistant-message",
+				Data: &copilot.AssistantMessageData{Content: "captured response"},
+			}
+			skillEvent := copilot.SessionEvent{
+				ID:   "skill-invoked",
+				Data: &copilot.SkillInvokedData{Name: "recorded-skill", Path: "/skills/recorded-skill/SKILL.md"},
+			}
+			completionEvent := copilot.SessionEvent{
+				ID:   "completion-event",
+				Data: &copilot.SessionIdleData{},
+			}
+			callbackReady := make(chan struct{})
+			releaseCallback := make(chan struct{})
+			var releaseOnce sync.Once
+			t.Cleanup(func() { releaseOnce.Do(func() { close(releaseCallback) }) })
+
+			session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
+					if deliverCallback {
+						go func() {
+							close(callbackReady)
+							<-releaseCallback
+							for _, event := range []copilot.SessionEvent{skillEvent, assistantEvent, completionEvent} {
+								for _, handler := range handlers {
+									handler(event)
+								}
+							}
+						}()
+						<-callbackReady
+					}
+					return &assistantEvent, nil
+				},
+			)
+
+			engine := NewCopilotEngineBuilder("actor-model", &CopilotEngineBuilderOptions{
+				NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return client },
+			}).Build()
+			require.NoError(t, engine.Initialize(context.Background()))
+			t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+
+			ctx := context.Background()
+			if !deliverCallback {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, time.Second)
+				defer cancel()
+			}
+			executeDone := make(chan struct{})
+			var resp *ExecutionResponse
+			var executeErr error
+			go func() {
+				defer close(executeDone)
+				resp, executeErr = engine.Execute(ctx, &ExecutionRequest{
+					Message: "capture this response", NoSkills: true,
+					SourceDir: t.TempDir(), SkipWorkspaceCapture: true,
+				})
+			}()
+
+			if deliverCallback {
+				select {
+				case <-callbackReady:
+				case <-time.After(5 * time.Second):
+					t.Fatal("completion callback was not ready")
+				}
+				select {
+				case <-executeDone:
+					t.Fatal("execution returned before the completion callback was delivered")
+				case <-time.After(100 * time.Millisecond):
+				}
+				releaseOnce.Do(func() { close(releaseCallback) })
+			}
+			select {
+			case <-executeDone:
+			case <-time.After(5 * time.Second):
+				t.Fatal("execution did not finish")
+			}
+
+			require.NoError(t, executeErr)
+			require.NotNil(t, resp)
+			if deliverCallback {
+				require.True(t, resp.Success)
+				require.Equal(t, "captured response", resp.FinalOutput)
+				require.Len(t, resp.Events, 3)
+				require.Len(t, resp.SkillInvocations, 1)
+				require.Equal(t, "recorded-skill", resp.SkillInvocations[0].Name)
+			} else {
+				require.False(t, resp.Success)
+				require.Contains(t, resp.ErrorMsg, "session event callbacks did not finish")
+			}
+		})
+	}
+}
+
 // Pause inside the collector, not before callback admission or after collection.
 type blockedSessionEventData struct {
 	copilot.SessionEventData

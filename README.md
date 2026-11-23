@@ -977,7 +977,8 @@ waza run eval.yaml --reporter junit:results.xml
 waza run eval.yaml -o results.json --reporter junit:results.xml
 ```
 
-**Note:** `waza generate` is an alias for `waza new`. Both commands support the same functionality with the `--output-dir` flag for specifying custom output locations.
+Use `waza new` to scaffold skills and evaluations; there is no `waza generate`
+alias. `waza new skill --output-dir` selects an explicit scaffold destination.
 
 ### `waza compare <file1> <file2> [files...]`
 

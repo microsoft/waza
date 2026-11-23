@@ -34,6 +34,11 @@ func TestInspectSnapshotBootstrap(t *testing.T) {
 				}
 				before, err := os.ReadDir(dir)
 				require.NoError(t, err)
+				beforeInfo := make([]os.FileInfo, len(before))
+				for i, entry := range before {
+					beforeInfo[i], err = entry.Info()
+					require.NoError(t, err)
+				}
 				report := &Report{Complete: true}
 				parameters := models.DiffGraderParameters{
 					ContextDir: dir, UpdateSnapshots: update,
@@ -45,7 +50,16 @@ func TestInspectSnapshotBootstrap(t *testing.T) {
 				require.Equal(t, kind == "missing" && update, hasDiagnostic(report, "grader.snapshot_bootstrap", Unresolved))
 				after, err := os.ReadDir(dir)
 				require.NoError(t, err)
-				require.Equal(t, before, after, "preflight must not create snapshot files or parents")
+				require.Len(t, after, len(before), "preflight must not create snapshot files or parents")
+				for i, entry := range after {
+					require.Equal(t, before[i].Name(), entry.Name())
+					info, err := entry.Info()
+					require.NoError(t, err)
+					require.True(t, os.SameFile(beforeInfo[i], info), "preflight must not replace snapshot entries")
+					require.Equal(t, beforeInfo[i].Mode(), info.Mode())
+					require.Equal(t, beforeInfo[i].Size(), info.Size())
+					require.Equal(t, beforeInfo[i].ModTime(), info.ModTime())
+				}
 				if kind == "missing" {
 					_, err := os.Lstat(path)
 					require.True(t, errors.Is(err, os.ErrNotExist))

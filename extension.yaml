@@ -13,9 +13,9 @@ examples:
   - name: init
     description: Scaffold a new eval suite with eval.yaml, tasks/, and fixtures/ directories.
     usage: azd waza init my-eval
-  - name: generate
-    description: Generate evals from a SKILL.md file.
-    usage: azd waza generate skills/my-skill/SKILL.md
+  - name: new eval
+    description: Scaffold an eval suite from an existing skill's SKILL.md frontmatter.
+    usage: azd waza new eval my-skill
   - name: run
     description: Run an evaluation benchmark from a spec file.
     usage: azd waza run examples/code-explainer/eval.yaml --context-dir examples/code-explainer/fixtures -v
