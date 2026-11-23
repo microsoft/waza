@@ -1483,7 +1483,7 @@ The same single-target forms work with `--copilot` and `--scaffold-triggers`.
 | `--all` | Process all skills in the workspace |
 | `--filter` | Filter `--all` skills by adherence level |
 
-`--target`, `--max-iterations`, and `--auto` are not valid with `--copilot`.
+`--target`, `--max-iterations`, and `--auto` are not valid with `--copilot`. The report uses `trigger_tests.yaml` from the workspace eval directory when present. Otherwise it reads the skill’s `tests/trigger_tests.yaml`, which `--scaffold-triggers` generates.
 
 ### Workflow
 

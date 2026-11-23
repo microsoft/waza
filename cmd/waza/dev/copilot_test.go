@@ -275,6 +275,47 @@ should_not_trigger_prompts:
 	require.Contains(t, suggestionPrompt, `"Write me a new function"`)
 }
 
+func TestRunDev_CopilotReadsScaffoldedTriggerExamples(t *testing.T) {
+	for _, layout := range []string{"standalone", "workspace"} {
+		t.Run(layout, func(t *testing.T) {
+			root := t.TempDir()
+			t.Chdir(root)
+			skillDir := filepath.Join(root, "tiny")
+			target := skillDir
+			if layout == "workspace" {
+				skillDir = filepath.Join(root, "skills", "tiny")
+				target = "tiny"
+				evalDir := filepath.Join(root, "evals", "tiny")
+				require.NoError(t, os.MkdirAll(evalDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte("name: test\nskill: tiny\n"), 0o644))
+			}
+			require.NoError(t, os.MkdirAll(skillDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: tiny
+description: |
+  USE FOR: tiny tasks.
+  DO NOT USE FOR: unrelated tasks.
+---
+# Tiny
+`), 0o644))
+			scaffold := NewCommand()
+			scaffold.SetArgs([]string{target, "--scaffold-triggers"})
+			require.NoError(t, scaffold.Execute())
+
+			engine := &copilotTestEngine{suggestionOutput: "1. Refine examples."}
+			withDevTestEngine(t, engine)
+			var out bytes.Buffer
+			report := NewCommand()
+			report.SetOut(&out)
+			report.SetArgs([]string{target, "--copilot"})
+			require.NoError(t, report.Execute())
+			require.Contains(t, out.String(), "using 2 prompt example(s)")
+			require.Contains(t, engine.LastSuggestionMessage(), `"tiny tasks"`)
+			require.Contains(t, engine.LastSuggestionMessage(), `"unrelated tasks"`)
+		})
+	}
+}
+
 func TestRunDev_CopilotUsesEvalDirTriggerExamples(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "skills", "code-explainer")
@@ -285,7 +326,8 @@ description: "Short"
 ---
 # Body
 `), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "trigger_tests.yaml"), []byte(`skill: code-explainer
+	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "tests"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "tests", "trigger_tests.yaml"), []byte(`skill: code-explainer
 should_trigger_prompts:
   - prompt: "Local trigger prompt"
 `), 0o644))
