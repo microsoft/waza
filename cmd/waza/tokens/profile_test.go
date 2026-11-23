@@ -226,3 +226,9 @@ type mockCounter struct {
 func (m *mockCounter) Count(_ string) int {
 	return m.tokens
 }
+
+func TestProfileRejectsInvalidFormat(t *testing.T) {
+	cmd := newProfileCmd()
+	cmd.SetArgs([]string{"testdata/count", "--format", "bad"})
+	require.ErrorContains(t, cmd.Execute(), "invalid format")
+}
