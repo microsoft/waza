@@ -12,6 +12,7 @@ import (
 	"github.com/azure/azure-dev/cli/azd/pkg/ux"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/microsoft/waza/cmd/waza/newtask"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
@@ -32,7 +33,6 @@ type newTaskFromPromptCmdOptions struct {
 	NewTaskList      func(options *ux.TaskListOptions) taskList
 	DetectContext    func(dir string, opts ...workspace.DetectOption) (*workspace.WorkspaceContext, error)
 	NewCopilotClient func(clientOptions *copilot.ClientOptions) execution.CopilotClient
-	CopilotLogDir    func() (string, error)
 }
 
 var defaultNewTaskList = func(options *ux.TaskListOptions) taskList {
@@ -56,12 +56,6 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 
 	if options.DetectContext != nil {
 		detectContext = options.DetectContext
-	}
-
-	copilotLogDirFn := copilotLogDir
-
-	if options.CopilotLogDir != nil {
-		copilotLogDirFn = options.CopilotLogDir
 	}
 
 	newCopilotClient := options.NewCopilotClient
@@ -142,7 +136,7 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 					return ux.Success, nil
 				},
 			})
-			var sessionID string
+			var events []copilot.SessionEvent
 
 			taskList.AddTask(ux.TaskOptions{
 				Title: "Execute prompt",
@@ -159,7 +153,10 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 						return ux.Error, err
 					}
 
-					sessionID = resp.SessionID
+					events, err = fromPromptSessionEvents(resp)
+					if err != nil {
+						return ux.Error, err
+					}
 					return ux.Success, nil
 				},
 			})
@@ -167,15 +164,7 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 			taskList.AddTask(ux.TaskOptions{
 				Title: "Creating eval task",
 				Action: func(spf ux.SetProgressFunc) (state ux.TaskState, finalErr error) {
-					logDir, err := copilotLogDirFn()
-
-					if err != nil {
-						return ux.Error, err
-					}
-
-					logPath := filepath.Join(logDir, sessionID, "events.jsonl")
-
-					testCase, err := newtask.CreateTestCaseFromCopilotLog(logPath, &newtask.CreateTestCaseFromCopilotLogOptions{
+					testCase, err := newtask.CreateTestCaseFromCopilotEvents(events, &newtask.CreateTestCaseFromCopilotLogOptions{
 						DisplayName: testName,
 						TestID:      testName,
 						Tags:        tags,
@@ -184,6 +173,9 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 					if err != nil {
 						return ux.Error, err
 					}
+
+					// The submitted prompt is authoritative even when the SDK omits a user.message event.
+					testCase.Stimulus.Message = prompt
 
 					var root yaml.Node
 
@@ -242,14 +234,17 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 	return cmd
 }
 
-func copilotLogDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-
-	if err != nil {
-		return "", err
+func fromPromptSessionEvents(resp *execution.ExecutionResponse) ([]copilot.SessionEvent, error) {
+	if resp == nil {
+		return nil, errors.New("prompt execution returned no response")
 	}
-
-	return filepath.Join(homeDir, ".copilot", "session-state"), nil
+	if !resp.Success {
+		if resp.ErrorMsg != "" {
+			return nil, fmt.Errorf("prompt execution failed: %s", resp.ErrorMsg)
+		}
+		return nil, errors.New("prompt execution failed")
+	}
+	return copilotevents.ToSDK(resp.Events), nil
 }
 
 type taskList interface {

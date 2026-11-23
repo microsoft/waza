@@ -98,7 +98,7 @@ func newCommandE(cmd *cobra.Command, args []string, templatePack, outputDir stri
 	}
 
 	// Determine mode based on skills/ directory presence
-	projectRoot, inProject := findProjectRoot()
+	projectRoot, inProject := findSkillProjectRoot(outputDir != "" || cmd.Flags().Changed("output-dir"))
 
 	var skillName string
 	var skillMDContent string
@@ -225,6 +225,11 @@ func detectExistingSkillMD(projectRoot string, inProject bool, skillName string)
 // findProjectRoot walks up from CWD looking for a skills/ directory.
 // Returns the directory containing skills/ and true, or ("", false) if not found.
 func findProjectRoot() (string, bool) {
+	return findSkillProjectRoot(false)
+}
+
+// Explicit skill output may use a project at the destination, but not its ancestors.
+func findSkillProjectRoot(explicitOutput bool) (string, bool) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", false
@@ -235,6 +240,9 @@ func findProjectRoot() (string, bool) {
 		info, err := os.Stat(candidate)
 		if err == nil && info.IsDir() {
 			return dir, true
+		}
+		if explicitOutput {
+			break
 		}
 
 		parent := filepath.Dir(dir)

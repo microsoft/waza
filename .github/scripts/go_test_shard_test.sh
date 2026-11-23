@@ -60,7 +60,7 @@ expect_status() {
 for shard in 0 1 2 3 4; do
   profile="$scratch/reports/coverage-native-$shard.txt"
   bash "$scripts/go_test_shard.sh" "$shard" "$profile"
-  for flag in -count=1 -json -v -race -timeout=30m -covermode=atomic "-coverprofile=$profile"; do
+  for flag in -count=1 -json -v=test2json -race -timeout=30m -covermode=atomic "-coverprofile=$profile"; do
     grep -Fx -- "$flag" "$CALLS" > /dev/null
   done
   pattern="$(awk 'previous == "-run" { print; exit } { previous = $0 }' "$CALLS")"

@@ -35,7 +35,8 @@ fi
 
 echo "Native shard $shard/5 selects $(wc -l < "$profile.selected") of $(wc -l < "$profile.all") discovered tests, examples, and fuzz targets."
 set +e
-go test -count=1 -json -v -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
+# Preserve framed test output when spinner writes do not end in a newline.
+go test -count=1 -json -v=test2json -race -timeout=30m -coverprofile="$profile" -covermode=atomic \
   -run "^($pattern)$" "$package" |
   CI_EVIDENCE_INVENTORY_SCOPE=names node "$scripts/ci-evidence.cjs" go \
     "$profile.evidence.json" "$profile.all" "$profile.selected"

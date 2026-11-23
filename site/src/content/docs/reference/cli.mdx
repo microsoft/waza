@@ -321,6 +321,11 @@ waza new skill my-skill
 | Flag | Description |
 |------|-------------|
 | `--template` | Template pack (coming soon) |
+| `--output-dir` | Explicit scaffold destination; ancestor workspace discovery does not redirect output |
+
+With `--output-dir`, Waza resolves the scaffold within that destination rather
+than adopting a workspace above it. Without the flag, existing ancestor
+workspace discovery remains unchanged.
 
 ### Examples
 
@@ -434,6 +439,11 @@ Generate task YAML files from a recorded prompt execution.
 ### waza new task from-prompt
 
 Run your prompt through Copilot and generate a task file with inferred validators from the recorded session.
+
+Task generation consumes the events returned by the completed execution; it
+does not require a separate home-directory session `events.jsonl`. The prompt,
+tool/skill observations and response expectations come from that execution.
+Recording still requires Copilot authentication and can incur model charges.
 
 ```bash
 waza new task from-prompt <prompt> <task-path>
@@ -1174,6 +1184,9 @@ waza suggest skills/code-explainer --focus negative-triggers --count 2 --apply
 If a generated task would replace an existing task path or `id`, `--apply` stops and prints a diff. Re-run with `--force` only after confirming the suggested task should replace the curated one.
 
 ## waza tokens
+
+`tokens count` and `tokens profile` reject unsupported `--format` values with a
+nonzero exit; they do not silently fall back to text output.
 
 Token budget management.
 

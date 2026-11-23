@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/waza/internal/scaffold"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // ── In-Project Mode Tests ──────────────────────────────────────────────────────
@@ -769,4 +771,119 @@ func TestNewCommand_OutputDirFlag(t *testing.T) {
 	assert.FileExists(t, filepath.Join(outDir, "my-skill", "SKILL.md"))
 	assert.FileExists(t, filepath.Join(outDir, "my-skill", "evals", "eval.yaml"))
 	assert.FileExists(t, filepath.Join(outDir, "my-skill", "evals", "tasks", "basic-usage.yaml"))
+}
+
+func TestNewCommand_OutputDirAncestorWorkspace(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		outputDir     string
+		explicit      bool
+		targetProject bool
+	}{
+		{name: "absolute new directory", outputDir: "absolute", explicit: true},
+		{name: "relative new directory", outputDir: "output", explicit: true},
+		{name: "explicit current directory", outputDir: ".", explicit: true},
+		{name: "explicit empty directory", explicit: true},
+		{name: "explicit target workspace", outputDir: "output", explicit: true, targetProject: true},
+		{name: "implicit ancestor workspace"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := t.TempDir()
+			ancestorSkill := filepath.Join(parent, "skills", "existing-skill", "SKILL.md")
+			require.NoError(t, os.MkdirAll(filepath.Dir(ancestorSkill), 0o755))
+			const existing = "existing ancestor skill must stay unchanged"
+			require.NoError(t, os.WriteFile(ancestorSkill, []byte(existing), 0o644))
+			child := filepath.Join(parent, "child")
+			require.NoError(t, os.Mkdir(child, 0o755))
+			t.Chdir(child)
+
+			outputDir := tc.outputDir
+			if outputDir == "absolute" {
+				outputDir = filepath.Join(child, "output")
+			}
+			target := child
+			if outputDir != "" {
+				target = filepath.Join(child, outputDir)
+				if filepath.IsAbs(outputDir) {
+					target = outputDir
+				}
+			}
+			if tc.targetProject {
+				require.NoError(t, os.MkdirAll(filepath.Join(target, "skills"), 0o755))
+			}
+
+			cmd := newNewSkillCommand()
+			cmd.SetIn(strings.NewReader(""))
+			cmd.SetOut(&bytes.Buffer{})
+			args := []string{"my-skill"}
+			if tc.explicit {
+				args = append(args, "--output-dir", outputDir)
+			}
+			cmd.SetArgs(args)
+			require.NoError(t, cmd.Execute())
+			cwd, err := os.Getwd()
+			require.NoError(t, err)
+			assert.Equal(t, child, cwd, "working directory must be restored")
+
+			skillDir := filepath.Join(target, "my-skill")
+			evalDir := filepath.Join(skillDir, "evals")
+			if tc.targetProject || !tc.explicit {
+				root := target
+				if !tc.explicit {
+					root = parent
+				}
+				skillDir = filepath.Join(root, "skills", "my-skill")
+				evalDir = filepath.Join(root, "evals", "my-skill")
+			}
+			for _, path := range []string{
+				filepath.Join(skillDir, "SKILL.md"),
+				filepath.Join(evalDir, "eval.yaml"),
+				filepath.Join(evalDir, "tasks", "basic-usage.yaml"),
+				filepath.Join(evalDir, "tasks", "edge-case.yaml"),
+				filepath.Join(evalDir, "tasks", "should-not-trigger.yaml"),
+				filepath.Join(evalDir, "fixtures", "sample.py"),
+			} {
+				assert.FileExists(t, path)
+			}
+			if tc.explicit {
+				assert.NoDirExists(t, filepath.Join(parent, "evals"))
+				entries, err := os.ReadDir(filepath.Join(parent, "skills"))
+				require.NoError(t, err)
+				require.Len(t, entries, 1, "explicit output must not create ancestor skills")
+			}
+			data, err := os.ReadFile(ancestorSkill)
+			require.NoError(t, err)
+			assert.Equal(t, existing, string(data))
+			if tc.explicit && !tc.targetProject {
+				assert.FileExists(t, filepath.Join(skillDir, ".github", "workflows", "eval.yml"))
+				assert.FileExists(t, filepath.Join(skillDir, ".gitignore"))
+				assert.FileExists(t, filepath.Join(skillDir, "README.md"))
+			}
+		})
+	}
+}
+
+func TestExtensionExamplesUseSupportedCommands(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "extension.yaml"))
+	require.NoError(t, err)
+	var manifest struct {
+		Examples []struct {
+			Name  string `yaml:"name"`
+			Usage string `yaml:"usage"`
+		} `yaml:"examples"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &manifest))
+	require.NotEmpty(t, manifest.Examples)
+	for _, example := range manifest.Examples {
+		t.Run(example.Name, func(t *testing.T) {
+			argv := strings.Fields(example.Usage)
+			require.GreaterOrEqual(t, len(argv), 3)
+			require.Equal(t, []string{"azd", "waza"}, argv[:2])
+			cmd, args, err := newRootCommand().Find(argv[2:])
+			require.NoError(t, err, "extension example must name a supported command")
+			require.True(t, cmd.Runnable(), "extension example must name a runnable command")
+			require.NoError(t, cmd.ParseFlags(args), "extension example must use supported flags")
+			require.NoError(t, cmd.ValidateArgs(cmd.Flags().Args()), "extension example must use supported arguments")
+		})
+	}
 }

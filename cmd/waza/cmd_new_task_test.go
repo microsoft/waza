@@ -11,8 +11,10 @@ import (
 
 	"github.com/azure/azure-dev/cli/azd/pkg/ux"
 	copilot "github.com/github/copilot-sdk/go"
+	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/utils"
 	"github.com/microsoft/waza/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -231,28 +233,38 @@ func TestNewTaskFromPromptCommand_DiscoveredSkillsPassedToCopilotSession(t *test
 	assert.Contains(t, err.Error(), "failed to create session")
 }
 
-func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
+func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFileWithoutSessionLog(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := newClientMock(ctrl)
 	session := newSessionMock(ctrl)
 
 	sessionID := "session-end-to-end"
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	tempCopilotDir := filepath.Join(home, ".copilot", "session-state")
 
 	fixturePath := filepath.Join("..", "..", "internal", "testdata", "copilot_events_using_skill.json")
-	fixtureBytes, err := os.ReadFile(fixturePath)
-	require.NoError(t, err)
-
 	logPath := filepath.Join(tempCopilotDir, sessionID, "events.jsonl")
-	require.NoError(t, os.MkdirAll(filepath.Dir(logPath), 0o755))
-	require.NoError(t, os.WriteFile(logPath, fixtureBytes, 0o644))
+	require.NoFileExists(t, logPath)
 
 	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
 
-	session.EXPECT().On(gomock.Any()).Return(func() {}).Times(3)
+	var handlers []func(copilot.SessionEvent)
+	session.EXPECT().On(gomock.Any()).DoAndReturn(func(handler func(copilot.SessionEvent)) func() {
+		handlers = append(handlers, handler)
+		return func() {}
+	}).Times(3)
 	session.EXPECT().SessionID().Return(sessionID)
-	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(nil, nil)
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
+		for event, err := range utils.NewCopilotLogIterator(fixturePath) {
+			require.NoError(t, err)
+			for _, handler := range handlers {
+				handler(event)
+			}
+		}
+		return nil, nil
+	})
 	session.EXPECT().Disconnect().Return(nil)
 
 	client.EXPECT().DeleteSession(gomock.Any(), sessionID).Return(nil)
@@ -262,13 +274,13 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
 		NewTaskList:      func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
 		NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
-		CopilotLogDir:    func() (string, error) { return tempCopilotDir, nil },
 	})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"--testname", "auto-generated", "--tags", "auto-generated", "use the example horn", outputPath})
 
 	require.NoError(t, cmd.Execute())
+	require.NoFileExists(t, logPath)
 
 	actual, err := models.LoadTestCase(outputPath)
 	require.NoError(t, err)
@@ -316,6 +328,101 @@ func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFile(t *testing.T) {
 	require.JSONEq(t, string(expectedJSON), string(actualJSON))
 	require.Equal(t, expected.Validators, actual.Validators)
 	require.NotEmpty(t, actual.SourceBytes())
+}
+
+func TestNewTaskFromPromptCommand_TextOnlyWithoutUserMessage(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := newClientMock(ctrl)
+	session := newSessionMock(ctrl)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	var handlers []func(copilot.SessionEvent)
+	session.EXPECT().On(gomock.Any()).DoAndReturn(func(handler func(copilot.SessionEvent)) func() {
+		handlers = append(handlers, handler)
+		return func() {}
+	}).Times(3)
+	session.EXPECT().SessionID().Return("text-only-session")
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, options copilot.MessageOptions) (*copilot.SessionEvent, error) {
+		require.Equal(t, "Respond exactly HELLO_SYNTHETIC. Do not use tools.", options.Prompt)
+		var event copilot.SessionEvent
+		require.NoError(t, json.Unmarshal([]byte(`{"type":"assistant.message","data":{"content":"HELLO_SYNTHETIC"}}`), &event))
+		for _, handler := range handlers {
+			handler(event)
+		}
+		return &event, nil
+	})
+	session.EXPECT().Disconnect().Return(nil)
+	client.EXPECT().DeleteSession(gomock.Any(), "text-only-session").Return(nil)
+
+	outputPath := filepath.Join(t.TempDir(), "generated-task.yaml")
+	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
+		NewTaskList:      func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
+		NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"Respond exactly HELLO_SYNTHETIC. Do not use tools.", outputPath})
+	require.NoError(t, cmd.Execute())
+	actual, err := models.LoadTestCase(outputPath)
+	require.NoError(t, err)
+	require.Equal(t, "Respond exactly HELLO_SYNTHETIC. Do not use tools.", actual.Stimulus.Message)
+	require.Equal(t, []models.ValidatorInline{{
+		Identifier: "check-response",
+		Kind:       models.GraderKindText,
+		Parameters: models.TextGraderParameters{ContainsCS: []string{"HELLO_SYNTHETIC"}},
+	}}, actual.Validators)
+	require.NoDirExists(t, filepath.Join(home, ".copilot", "session-state"))
+}
+
+func TestFromPromptSessionEvents_RejectsInvalidResponse(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		response *execution.ExecutionResponse
+		wantErr  string
+	}{
+		{name: "nil response", wantErr: "prompt execution returned no response"},
+		{name: "unsuccessful without message", response: &execution.ExecutionResponse{}, wantErr: "prompt execution failed"},
+		{
+			name: "unsuccessful with partial events",
+			response: &execution.ExecutionResponse{
+				ErrorMsg: "trial timed out",
+				Events:   copilotevents.FromSDK([]copilot.SessionEvent{{}}),
+			},
+			wantErr: "prompt execution failed: trial timed out",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			events, err := fromPromptSessionEvents(tt.response)
+			require.EqualError(t, err, tt.wantErr)
+			require.Nil(t, events)
+		})
+	}
+}
+
+func TestNewTaskFromPromptCommand_FailedExecutionDoesNotCreateTask(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := newClientMock(ctrl)
+	session := newSessionMock(ctrl)
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(session, nil)
+	session.EXPECT().On(gomock.Any()).Return(func() {}).Times(3)
+	session.EXPECT().SessionID().Return("failed-session")
+	session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Return(nil, errors.New("model request failed"))
+	session.EXPECT().Disconnect().Return(nil)
+	client.EXPECT().DeleteSession(gomock.Any(), "failed-session").Return(nil)
+
+	outputPath := filepath.Join(t.TempDir(), "generated-task.yaml")
+	cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
+		NewTaskList:      func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
+		NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"my prompt", outputPath})
+	require.EqualError(t, cmd.Execute(), "prompt execution failed: model request failed")
+	require.NoFileExists(t, outputPath)
 }
 
 func newClientMock(ctrl *gomock.Controller) *MockCopilotClient {
