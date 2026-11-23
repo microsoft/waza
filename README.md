@@ -622,6 +622,7 @@ Inspect eval setup **offline and agent-free** before execution:
 waza preflight eval.yaml
 waza preflight eval.yaml --format json > preflight.json
 waza preflight eval.yaml --strict
+waza preflight --workspace
 ```
 
 Checks schemas, discovered task IDs, local resources/instructions, grader
@@ -630,6 +631,8 @@ and static executor capabilities. It does not initialize an engine, execute
 graders/hooks, launch subprocesses or mock/live servers, fetch dependencies, or
 contact services (including update checks). Credentials and external resulting
 state remain unresolved.
+`--workspace` discovers each skill and resolves its evaluation using the
+project's configured paths, native layout conventions, and filename precedence.
 Eager schema matchers are guarded before decoding; external schema prerequisites
 remain unresolved and leave the affected inventory incomplete.
 This also covers grader schema files and MCP tool input schemas encountered

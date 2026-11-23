@@ -116,8 +116,16 @@ func initCIShell(t *testing.T, dir, script string, env map[string]string) (strin
 
 func initCIWriteEval(t *testing.T, dir, grader string) string {
 	t.Helper()
-	evalDir := filepath.Join(dir, "evals", "reviewed suite")
+	initCIAddSkill(t, dir, "reviewed")
+	evalDir := filepath.Join(dir, "evals", "reviewed")
 	return initCIWriteEvalAt(t, evalDir, "eval.yaml", grader)
+}
+
+func initCIAddSkill(t *testing.T, dir, name string) {
+	t.Helper()
+	skillDir := filepath.Join(dir, "skills", name)
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+name+"\n"), 0o600))
 }
 
 func initCIWriteEvalAt(t *testing.T, evalDir, evalFile, grader string) string {
@@ -214,6 +222,104 @@ func TestInitCI_OfflineCommandsAndTrust(t *testing.T) {
 		})
 		require.Equal(t, tc.selected, err == nil, "%+v: %s", tc, out)
 	}
+}
+
+func TestInitCI_WorkspaceInventoryUsesNativeEvalLayouts(t *testing.T) {
+	for _, layout := range []string{"separated", "nested", "co-located", "linked directory"} {
+		t.Run(layout, func(t *testing.T) {
+			dir, workflow := initCIFixture(t)
+			initCIAddSkill(t, dir, "reviewed")
+			evalPath := filepath.Join(dir, "evals", "reviewed", "eval.yaml")
+			switch layout {
+			case "nested":
+				evalPath = filepath.Join(dir, "skills", "reviewed", "evals", "eval.yaml")
+			case "co-located":
+				evalPath = filepath.Join(dir, "skills", "reviewed", "eval.yaml")
+			case "linked directory":
+				targetDir := filepath.Join(dir, "linked-evals", "reviewed")
+				require.NoError(t, os.MkdirAll(targetDir, 0o755))
+				evalPath = filepath.Join(targetDir, "eval.yaml")
+				linkPath := filepath.Join(dir, "evals", "reviewed")
+				if err := os.Symlink(filepath.Dir(evalPath), linkPath); err != nil {
+					t.Skipf("directory symlink unavailable: %v", err)
+				}
+			}
+			require.NoError(t, os.MkdirAll(filepath.Dir(evalPath), 0o755))
+			require.NoError(t, os.WriteFile(evalPath, []byte("config: [invalid]\n"), 0o600))
+
+			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+			step.Env["WAZA_INIT_CI_MODE"] = "reject"
+			out, err := initCIShell(t, dir, step.Run, step.Env)
+			require.Error(t, err, out)
+			require.Contains(t, out, "invalid eval.schema")
+			require.NotContains(t, out, "No evaluation files found")
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+		})
+	}
+}
+
+func TestInitCI_EmptyEvaluationRootSurvivesCheckout(t *testing.T) {
+	dir := t.TempDir()
+	cmd := newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+	evalsDir := filepath.Join(dir, "evals")
+	require.FileExists(t, filepath.Join(evalsDir, ".gitkeep"))
+
+	// Git checkouts do not retain empty, untracked directories.
+	require.NoError(t, os.Remove(filepath.Join(dir, "skills")))
+	data, err := os.ReadFile(filepath.Join(dir, ".github", "workflows", "eval.yml"))
+	require.NoError(t, err)
+	var workflow initCIWorkflowSpec
+	require.NoError(t, yaml.Unmarshal(data, &workflow))
+	step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+	out, err := initCIShell(t, dir, step.Run, step.Env)
+	require.NoError(t, err, out)
+	require.Contains(t, out, "No evaluation files found")
+
+	require.NoError(t, os.Remove(filepath.Join(evalsDir, ".gitkeep")))
+	require.NoError(t, os.Remove(evalsDir))
+	out, err = initCIShell(t, dir, step.Run, step.Env)
+	require.Error(t, err, out)
+	require.Contains(t, out, "Evaluation directory is missing")
+}
+
+func TestInitCI_WorkspaceInventoryFollowsEvalRootSymlink(t *testing.T) {
+	dir, _ := initCIFixture(t)
+	cfg := projectconfig.New()
+	cfg.Paths.Evals = "suites"
+	config, err := yaml.Marshal(cfg)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), config, 0o600))
+	workflowPath := filepath.Join(dir, ".github", "workflows", "eval.yml")
+	require.NoError(t, os.Remove(workflowPath))
+	cmd := newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+	initCIAddSkill(t, dir, "reviewed")
+
+	suitesDir := filepath.Join(dir, "suites")
+	require.NoError(t, os.Remove(filepath.Join(suitesDir, ".gitkeep")))
+	require.NoError(t, os.Remove(suitesDir))
+	targetDir := filepath.Join(dir, "shared-evals", "reviewed")
+	require.NoError(t, os.MkdirAll(targetDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(targetDir, "eval.yaml"), []byte("config: [invalid]\n"), 0o600))
+	if err := os.Symlink(filepath.Dir(targetDir), suitesDir); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+
+	data, err := os.ReadFile(workflowPath)
+	require.NoError(t, err)
+	var workflow initCIWorkflowSpec
+	require.NoError(t, yaml.Unmarshal(data, &workflow))
+	step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+	step.Env["WAZA_INIT_CI_MODE"] = "reject"
+	out, err := initCIShell(t, dir, step.Run, step.Env)
+	require.Error(t, err, out)
+	require.Contains(t, out, "invalid eval.schema")
+	require.NotContains(t, out, "No evaluation files found")
 }
 
 func TestInitCI_SelectedExecutionResultContract(t *testing.T) {
@@ -386,6 +492,7 @@ func TestInitCI_CustomEvalPaths(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{dir, "--no-skill"})
 	require.NoError(t, cmd.Execute())
+	initCIAddSkill(t, dir, "reviewed")
 	data, err := os.ReadFile(workflowPath)
 	require.NoError(t, err)
 	var workflow initCIWorkflowSpec
@@ -445,6 +552,7 @@ func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) 
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetArgs([]string{dir, "--no-skill"})
 			require.NoError(t, cmd.Execute())
+			initCIAddSkill(t, dir, "reviewed")
 			data, err := os.ReadFile(workflowPath)
 			require.NoError(t, err)
 			var workflow initCIWorkflowSpec

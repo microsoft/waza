@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -509,6 +510,28 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		{Path: filepath.Join(absDir, ".gitignore"), Label: "Build artifacts excluded", Content: initGitignore()},
 		{Path: filepath.Join(absDir, "README.md"), Label: "Getting started guide", Content: initReadme(projectName)},
 	}
+	evalsRoot := filepath.Join(absDir, evalsPath)
+	evalsHaveFiles := false
+	walkErr := filepath.WalkDir(evalsRoot, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			evalsHaveFiles = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if walkErr != nil && !errors.Is(walkErr, fs.ErrNotExist) {
+		return fmt.Errorf("checking evaluation directory %s: %w", evalsRoot, walkErr)
+	}
+	if !evalsHaveFiles {
+		entries = append(entries, scaffold.FileEntry{
+			Path:    filepath.Join(evalsRoot, ".gitkeep"),
+			Label:   "Keep empty evaluation directory in Git",
+			Content: "# Preserve this directory for generated CI.\n",
+		})
+	}
 
 	fw := scaffold.NewFileWriter(absDir)
 	inv, err := fw.Write(entries)
@@ -648,29 +671,13 @@ jobs:
       - name: Inventory evaluation configuration offline
         env:
           EVALS_PATH: __EVALS_PATH__
-          EVAL_FILE: __EVAL_FILE__
         run: |
           if [ ! -d "$EVALS_PATH" ]; then
             echo "::error::Evaluation directory is missing: $EVALS_PATH"
             exit 1
           fi
-          count=0
-          status=0
-          while IFS= read -r -d '' eval_dir; do
-            configured_file="$eval_dir/$EVAL_FILE"
-            if [ -f "$configured_file" ]; then
-              count=$((count + 1))
-              waza preflight "$configured_file" || status=1
-            elif [ "$EVAL_FILE" != "eval.yaml" ] && [ -f "$eval_dir/eval.yaml" ]; then
-              count=$((count + 1))
-              waza preflight "$eval_dir/eval.yaml" || status=1
-            fi
-          done < <(find "./$EVALS_PATH" -type d -print0)
-          if [ "$count" -eq 0 ]; then
-            echo "::notice::No evaluation files found; agent evaluation not run."
-          fi
+          waza preflight --workspace
           echo "Offline inventory only. Unresolved prerequisites are warnings, not runtime readiness or evaluation success."
-          exit "$status"
 
   agent:
     name: Explicit trusted evaluation
@@ -746,9 +753,8 @@ jobs:
 `
 	// JSON string quoting is also valid YAML quoting for user-selected paths.
 	quotedPath, _ := json.Marshal(filepath.ToSlash(evalsPath))
-	quotedFile, _ := json.Marshal(evalFile)
 	quotedDefault, _ := json.Marshal(filepath.ToSlash(defaultEvalPath))
-	return strings.NewReplacer("__EVALS_PATH__", string(quotedPath), "__EVAL_FILE__", string(quotedFile), "__DEFAULT_EVAL_PATH__", string(quotedDefault)).Replace(content)
+	return strings.NewReplacer("__EVALS_PATH__", string(quotedPath), "__DEFAULT_EVAL_PATH__", string(quotedDefault)).Replace(content)
 }
 
 func initGitignore() string {

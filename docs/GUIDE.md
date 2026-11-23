@@ -375,10 +375,13 @@ service first:
 ```bash
 waza preflight evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures
 waza preflight evals/code-explainer/eval.yaml --format json > preflight.json
+waza preflight --workspace
 ```
 
 Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
 locked cached graders, mock matching, references, and static capability support.
+Workspace mode uses the configured skill/evaluation paths and the same native
+evaluation discovery and filename precedence as other workspace commands.
 Valid unmatched task globs are optional when other patterns discover tasks.
 CSV paths must be lexically within the eval directory and remain within it
 after resolving symlinks;

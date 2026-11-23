@@ -338,6 +338,36 @@ func TestPreflightHumanAndErrors(t *testing.T) {
 	require.Error(t, cmd.Execute())
 }
 
+func TestPreflightWorkspaceJSONUsesNativeDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skills", "reviewed")
+	evalDir := filepath.Join(dir, "evals", "reviewed")
+	require.NoError(t, os.MkdirAll(skillDir, 0o700))
+	require.NoError(t, os.MkdirAll(evalDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# reviewed\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "task.yaml"), []byte("id: reviewed-task\nname: Reviewed\ninputs: {prompt: ready}\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte(`schemaVersion: "1.4"
+name: reviewed
+skill: reviewed
+config: {executor: mock, model: harness, trials_per_task: 1, timeout_seconds: 10}
+metrics: [{name: accuracy, weight: 1, threshold: 0.8}]
+tasks: [task.yaml]
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("paths:\n  skills: skills\n  evals: evals\n"), 0o600))
+	t.Chdir(dir)
+
+	cmd := newPreflightCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--workspace", "--format", "json"})
+	require.NoError(t, cmd.Execute())
+	var reports []*preflight.Report
+	require.NoError(t, json.Unmarshal(out.Bytes(), &reports))
+	require.Len(t, reports, 1)
+	require.Equal(t, filepath.Join(evalDir, "eval.yaml"), reports[0].Source)
+	require.Len(t, reports[0].Tasks, 1)
+}
+
 type preflightFailWriter struct {
 	failAt, calls int
 }
