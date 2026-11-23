@@ -368,6 +368,43 @@ tasks: [task.yaml]
 	require.Len(t, reports[0].Tasks, 1)
 }
 
+func TestPreflightWorkspaceResolvesConfiguredPathsFromConfigDirectory(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "custom-skills", "reviewed")
+	evalDir := filepath.Join(dir, "custom-evals", "reviewed")
+	require.NoError(t, os.MkdirAll(skillDir, 0o700))
+	require.NoError(t, os.MkdirAll(evalDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# reviewed\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "task.yaml"), []byte("id: reviewed-task\nname: Reviewed\ninputs: {prompt: ready}\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "suite.yml"), []byte(`schemaVersion: "1.4"
+name: reviewed
+skill: reviewed
+config: {executor: mock, model: harness, trials_per_task: 1, timeout_seconds: 10}
+metrics: [{name: accuracy, weight: 1, threshold: 0.8}]
+tasks: [task.yaml]
+`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte(`paths:
+  skills: custom-skills
+  evals: custom-evals
+files:
+  evalFile: suite.yml
+`), 0o600))
+	nested := filepath.Join(dir, "nested", "workspace")
+	require.NoError(t, os.MkdirAll(nested, 0o700))
+	t.Chdir(nested)
+
+	cmd := newPreflightCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--workspace", "--format", "json"})
+	require.NoError(t, cmd.Execute())
+	var reports []*preflight.Report
+	require.NoError(t, json.Unmarshal(out.Bytes(), &reports))
+	require.Len(t, reports, 1)
+	require.Equal(t, filepath.Join(evalDir, "suite.yml"), reports[0].Source)
+	require.Len(t, reports[0].Tasks, 1)
+}
+
 type preflightFailWriter struct {
 	failAt, calls int
 }

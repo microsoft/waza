@@ -481,7 +481,7 @@ func TestInitCI_CustomEvalPaths(t *testing.T) {
 	dir, _ := initCIFixture(t)
 	configPath := filepath.Join(dir, ".waza.yaml")
 	cfg := projectconfig.New()
-	cfg.Paths.Evals = "custom suites"
+	cfg.Paths.Evals = "configured suites"
 	cfg.Files.EvalFile = "suite.yml"
 	config, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
@@ -490,16 +490,18 @@ func TestInitCI_CustomEvalPaths(t *testing.T) {
 	require.NoError(t, os.Remove(workflowPath))
 	cmd := newInitCommand()
 	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetArgs([]string{dir, "--no-skill"})
+	cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", "generated suites"})
 	require.NoError(t, cmd.Execute())
 	initCIAddSkill(t, dir, "reviewed")
 	data, err := os.ReadFile(workflowPath)
 	require.NoError(t, err)
 	var workflow initCIWorkflowSpec
 	require.NoError(t, yaml.Unmarshal(data, &workflow))
-	require.Equal(t, "custom suites/my-skill/suite.yml", workflow.On.Dispatch.Inputs["eval-path"].Default)
+	require.Equal(t, "generated suites/my-skill/suite.yml", workflow.On.Dispatch.Inputs["eval-path"].Default)
 	step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
-	evalDir := filepath.Join(dir, "custom suites", "reviewed")
+	require.Equal(t, "generated suites", step.Env["EVALS_PATH"])
+	require.Equal(t, "suite.yml", step.Env["EVAL_FILE"])
+	evalDir := filepath.Join(dir, "generated suites", "reviewed")
 	require.NoError(t, os.MkdirAll(evalDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "suite.yml"), []byte("config: [invalid]\n"), 0o600))
 	step.Env["WAZA_INIT_CI_MODE"] = "reject"
@@ -611,6 +613,7 @@ func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 			readme, err := os.ReadFile(filepath.Join(root, "README.md"))
 			require.NoError(t, err)
 			require.Contains(t, string(readme), "checksum-verified standalone Waza "+workflow.Env["WAZA_VERSION"])
+			require.NoError(t, os.Remove(filepath.Join(dir, ".waza.yaml")), "standalone checkout must not inherit parent configuration")
 			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
 			step.Env["WAZA_INIT_CI_MODE"] = "reject"
 			out, err := initCIShell(t, root, step.Run, step.Env)

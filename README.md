@@ -623,6 +623,7 @@ waza preflight eval.yaml
 waza preflight eval.yaml --format json > preflight.json
 waza preflight eval.yaml --strict
 waza preflight --workspace
+waza preflight --workspace --evals-dir evals --eval-file eval.yaml
 ```
 
 Checks schemas, discovered task IDs, local resources/instructions, grader
@@ -633,6 +634,9 @@ contact services (including update checks). Credentials and external resulting
 state remain unresolved.
 `--workspace` discovers each skill and resolves its evaluation using the
 project's configured paths, native layout conventions, and filename precedence.
+Relative configured paths resolve from the project configuration directory;
+`--skills-dir`, `--evals-dir`, and `--eval-file` override the corresponding
+settings in workspace mode.
 Eager schema matchers are guarded before decoding; external schema prerequisites
 remain unresolved and leave the affected inventory incomplete.
 This also covers grader schema files and MCP tool input schemas encountered

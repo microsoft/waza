@@ -506,7 +506,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		{Path: filepath.Join(absDir, skillsPath), Label: "Skill definitions", IsDir: true},
 		{Path: filepath.Join(absDir, evalsPath), Label: "Evaluation suites", IsDir: true},
 		{Path: filepath.Join(absDir, ".waza.yaml"), Label: configLabel, Content: wazaConfigContent},
-		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: ciWorkflow(evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))},
+		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))},
 		{Path: filepath.Join(absDir, ".gitignore"), Label: "Build artifacts excluded", Content: initGitignore()},
 		{Path: filepath.Join(absDir, "README.md"), Label: "Getting started guide", Content: initReadme(projectName)},
 	}
@@ -628,7 +628,7 @@ func absOrDefault(path string) string {
 
 // --- Init template content ---
 
-func ciWorkflow(evalsPath, evalFile, defaultEvalPath string) string {
+func ciWorkflow(skillsPath, evalsPath, evalFile, defaultEvalPath string) string {
 	content := `name: Validate and Evaluate Skills
 
 on:
@@ -670,13 +670,15 @@ jobs:
         run: waza --version
       - name: Inventory evaluation configuration offline
         env:
+          SKILLS_PATH: __SKILLS_PATH__
           EVALS_PATH: __EVALS_PATH__
+          EVAL_FILE: __EVAL_FILE__
         run: |
           if [ ! -d "$EVALS_PATH" ]; then
             echo "::error::Evaluation directory is missing: $EVALS_PATH"
             exit 1
           fi
-          waza preflight --workspace
+          waza preflight --workspace --skills-dir "$SKILLS_PATH" --evals-dir "$EVALS_PATH" --eval-file "$EVAL_FILE"
           echo "Offline inventory only. Unresolved prerequisites are warnings, not runtime readiness or evaluation success."
 
   agent:
@@ -752,9 +754,16 @@ jobs:
           fi
 `
 	// JSON string quoting is also valid YAML quoting for user-selected paths.
+	quotedSkillsPath, _ := json.Marshal(filepath.ToSlash(skillsPath))
 	quotedPath, _ := json.Marshal(filepath.ToSlash(evalsPath))
+	quotedEvalFile, _ := json.Marshal(evalFile)
 	quotedDefault, _ := json.Marshal(filepath.ToSlash(defaultEvalPath))
-	return strings.NewReplacer("__EVALS_PATH__", string(quotedPath), "__DEFAULT_EVAL_PATH__", string(quotedDefault)).Replace(content)
+	return strings.NewReplacer(
+		"__SKILLS_PATH__", string(quotedSkillsPath),
+		"__EVALS_PATH__", string(quotedPath),
+		"__EVAL_FILE__", string(quotedEvalFile),
+		"__DEFAULT_EVAL_PATH__", string(quotedDefault),
+	).Replace(content)
 }
 
 func initGitignore() string {

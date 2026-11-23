@@ -342,7 +342,7 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	}
 
 	entries = append(entries,
-		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: ciWorkflow("evals", files.EvalFile, filepath.Join("evals", files.EvalFile))},
+		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, ".gitignore"), Label: "Build artifacts excluded", Content: defaultGitignore()},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, "README.md"), Label: "Getting started guide", Content: defaultReadme(skillName)},
 	)

@@ -7,13 +7,12 @@ import (
 	"path/filepath"
 
 	"github.com/microsoft/waza/internal/preflight"
-	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
 func newPreflightCommand() *cobra.Command {
-	var format, contextDir string
+	var format, contextDir, skillsDir, evalsDir, evalFile string
 	var strict, workspaceMode bool
 	cmd := &cobra.Command{
 		Use:   "preflight <eval.yaml> | --workspace",
@@ -24,7 +23,8 @@ Uses the same read-only project workspace skill defaults as run where applicable
 scenario-only disabled discovery never injects ambient skills.
 
 Use --workspace to inspect each evaluation resolved for discovered skills using
-the project's configured paths and filename precedence.
+the project's configured paths and filename precedence. Workspace mode also
+accepts --skills-dir, --evals-dir, and --eval-file to override those settings.
 
 Never starts an agent, model, subprocess, mock server, live service, or update
 check. Verified means a static check, not a satisfied requirement, enforced
@@ -54,7 +54,11 @@ Existing run/check exit policies are unchanged.`,
 				if contextDir != "" {
 					return fmt.Errorf("--context-dir cannot be used with --workspace")
 				}
-				reports, err := inspectWorkspacePreflight(".")
+				reports, err := inspectWorkspacePreflight(".", workspacePreflightOverrides{
+					skillsDir: skillsDir,
+					evalsDir:  evalsDir,
+					evalFile:  evalFile,
+				})
 				if err != nil {
 					return err
 				}
@@ -91,6 +95,9 @@ Existing run/check exit policies are unchanged.`,
 				}
 				return nil
 			}
+			if skillsDir != "" || evalsDir != "" || evalFile != "" {
+				return fmt.Errorf("--skills-dir, --evals-dir, and --eval-file require --workspace")
+			}
 			report := preflight.Inspect(args[0], preflight.Options{ContextDir: contextDir})
 			if format == "json" {
 				encoder := json.NewEncoder(cmd.OutOrStdout())
@@ -110,20 +117,46 @@ Existing run/check exit policies are unchanged.`,
 	cmd.Flags().StringVar(&format, "format", "human", "Output format: human or json")
 	cmd.Flags().StringVar(&contextDir, "context-dir", "", "Context directory (relative to cwd; default: eval directory/fixtures)")
 	cmd.Flags().BoolVar(&workspaceMode, "workspace", false, "Preflight evaluations resolved for discovered skills")
+	cmd.Flags().StringVar(&skillsDir, "skills-dir", "", "Override the configured skills directory in workspace mode")
+	cmd.Flags().StringVar(&evalsDir, "evals-dir", "", "Override the configured evaluations directory in workspace mode")
+	cmd.Flags().StringVar(&evalFile, "eval-file", "", "Override the configured evaluation filename in workspace mode")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Exit 1 for unresolved or unsupported prerequisites as well as invalid configuration")
 	return cmd
 }
 
-func inspectWorkspacePreflight(root string) ([]*preflight.Report, error) {
-	cfg, err := projectconfig.Load(root)
+type workspacePreflightOverrides struct {
+	skillsDir string
+	evalsDir  string
+	evalFile  string
+}
+
+func inspectWorkspacePreflight(root string, overrides workspacePreflightOverrides) ([]*preflight.Report, error) {
+	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return nil, fmt.Errorf("loading workspace configuration: %w", err)
+		return nil, fmt.Errorf("resolving workspace path: %w", err)
 	}
-	wsCtx, err := workspace.DetectContext(root,
-		workspace.WithSkillsDir(cfg.Paths.Skills),
-		workspace.WithEvalsDir(cfg.Paths.Evals),
-		workspace.WithEvalFile(cfg.Files.EvalFile),
-	)
+	paths, err := loadProjectWorkspaceDetectPaths(absRoot)
+	if err != nil {
+		return nil, err
+	}
+	resolveOverride := func(dir string) string {
+		if filepath.IsAbs(dir) {
+			return filepath.Clean(dir)
+		}
+		return filepath.Join(absRoot, dir)
+	}
+
+	if overrides.skillsDir != "" {
+		paths.skillsDir = resolveOverride(overrides.skillsDir)
+	}
+	if overrides.evalsDir != "" {
+		paths.evalsDir = resolveOverride(overrides.evalsDir)
+	}
+	if overrides.evalFile != "" {
+		paths.evalFile = overrides.evalFile
+	}
+
+	wsCtx, err := workspace.DetectContext(absRoot, paths.options()...)
 	if err != nil {
 		return nil, fmt.Errorf("discovering workspace skills: %w", err)
 	}

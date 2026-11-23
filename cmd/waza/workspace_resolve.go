@@ -9,32 +9,59 @@ import (
 	"github.com/microsoft/waza/internal/workspace"
 )
 
+type projectWorkspaceDetectPaths struct {
+	skillsDir string
+	evalsDir  string
+	evalFile  string
+}
+
+func loadProjectWorkspaceDetectPaths(root string) (projectWorkspaceDetectPaths, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return projectWorkspaceDetectPaths{}, fmt.Errorf("resolving workspace path: %w", err)
+	}
+	cfg, err := projectconfig.Load(absRoot)
+	if err != nil {
+		return projectWorkspaceDetectPaths{}, fmt.Errorf("loading workspace configuration: %w", err)
+	}
+
+	pathBase := absRoot
+	if cfg.Dir != "" {
+		pathBase = cfg.Dir
+	}
+	resolveDir := func(dir string) string {
+		if filepath.IsAbs(dir) {
+			return filepath.Clean(dir)
+		}
+		return filepath.Join(pathBase, dir)
+	}
+
+	return projectWorkspaceDetectPaths{
+		skillsDir: resolveDir(cfg.Paths.Skills),
+		evalsDir:  resolveDir(cfg.Paths.Evals),
+		evalFile:  cfg.Files.EvalFile,
+	}, nil
+}
+
+func (p projectWorkspaceDetectPaths) options() []workspace.DetectOption {
+	return []workspace.DetectOption{
+		workspace.WithSkillsDir(p.skillsDir),
+		workspace.WithEvalsDir(p.evalsDir),
+		workspace.WithEvalFile(p.evalFile),
+	}
+}
+
 // configDetectOptions returns workspace DetectOptions derived from project config.
 func configDetectOptions() []workspace.DetectOption {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil
 	}
-
-	cfg, err := projectconfig.Load(wd)
+	paths, err := loadProjectWorkspaceDetectPaths(wd)
 	if err != nil {
 		return nil
 	}
-
-	skillsDir := cfg.Paths.Skills
-	evalsDir := cfg.Paths.Evals
-	evalFile := cfg.Files.EvalFile
-
-	if cfg.Dir != "" {
-		skillsDir = filepath.Join(cfg.Dir, skillsDir)
-		evalsDir = filepath.Join(cfg.Dir, evalsDir)
-	}
-
-	return []workspace.DetectOption{
-		workspace.WithSkillsDir(skillsDir),
-		workspace.WithEvalsDir(evalsDir),
-		workspace.WithEvalFile(evalFile),
-	}
+	return paths.options()
 }
 
 // resolveWorkspace uses workspace detection to resolve skills from CLI args.
