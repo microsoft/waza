@@ -940,6 +940,18 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	// session.shutdown events later during client.Stop(). The usage handler is
 	// stored in e.collectors so we can read final usage after shutdown.
 	var eventsMu sync.Mutex
+	var responseEventID string
+	var responseEventSeen bool
+	turnEventsDrained := make(chan struct{})
+	var turnEventsDrainOnce sync.Once
+	isTurnTerminalEvent := func(event copilot.SessionEvent) bool {
+		switch event.Type() {
+		case copilot.SessionEventTypeSessionIdle, copilot.SessionEventTypeSessionAutopilotStopped, copilot.SessionEventTypeSessionError:
+			return true
+		default:
+			return false
+		}
+	}
 	activity := ActivityObserverFrom(ctx)
 	actorStart := actorStartObserverFrom(ctx)
 	collectEvent := func(event copilot.SessionEvent) {
@@ -957,6 +969,12 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 			actorStart()
 		}
 		eventsCollector.On(event)
+		if responseEventID != "" && event.ID == responseEventID {
+			responseEventSeen = true
+		}
+		if responseEventSeen && isTurnTerminalEvent(event) {
+			turnEventsDrainOnce.Do(func() { close(turnEventsDrained) })
+		}
 	}
 	var sendDiagnostic atomic.Bool
 	finishEvents := func() {}
@@ -1070,12 +1088,45 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	releaseUserInput := req.UserInput.BindTurn(userInputCtx)
 	var retireClient bool
 	NotifyActorDispatch(ctx)
-	_, sessionAbandoned, retireClient, err = sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
+	sendAndWaitEvent, sessionAbandoned, retireClient, err := sendAndWaitBounded(sendCtx, session, copilot.MessageOptions{
 		Prompt: req.Message,
 		Mode:   string(req.MessageMode),
 	}, func() {
 		e.forceStopClient(client)
 	})
+	var turnEventsDrainFailed bool
+	if err == nil && !sessionAbandoned && sendAndWaitEvent != nil &&
+		sendAndWaitEvent.Type() == copilot.SessionEventTypeAssistantMessage && sendAndWaitEvent.ID != "" {
+		eventsMu.Lock()
+		responseEventID = sendAndWaitEvent.ID
+		for _, event := range eventsCollector.SessionEvents() {
+			if event.ID == responseEventID {
+				responseEventSeen = true
+			}
+			if responseEventSeen && isTurnTerminalEvent(event) {
+				turnEventsDrainOnce.Do(func() { close(turnEventsDrained) })
+				break
+			}
+		}
+		eventsMu.Unlock()
+
+		select {
+		case <-turnEventsDrained:
+		default:
+			drainCtx, cancelDrain := context.WithTimeout(sendCtx, sendCancellationGrace)
+			select {
+			case <-turnEventsDrained:
+			case <-drainCtx.Done():
+				select {
+				case <-turnEventsDrained:
+				default:
+					turnEventsDrainFailed = true
+					err = fmt.Errorf("session event callbacks did not finish: %w", drainCtx.Err())
+				}
+			}
+			cancelDrain()
+		}
+	}
 	cancelUserInput()
 	releaseUserInput()
 	if retireClient {
@@ -1100,6 +1151,8 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 			// Surface a distinct, actionable error rather than the opaque
 			// context-canceled / deadline message SendAndWait returns.
 			err = fmt.Errorf("session start timeout: no first turn within %s (engine launched but produced no events): %w", req.FirstEventTimeout, errFirstEventTimeout)
+			errMsg = err.Error()
+		} else if turnEventsDrainFailed {
 			errMsg = err.Error()
 		} else if errors.Is(sendCtx.Err(), context.DeadlineExceeded) {
 			err = fmt.Errorf("trial timed out: %w", context.DeadlineExceeded)
@@ -1160,7 +1213,7 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 	var skillInvocations []SkillInvocation
 	var toolCalls []models.ToolCall
 	func() {
-		// SendAndWait may return while the SDK is still delivering an event.
+		// Wait for the terminal callback so all events in the turn are captured.
 		eventsMu.Lock()
 		defer eventsMu.Unlock()
 		finalOutput = joinStrings(eventsCollector.OutputParts())
