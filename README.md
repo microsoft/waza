@@ -158,6 +158,12 @@ The source URL above follows `main`. The v0.42.0 registry update is tracked in
 The registry's six URLs and SHA-256 values match the published archives; this
 does not prove execution on all platforms. Publication and registry
 synchronization are separate gates; check the installed version.
+
+The [v0.42.1 hotfix candidate](site/src/content/docs/releases/v0-42-1.mdx)
+addresses dogfood reports around task generation, explicit scaffold destinations,
+token formats, trigger reports and generated CI. The
+[repository blog post](docs/blog/v0.42.1-hotfix.md) explains the upgrade
+considerations. It is not yet a publication record.
 For supported commands, for example:
 
 ```bash

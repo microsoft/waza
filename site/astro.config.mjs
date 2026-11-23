@@ -109,6 +109,7 @@ export default defineConfig({
 							label: 'Releases',
 							items: [
 								{ label: 'Overview & downloads', slug: 'reference/releases' },
+								{ label: 'Waza v0.42.1 (candidate)', slug: 'releases/v0-42-1' },
 								{ label: 'Waza v0.42.0', slug: 'releases/v0-42-0' },
 								{ label: 'Waza v0.41.0', slug: 'releases/v0-41-0' },
 								{ label: 'Waza v0.40.1', slug: 'releases/v0-40-1' },

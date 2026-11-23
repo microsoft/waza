@@ -79,13 +79,22 @@ The `waza init` command generates a workflow starting point:
 waza init my-project
 ```
 
-This creates `.github/workflows/eval.yml`. Its default PR filters target `main`
-and changes to `evals/**` or `skills/**`; installation uses the mutable
-`main/registry.json`, not a pinned release. It does not configure runtime
-credentials or grant PRs access to secrets. Review the
-[init reference](../../reference/cli/#waza-init), adapt the filters and release
-source, and review authentication and the [security guidance](#8-secure-secrets)
-for your trust model before enabling real evaluations.
+This creates `.github/workflows/eval.yml` with a pinned standalone Waza
+release, commit-pinned actions and Ubuntu 24.04. The default PR path runs
+offline preflight; it does not make model calls. Review the
+[init reference](../../reference/cli/#waza-init) and adapt its path filters.
+Standalone `waza new skill` scaffolds use the same policy with their generated
+evaluation filenames.
+
+Live execution is a separate manual default-branch dispatch with
+`run-agent=true`. Configure the `waza-agent` environment, its approval policy
+and the `WAZA_COPILOT_TOKEN` secret, which the workflow passes as
+`COPILOT_GITHUB_TOKEN`. Dispatching opts into agent execution and potential model
+charges. `init` does not create credentials, grant PRs access to secrets or
+rewrite existing workflows. Review the [security guidance](#8-secure-secrets)
+before enabling live execution.
+The agent gate rejects mock results and missing or unknown executor identities;
+a successful mock run is not evidence of agent execution.
 
 For a hand-written pipeline, continue with the
 [complete example](#complete-example-multi-model-testing-on-pr). The repository

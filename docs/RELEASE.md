@@ -5,6 +5,16 @@ validation contract is `.github/workflows/release-validation.yml`; the reusable
 qualification contract is `.github/workflows/release-qualification.yml`.
 Every publisher must use the exact source SHA that completed qualification.
 
+## v0.42.1 dogfood hotfix
+
+The [hotfix article](../site/src/content/docs/releases/v0-42-1.mdx) tracks the
+candidate fixes and migration guidance. Keep its publication status, the
+changelog, README and site download reference consistent with verified release
+state. Existing generated CI files are not automatically rewritten by an
+upgrade. Qualify the final merged source before tagging, then validate the
+actual published binaries and extension archives; a same-source rebuild does
+not establish that the distributed packages ran.
+
 The tag workflow retains GitHub's success-only dependency conditions for each
 builder and publisher. Required validation and evidence-verification steps may
 not be skipped or tolerate failures; workflow regression controls exercise those

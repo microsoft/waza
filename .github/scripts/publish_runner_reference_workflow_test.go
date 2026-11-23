@@ -477,6 +477,100 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 	}
 }
 
+func TestReleaseQualificationCandidateVersionUsesExactSource(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "release-qualification.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow runnerReferenceWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	step := findStep(workflow.Jobs["source"].Steps, "Resolve candidate identity")
+	if step == nil {
+		t.Fatal("missing candidate identity guard")
+	}
+	for _, test := range []struct {
+		name    string
+		version string
+		mode    string
+		wantErr bool
+	}{
+		{name: "hotfix version", version: "0.42.1"},
+		{name: "future version", version: "1.2.3"},
+		{name: "prerelease version", version: "1.2.3-rc.1+build.2"},
+		{name: "empty version", wantErr: true},
+		{name: "prefixed version", version: "v0.42.1", wantErr: true},
+		{name: "injected output", version: "0.42.1\nrelease_stage=released", wantErr: true},
+		{name: "missing source version", mode: "missing", wantErr: true},
+		{name: "stale main", version: "0.42.1", mode: "stale", wantErr: true},
+		{name: "tag version unchanged", version: "9.9.9", mode: "tag"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, err := os.MkdirTemp(".", ".release-qualification-test-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(dir); err != nil {
+					t.Error(err)
+				}
+			})
+			dir, err = filepath.Abs(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			envPath := filepath.Join(dir, "bash-env")
+			outputPath := filepath.Join(dir, "github-output")
+			if err := os.WriteFile(envPath, []byte(`git() {
+  case "$*" in
+    "rev-parse HEAD"|"rev-parse refs/tags/v0.42.1^{commit}") printf '%s\n' "$EVENT_SHA" ;;
+    "fetch --no-tags origin refs/heads/main") return 0 ;;
+    "rev-parse origin/main")
+      if [[ "$FAKE_MODE" == stale ]]; then printf 'stale\n'; else printf '%s\n' "$EVENT_SHA"; fi ;;
+    "show $EVENT_SHA:version.txt")
+      [[ "$FAKE_MODE" != missing ]] || return 1
+      printf '%s\n' "$FAKE_VERSION" ;;
+    *) echo "Unexpected git command: $*" >&2; return 99 ;;
+  esac
+}
+`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			event, ref, stage := "workflow_dispatch", "refs/heads/main", ""
+			wantStage, wantVersion := "candidate", test.version
+			if test.mode == "tag" {
+				event, ref, stage = "push", "refs/tags/v0.42.1", "released"
+				wantStage, wantVersion = "released", "0.42.1"
+			}
+			cmd := exec.Command("bash", "-euo", "pipefail", "-c", step.Run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(),
+				"BASH_ENV="+envPath, "GITHUB_OUTPUT="+outputPath,
+				"EVENT_NAME="+event, "EVENT_REF="+ref, "EVENT_SHA="+strings.Repeat("a", 40),
+				"CANDIDATE_SHA="+strings.Repeat("a", 40), "SOURCE_SHA="+strings.Repeat("a", 40),
+				"RELEASE_STAGE="+stage, "VERSION_INPUT=0.42.1",
+				"FAKE_MODE="+test.mode, "FAKE_VERSION="+test.version,
+			)
+			output, err := cmd.CombinedOutput()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("identity guard error = %v, wantErr %t\n%s", err, test.wantErr, output)
+			}
+			recorded, readErr := os.ReadFile(outputPath)
+			if test.wantErr {
+				if readErr == nil && len(recorded) != 0 {
+					t.Fatalf("rejected candidate emitted identity: %s", recorded)
+				}
+				return
+			}
+			want := "source_sha=" + strings.Repeat("a", 40) + "\nversion=" + wantVersion + "\nrelease_stage=" + wantStage + "\n"
+			if readErr != nil || string(recorded) != want {
+				t.Fatalf("identity output = %q, error %v; want %q", recorded, readErr, want)
+			}
+		})
+	}
+}
+
 func TestExistingReleaseImageRetryRequiresExactDigest(t *testing.T) {
 	source, err := os.ReadFile(filepath.Join("..", "workflows", "publish-runner-reference.yml"))
 	if err != nil {

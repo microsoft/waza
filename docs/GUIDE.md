@@ -548,16 +548,16 @@ Existing project files, including `.waza.yaml` and the workflow, are not
 overwritten. The results path is configured but its directory is not created
 by the scaffold.
 
-**Review the generated CI workflow before enabling it.** Its default
-`pull_request` trigger targets `main` and changes under `evals/**` or `skills/**`;
-custom path flags do not update those filters. It grants `contents: read`,
-installs the extension using the mutable
-`https://raw.githubusercontent.com/microsoft/waza/main/registry.json` source,
-runs `azd waza run --output-dir ./results`, and uploads results for 30 days.
-This is not release pinning or runtime authentication: select a trusted pinned
-release source and configure authentication separately. `init` does not
-configure credentials or grant PRs access to secrets. Preserve fork-PR and
-untrusted-input safeguards described in the
+**Review the generated CI workflow before enabling it.** Its PR path runs
+offline preflight using a pinned standalone Waza release, action commit SHAs
+and Ubuntu 24.04. Custom path flags do not update its path filters.
+
+Live evaluations require a manual default-branch dispatch with `run-agent=true`.
+Configure approval for the `waza-agent` environment and its
+`WAZA_COPILOT_TOKEN` secret, passed to the runtime as `COPILOT_GITHUB_TOKEN`.
+Model calls can incur charges. `init` does not configure credentials or grant
+PRs access to secrets, and it preserves existing workflow files. Keep the
+fork-PR and untrusted-input safeguards described in the
 [CI/CD guide](../site/src/content/docs/guides/ci-cd.mdx).
 
 **Example:**
@@ -577,6 +577,8 @@ Create a new skill with its evaluation suite. In interactive mode, the wizard co
 
 An explicit output directory bounds workspace discovery for the scaffold.
 Without `--output-dir`, existing ancestor workspace discovery is unchanged.
+Standalone scaffolds share `init`'s pinned, offline-default CI policy. The
+manual agent gate rejects mock results and missing or unknown executor identity.
 
 **Modes:**
 
@@ -766,6 +768,8 @@ Files other than `SKILL.md` are rejected.
 
 These target forms also work with `--copilot` for a non-mutating recommendations
 report and `--scaffold-triggers` to generate `tests/trigger_tests.yaml`.
+The recommendations report reads those scaffolded trigger examples alongside
+existing eval cases; scaffolding alone does not execute them.
 Multiple positional arguments remain workspace skill names; use `--all` to
 process every skill in the workspace.
 

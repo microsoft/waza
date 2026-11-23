@@ -342,7 +342,7 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	}
 
 	entries = append(entries,
-		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: defaultCIWorkflow(skillName)},
+		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: ciWorkflow("evals", files.EvalFile, filepath.Join("evals", files.EvalFile))},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, ".gitignore"), Label: "Build artifacts excluded", Content: defaultGitignore()},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, "README.md"), Label: "Getting started guide", Content: defaultReadme(skillName)},
 	)
@@ -481,33 +481,6 @@ List any reference documents or APIs this skill depends on.
 `, name, name, scaffold.TitleCase(name))
 }
 
-func defaultCIWorkflow(name string) string {
-	return fmt.Sprintf(`name: Eval %s
-
-on:
-  pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
-
-jobs:
-  run-eval:
-    name: Run Evaluation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install waza
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-
-      - name: Run eval
-        run: |
-          waza run evals/eval.yaml --context-dir evals/fixtures -v
-`, scaffold.TitleCase(name))
-}
-
 func defaultGitignore() string {
 	return `results.json
 .waza-cache/
@@ -530,6 +503,21 @@ A skill for agent evaluation with [waza](https://github.com/microsoft/waza).
 `+"```bash"+`
 waza run evals/eval.yaml --context-dir evals/fixtures -v
 `+"```"+`
+
+## CI
+
+Pull requests run offline configuration inventory, not agent evaluation.
+CI installs checksum-verified standalone Waza 0.42.1 and prints its version.
+Invalid configuration fails; unresolved runtime prerequisites warn. An empty
+inventory is not a successful evaluation.
+
+For intentional agent execution, review the eval, model, tools, graders, and
+dependencies. Configure protection rules and WAZA_COPILOT_TOKEN with model access
+in the waza-agent environment. Manually dispatch on the repository's default
+branch with run-agent enabled and the reviewed eval-path. Pull requests cannot
+run the agent job. Execution can incur usage; fixture isolation is not sandboxing.
+The agent-evidence gate requires a fresh, passing copilot-sdk result and rejects
+mock or unknown executors. Existing workflows are never overwritten.
 
 ## Structure
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -504,7 +505,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		{Path: filepath.Join(absDir, skillsPath), Label: "Skill definitions", IsDir: true},
 		{Path: filepath.Join(absDir, evalsPath), Label: "Evaluation suites", IsDir: true},
 		{Path: filepath.Join(absDir, ".waza.yaml"), Label: configLabel, Content: wazaConfigContent},
-		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: initCIWorkflow()},
+		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: ciWorkflow(evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))},
 		{Path: filepath.Join(absDir, ".gitignore"), Label: "Build artifacts excluded", Content: initGitignore()},
 		{Path: filepath.Join(absDir, "README.md"), Label: "Getting started guide", Content: initReadme(projectName)},
 	}
@@ -604,42 +605,144 @@ func absOrDefault(path string) string {
 
 // --- Init template content ---
 
-func initCIWorkflow() string {
-	return `name: Run Skill Evaluations
+func ciWorkflow(evalsPath, evalFile, defaultEvalPath string) string {
+	content := `name: Validate and Evaluate Skills
 
 on:
   pull_request:
-    branches: [main]
-    paths:
-      - 'evals/**'
-      - 'skills/**'
+  workflow_dispatch:
+    inputs:
+      run-agent:
+        description: 'Intentionally run a trusted evaluation (requires configured credentials/model access)'
+        type: boolean
+        default: false
+      eval-path:
+        description: 'Reviewed evaluation file to execute'
+        type: string
+        default: __DEFAULT_EVAL_PATH__
 
 permissions:
   contents: read
 
+env:
+  # Standalone release; azd extension availability is a separate contract.
+  WAZA_VERSION: '0.42.1'
+
 jobs:
-  eval:
-    name: Run Evaluations
-    runs-on: ubuntu-latest
+  validate:
+    name: Offline configuration inventory (not an evaluation)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Azure Developer CLI
-        uses: Azure/setup-azd@v2
-      - name: Install waza extension
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install checksum-verified standalone Waza
         run: |
-          azd config set alpha.extensions on
-          azd ext source add -n waza -t url -l https://raw.githubusercontent.com/microsoft/waza/main/registry.json
-          azd ext install microsoft.azd.waza
-      - name: Run evaluations
-        run: azd waza run --output-dir ./results
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/install-waza-release.sh" \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" "$WAZA_VERSION"
+      - name: Observe installed version
+        run: waza --version
+      - name: Inventory evaluation configuration offline
+        env:
+          EVALS_PATH: __EVALS_PATH__
+          EVAL_FILE: __EVAL_FILE__
+        run: |
+          if [ ! -d "$EVALS_PATH" ]; then
+            echo "::error::Evaluation directory is missing: $EVALS_PATH"
+            exit 1
+          fi
+          count=0
+          status=0
+          while IFS= read -r -d '' eval_file; do
+            count=$((count + 1))
+            waza preflight "$eval_file" || status=1
+          done < <(find "./$EVALS_PATH" -type f -name "$EVAL_FILE" -print0)
+          if [ "$count" -eq 0 ]; then
+            echo "::notice::No evaluation files found; agent evaluation not run."
+          fi
+          echo "Offline inventory only. Unresolved prerequisites are warnings, not runtime readiness or evaluation success."
+          exit "$status"
+
+  agent:
+    name: Explicit trusted evaluation
+    if: github.event_name == 'workflow_dispatch' && inputs.run-agent && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Configure protection rules and WAZA_COPILOT_TOKEN in this environment.
+    environment: waza-agent
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install checksum-verified standalone Waza
+        run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/install-waza-release.sh" \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" "$WAZA_VERSION"
+      - name: Observe installed version
+        run: waza --version
+      - name: Run reviewed evaluation
+        id: run-eval
+        env:
+          EVAL_PATH: ${{ inputs.eval-path }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.WAZA_COPILOT_TOKEN }}
+        run: |
+          rm -f -- results.json
+          if [ -z "$COPILOT_GITHUB_TOKEN" ]; then
+            echo "::error::Configure WAZA_COPILOT_TOKEN with Copilot/model access in the protected waza-agent environment before opting in."
+            exit 1
+          fi
+          if [ ! -f "$EVAL_PATH" ]; then
+            echo "::error::Review and select an existing evaluation file."
+            exit 1
+          fi
+          set +e
+          waza run "$EVAL_PATH" --no-cache --output results.json
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+      - name: Validate fresh result artifact and retain verdict
+        id: validate-result
+        if: always()
+        env:
+          RUN_EXIT_CODE: ${{ steps.run-eval.outputs.exit_code }}
+        run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/validate-waza-result.sh" \
+            -o "$RUNNER_TEMP/validate-waza-result.sh"
+          bash "$RUNNER_TEMP/validate-waza-result.sh" results.json 0 "$RUN_EXIT_CODE"
+          if ! jq -e -s 'length == 1 and (.[0].config.engine_type == "copilot-sdk")' < results.json >/dev/null; then
+            echo "::error::Result executor is not copilot-sdk; mock or unknown execution cannot satisfy the agent-evidence gate."
+            exit 1
+          fi
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: eval-results
-          path: ./results
+          path: results.json
           retention-days: 30
+          if-no-files-found: error
+      - name: Enforce evaluation status
+        if: always()
+        env:
+          VALIDATION_OUTCOME: ${{ steps.validate-result.outcome }}
+          EVALUATION_STATUS: ${{ steps.validate-result.outputs.status }}
+        run: |
+          if [ "$VALIDATION_OUTCOME" != "success" ] || [ "$EVALUATION_STATUS" != "success" ]; then
+            exit 1
+          fi
 `
+	// JSON string quoting is also valid YAML quoting for user-selected paths.
+	quotedPath, _ := json.Marshal(filepath.ToSlash(evalsPath))
+	quotedFile, _ := json.Marshal(evalFile)
+	quotedDefault, _ := json.Marshal(filepath.ToSlash(defaultEvalPath))
+	return strings.NewReplacer("__EVALS_PATH__", string(quotedPath), "__EVAL_FILE__", string(quotedFile), "__DEFAULT_EVAL_PATH__", string(quotedDefault)).Replace(content)
 }
 
 func initGitignore() string {
@@ -677,10 +780,38 @@ func initReadme(projectName string) string {
    waza dev my-skill           # improve with real-time scoring
    `+"`"+``+"`"+``+"`"+`
 
-5. Push to trigger CI:
-   `+"`"+``+"`"+``+"`"+`bash
-   git push
-   `+"`"+``+"`"+``+"`"+`
+5. Open a pull request for automatic **offline configuration inventory**.
+   CI installs checksum-verified standalone Waza 0.42.1 (not the azd extension)
+   and prints the installed version. It runs preflight without starting an agent,
+   model, or grader subprocess. Invalid configuration fails; unresolved runtime
+   prerequisites warn and are not verified readiness. No eval files means an
+   explicit not-run notice, not a successful evaluation. No result artifact is
+   produced by the offline job.
+
+## Intentional agent-backed CI
+
+Review the evaluation, executor, model, tools, graders, and dependencies first.
+Configure the **waza-agent** GitHub environment with protection rules and a
+**WAZA_COPILOT_TOKEN** secret: a supported Copilot token with model access.
+CI passes it as **COPILOT_GITHUB_TOKEN**, not the workflow's default GitHub token.
+Local login state does not authenticate a hosted runner.
+
+On the repository's default branch, manually dispatch the generated workflow,
+set **run-agent** to true, and choose **eval-path**. It defaults to offline-only;
+pull requests and non-default branches cannot select the agent job. Intentional
+execution can incur usage and runs reviewed code with that credential. Fixture
+isolation is not sandboxing. The executor in your eval is preserved, never
+silently replaced with mock; the agent-evidence gate rejects mock or unknown
+result executors and requires copilot-sdk.
+
+The live job requires a fresh results.json, disables cached results, validates
+the shared result contract, and uploads diagnostics even for completed failing
+grading. Missing credentials/model access, task/runtime errors, missing or
+malformed artifacts, and failed verdicts cannot pass as successful evaluations.
+JUnit publication is not configured here. Existing workflows are never
+overwritten by re-running init. Update the release pin deliberately only after
+verifying published standalone assets and the shared installer/result scripts;
+offline inventory is neither release approval nor external-consumer evidence.
 `, projectName)
 }
 

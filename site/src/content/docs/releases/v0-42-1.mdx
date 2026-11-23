@@ -1,0 +1,61 @@
+---
+title: "Waza v0.42.1: close the dogfood loop"
+description: A focused hotfix for task generation, explicit output paths, token formats, trigger reports and generated CI.
+---
+
+**Release candidate, November 23, 2026.** Publication and package verification
+are pending; the [download reference](../../reference/releases/) retains the
+latest verified published version.
+
+Dogfooding v0.42.0 exposed a familiar gap: a command can finish its model call
+and still fail the workflow around it. This patch focuses on that last mile,
+along with cases where Waza accepted an option without honoring its contract.
+It does not add another evaluation mode or expand the production-integration
+claims introduced in [v0.42.0](../v0-42-0/).
+
+The [repository blog post](https://github.com/microsoft/waza/blob/main/docs/blog/v0.42.1-hotfix.md)
+summarizes the dogfood lessons and upgrade considerations.
+
+## The hotfix scope
+
+| Report | Intended correction |
+| --- | --- |
+| [Task generation on Windows #1109](https://github.com/microsoft/waza/issues/1109) | Preserve the completed inference evidence needed to generate a task instead of depending on a missing session `events.jsonl`. |
+| [Explicit output directory #1089](https://github.com/microsoft/waza/issues/1089) | Keep `new skill --output-dir` inside the selected directory even when an ancestor contains another Waza workspace. |
+| [Extension command metadata #1110](https://github.com/microsoft/waza/issues/1110) | Advertise supported azd commands, not the nonexistent `azd waza generate`. |
+| [Unsupported token formats #1088](https://github.com/microsoft/waza/issues/1088), [PR #1108](https://github.com/microsoft/waza/pull/1108) | Reject unsupported `tokens count` and `tokens profile` formats with a nonzero exit instead of silently succeeding. |
+| [Scaffolded trigger examples #1090](https://github.com/microsoft/waza/issues/1090), [PR #1107](https://github.com/microsoft/waza/pull/1107) | Include generated trigger examples in the development report rather than leaving the scaffold disconnected from evaluation. |
+| [Generated CI #947](https://github.com/microsoft/waza/issues/947) | Pin generated automation and make live agent execution an explicit choice rather than a surprising default. |
+| [Dependency patch PR #1103](https://github.com/microsoft/waza/pull/1103) | Update `go-jose/v4` from 4.1.4 to 4.1.6 for GHSA-mgcc-cww5-fp2q. |
+
+The source comparison and final changelog will identify the merged patch scope.
+An open issue or pull request in this table is not evidence that a fix has
+shipped.
+
+## Upgrade deliberately
+
+Once publication is verified, upgrade a standalone installation with
+`waza update`. For the azd extension, check `azd waza --version` independently:
+its package publication and registry synchronization are separate from the
+standalone release.
+
+Existing generated workflows are files in your repository; upgrading Waza
+does not rewrite them. Review their pins and agent-execution settings before
+adopting a regenerated template. An offline harness pass is not an assessment
+of model quality.
+Standalone skill scaffolds share `init`'s pinned, offline-default CI policy.
+Mock results and missing or unknown executor identities fail the manual agent
+gate rather than being accepted as agent evidence.
+
+The `go-jose` patch adds a default 4096-bit RSA key-size limit and removes
+`RandReader`. Embedders using larger keys or that dependency API should review
+the upstream migration notes before upgrading.
+
+## What verification establishes
+
+The [release procedure](https://github.com/microsoft/waza/blob/main/docs/RELEASE.md)
+requires qualification of the exact reviewed source before tagging. Published
+binary and extension checks must use the actual distributed bytes, not a
+same-source rebuild. Checksums establish artifact identity, not execution.
+Native smoke results, authenticated dogfood results and registry availability
+must be reported separately, including any unavailable evidence.
