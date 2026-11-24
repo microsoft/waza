@@ -271,8 +271,12 @@ func TestNewTaskFromPromptCommand_RootUsesRealWorkspaceDiscovery(t *testing.T) {
 			sessionErr := errors.New("stop after inspecting session configuration")
 			client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
-					assert.Equal(t, []string{callerDir, wantSkillDir}, cfg.SkillDirectories)
-					assert.NotContains(t, cfg.SkillDirectories, decoyDir)
+					assert.Equal(t, []string{rootDir, wantSkillDir}, cfg.SkillDirectories)
+					for _, dir := range cfg.SkillDirectories {
+						rel, err := filepath.Rel(dir, decoyDir)
+						require.NoError(t, err)
+						assert.False(t, filepath.IsLocal(rel), "skill directory %s exposes decoy %s", dir, decoyDir)
+					}
 					return nil, sessionErr
 				})
 
