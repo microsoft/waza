@@ -63,6 +63,16 @@ only to that workflow run. This candidate path has read-only repository
 permissions plus attestation permissions; it creates no version tag, GitHub
 Release assets, or public registry image.
 
+Candidate admission, tag admission and runner-image publication use the same
+version check (`.github/scripts/release_version_check.sh`). The supported
+profile is `major.minor.patch` (no leading zeroes) with an optional
+dot-separated alphanumeric prerelease such as `0.42.1-rc.1`. Build metadata
+(`+build.2`) and internal prerelease hyphens are not supported by this shared
+candidate/tag profile. Versions are limited to 127 ASCII bytes: the publisher
+uses the unchanged `v`-prefixed version as an OCI tag, which forbids `+` and is
+limited to 128 bytes. Qualification does not admit a broader version syntax
+than publication.
+
 Qualification consumes the exact-source dashboard artifact produced by release
 validation and rechecks its manifest and installed output before building. It
 stamps the candidate version into the runner image and checks the image's

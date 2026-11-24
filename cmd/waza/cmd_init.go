@@ -234,6 +234,8 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	var skillsPath, evalsPath, resultsPath string
 	files := projectconfig.New().Files
 	var createSkill, scaffoldMissing bool
+	var configuredSkills, configuredEvals string
+	hasConfiguredPaths := false
 	engine = projectconfig.DefaultEngine
 	model = projectconfig.DefaultModel
 	skillsPath = projectconfig.DefaultSkillsDir
@@ -250,6 +252,8 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			evalsPath = cfg.Paths.Evals
 			resultsPath = cfg.Paths.Results
 			files = cfg.Files
+			configuredSkills, configuredEvals = cfg.Paths.Skills, cfg.Paths.Evals
+			hasConfiguredPaths = true
 		}
 	}
 
@@ -284,6 +288,17 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	}
 	if flagResultsDir != "" {
 		resultsPath = flagResultsDir
+	}
+	if hasConfiguredPaths {
+		workflowPath := filepath.Join(absDir, ".github", "workflows", "eval.yml")
+		if _, err := os.Lstat(workflowPath); errors.Is(err, fs.ErrNotExist) {
+			if err := rejectConfiguredPathOverride("--skills-dir", "paths.skills", flagSkillsDir, configuredSkills); err != nil {
+				return err
+			}
+			if err := rejectConfiguredPathOverride("--evals-dir", "paths.evals", flagEvalsDir, configuredEvals); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Show detection results when paths were discovered
@@ -502,17 +517,30 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	configLabel := fmt.Sprintf("Project defaults (%s, %s)", engine, model)
 
+	workflow, err := ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))
+	if err != nil {
+		return err
+	}
 	entries := []scaffold.FileEntry{
 		{Path: filepath.Join(absDir, skillsPath), Label: "Skill definitions", IsDir: true},
 		{Path: filepath.Join(absDir, evalsPath), Label: "Evaluation suites", IsDir: true},
 		{Path: filepath.Join(absDir, ".waza.yaml"), Label: configLabel, Content: wazaConfigContent},
-		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))},
+		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: workflow},
 		{Path: filepath.Join(absDir, ".gitignore"), Label: "Build artifacts excluded", Content: initGitignore()},
 		{Path: filepath.Join(absDir, "README.md"), Label: "Getting started guide", Content: initReadme(projectName)},
 	}
 	evalsRoot := filepath.Join(absDir, evalsPath)
 	evalsHaveFiles := false
-	walkErr := filepath.WalkDir(evalsRoot, func(_ string, entry fs.DirEntry, err error) error {
+	// WalkDir does not follow a symlinked root, so inspect its target. A
+	// target outside the project cannot be kept by this repository's Git.
+	walkRoot := evalsRoot
+	if resolved, err := filepath.EvalSymlinks(evalsRoot); err == nil && resolved != evalsRoot {
+		walkRoot = resolved
+		if !pathWithinResolvedDir(absDir, resolved) {
+			evalsHaveFiles = true
+		}
+	}
+	walkErr := filepath.WalkDir(walkRoot, func(_ string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -628,7 +656,34 @@ func absOrDefault(path string) string {
 
 // --- Init template content ---
 
-func ciWorkflow(skillsPath, evalsPath, evalFile, defaultEvalPath string) string {
+// rejectConfiguredPathOverride prevents generated CI from validating a root
+// that ordinary runs, which read .waza.yaml, would not select.
+func rejectConfiguredPathOverride(flag, key, override, configured string) error {
+	if override == "" || filepath.Clean(override) == filepath.Clean(configured) {
+		return nil
+	}
+	return fmt.Errorf("%s %q conflicts with .waza.yaml %s %q; generated CI must use the configured path. Update .waza.yaml or omit %s", flag, override, key, configured, flag)
+}
+
+// pathWithinResolvedDir reports whether resolvedPath is dir or inside dir
+// after resolving dir's own symlinks.
+func pathWithinResolvedDir(dir, resolvedPath string) bool {
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(resolvedDir, resolvedPath)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
+}
+
+// ciWorkflow renders the generated workflow. GitHub Actions evaluates ${{ in
+// otherwise quoted scalars, so literal paths containing it are rejected.
+func ciWorkflow(skillsPath, evalsPath, evalFile, defaultEvalPath string) (string, error) {
+	for _, value := range []string{skillsPath, evalsPath, evalFile, defaultEvalPath} {
+		if strings.Contains(value, "${{") {
+			return "", fmt.Errorf("generated CI cannot use path %q: GitHub Actions would evaluate its ${{ expression; choose a path without ${{", value)
+		}
+	}
 	content := `name: Validate and Evaluate Skills
 
 on:
@@ -687,7 +742,8 @@ jobs:
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # Configure protection rules and WAZA_COPILOT_TOKEN in this environment.
+    # Restrict this environment to the default branch and require reviewers
+    # before adding WAZA_COPILOT_TOKEN; the branch check below is not a boundary.
     environment: waza-agent
     steps:
       # Expression string comparison ignores case; Git refs do not.
@@ -773,7 +829,7 @@ jobs:
 		"__EVALS_PATH__", string(quotedPath),
 		"__EVAL_FILE__", string(quotedEvalFile),
 		"__DEFAULT_EVAL_PATH__", string(quotedDefault),
-	).Replace(content)
+	).Replace(content), nil
 }
 
 func initGitignore() string {
@@ -822,14 +878,17 @@ func initReadme(projectName string) string {
 ## Intentional agent-backed CI
 
 Review the evaluation, executor, model, tools, graders, and dependencies first.
-Configure the **waza-agent** GitHub environment with protection rules and a
-**WAZA_COPILOT_TOKEN** secret: a supported Copilot token with model access.
+Configure the **waza-agent** GitHub environment and its **WAZA_COPILOT_TOKEN**
+secret: a supported Copilot token with model access. Before adding the secret,
+restrict the environment's deployment branches to the default branch and require
+reviewers. The workflow's branch check is not a security boundary: a writer can
+dispatch a modified workflow from another branch.
 CI passes it as **COPILOT_GITHUB_TOKEN**, not the workflow's default GitHub token.
 Local login state does not authenticate a hosted runner.
 
 On the repository's default branch, manually dispatch the generated workflow,
 set **run-agent** to true, and choose **eval-path**. It defaults to offline-only;
-pull requests and non-default branches cannot select the agent job. Intentional
+the generated workflow skips the agent job for pull requests and non-default branches. Intentional
 execution can incur usage and runs reviewed code with that credential. Fixture
 isolation is not sandboxing. The executor in your eval is preserved, never
 silently replaced with mock; the agent-evidence gate rejects mock or unknown

@@ -64,7 +64,7 @@ waza preflight --workspace
 |------|---------|---------|
 | `--format` | `human` | `human` or `json` inventory/diagnostics |
 | `--context-dir` | eval directory/fixtures | Context directory; relative values resolve from cwd |
-| `--workspace` | `false` | Preflight evaluations resolved for discovered skills using configured paths |
+| `--workspace` | `false` | Preflight evaluations resolved for discovered skills, plus target-free evaluations in the evaluations directory or its immediate subdirectories |
 | `--skills-dir` | configured path | Override the skills directory with `--workspace` |
 | `--evals-dir` | configured path | Override the evaluations directory with `--workspace` |
 | `--eval-file` | configured filename | Override the evaluation filename with `--workspace` |
@@ -252,6 +252,8 @@ waza init [directory]
 | `--evals-dir` | Project-relative evals directory; overrides detection and defaults |
 | `--results-dir` | Project-relative results directory recorded in new configuration |
 
+When `.waza.yaml` already exists and init generates `.github/workflows/eval.yml`, `--skills-dir` and `--evals-dir` must match its `paths` values so CI validates the same roots that runs use.
+
 ### Creates
 
 ```
@@ -274,8 +276,10 @@ Custom path flags do not rewrite its path filters.
 
 Live execution requires a manual default-branch dispatch with `run-agent=true`,
 the `waza-agent` environment and its `WAZA_COPILOT_TOKEN` secret (passed as
-`COPILOT_GITHUB_TOKEN`). Configure environment approval and authentication
-before opting in; model calls can incur charges. `init` does not create secrets
+`COPILOT_GITHUB_TOKEN`). Before adding the secret, restrict the environment's
+deployment branches to the default branch and require reviewers; the workflow's
+branch check does not stop a writer from dispatching a modified workflow from
+another branch. Configure authentication before opting in; model calls can incur charges. `init` does not create secrets
 or grant pull requests access to them. Existing workflow files are preserved,
 not upgraded automatically. See the [CI/CD guide](../../guides/ci-cd/).
 
@@ -477,7 +481,7 @@ waza new task from-prompt <prompt> <task-path>
 | `--tags` | string[] | | Tags to add to generated task |
 | `--timeout` | duration | `5m0s` | Max time to allow prompt completion |
 | `--overwrite` | bool | `false` | Overwrite output file if it already exists |
-| `--root` | string | `.` | Directory used to discover skills |
+| `--root` | string | `.` | Directory used to discover skills. `.waza.yaml` is still located from the working directory, and its configured skill paths stay relative to that file. |
 
 ### Examples
 

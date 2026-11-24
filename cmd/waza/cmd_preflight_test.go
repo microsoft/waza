@@ -18,6 +18,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/preflight"
 	"github.com/microsoft/waza/internal/testutil"
+	"github.com/microsoft/waza/internal/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -403,6 +404,48 @@ files:
 	require.Len(t, reports, 1)
 	require.Equal(t, filepath.Join(evalDir, "suite.yml"), reports[0].Source)
 	require.Len(t, reports[0].Tasks, 1)
+}
+
+func TestPreflightWorkspaceInspectsTargetFreeAndChildEvals(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, validateCLIIsolation(dir))
+	t.Chdir(dir)
+	scaffold := newRootCommand()
+	scaffold.SetOut(&bytes.Buffer{})
+	scaffold.SetArgs([]string{"new", "eval", "inventory", "--scenario"})
+	require.NoError(t, scaffold.Execute())
+	scenario := filepath.Join(dir, "evals", "inventory", "eval.yaml")
+	require.FileExists(t, scenario)
+
+	// A root SKILL.md makes detection single-skill, hiding the child skill.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: parent\n---\n# parent\n"), 0o600))
+	childSkill := filepath.Join(dir, "skills", "child")
+	require.NoError(t, os.MkdirAll(childSkill, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(childSkill, "SKILL.md"), []byte("---\nname: child\n---\n# child\n"), 0o600))
+	childEval := filepath.Join(dir, "evals", "child", "eval.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(childEval), 0o700))
+	require.NoError(t, os.WriteFile(childEval, []byte("name: child\nconfig: [invalid]\n"), 0o600))
+	ws, err := workspace.DetectContext(dir)
+	require.NoError(t, err)
+	require.Equal(t, workspace.ContextSingleSkill, ws.Type, "fixture must hide the child skill from discovery")
+
+	cmd := newPreflightCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"--workspace", "--format", "json"})
+	var exit *ExitCodeError
+	require.ErrorAs(t, cmd.Execute(), &exit, "invalid child evaluation must fail workspace preflight")
+	var reports []*preflight.Report
+	require.NoError(t, json.Unmarshal(out.Bytes(), &reports), out.String())
+	sources := map[string]*preflight.Report{}
+	for _, report := range reports {
+		sources[report.Source] = report
+	}
+	require.Contains(t, sources, scenario)
+	require.Contains(t, sources, childEval)
+	require.Len(t, reports, 2)
+	require.True(t, sources[childEval].Failed(false))
 }
 
 type preflightFailWriter struct {

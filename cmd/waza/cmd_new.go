@@ -309,6 +309,11 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	fixturesDir := filepath.Join(evalsDir, "fixtures")
 	workflowDir := filepath.Join(rootDir, ".github", "workflows")
 
+	workflow, err := ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
+	if err != nil {
+		return err
+	}
+
 	// Create directories
 	for _, d := range []string{tasksDir, fixturesDir, workflowDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -342,7 +347,7 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	}
 
 	entries = append(entries,
-		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))},
+		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: workflow},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, ".gitignore"), Label: "Build artifacts excluded", Content: defaultGitignore()},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, "README.md"), Label: "Getting started guide", Content: defaultReadme(skillName)},
 	)
@@ -512,8 +517,10 @@ Invalid configuration fails; unresolved runtime prerequisites warn. An empty
 inventory is not a successful evaluation.
 
 For intentional agent execution, review the eval, model, tools, graders, and
-dependencies. Configure protection rules and WAZA_COPILOT_TOKEN with model access
-in the waza-agent environment. Manually dispatch on the repository's default
+dependencies. Before adding WAZA_COPILOT_TOKEN with model access to the waza-agent
+environment, restrict its deployment branches to the default branch and require
+reviewers; the workflow's branch check does not stop a writer from dispatching a
+modified workflow from another branch. Manually dispatch on the repository's default
 branch with run-agent enabled and the reviewed eval-path. Pull requests cannot
 run the agent job. Execution can incur usage; fixture isolation is not sandboxing.
 The agent-evidence gate requires a fresh, passing copilot-sdk result and rejects

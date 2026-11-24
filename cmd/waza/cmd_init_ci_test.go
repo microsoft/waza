@@ -27,6 +27,8 @@ type initCIStep struct {
 	Uses string
 	Env  map[string]string
 	With map[string]string
+	// ContinueOnError is untyped so any emitted value, including an expression, is observed.
+	ContinueOnError any `yaml:"continue-on-error"`
 }
 
 type initCIJob struct {
@@ -207,6 +209,7 @@ func TestInitCI_OfflineCommandsAndTrust(t *testing.T) {
 	guard := initCIStepByName(t, agent, "exact-default-ref")
 	require.Equal(t, guard.ID, agent.Steps[0].ID, "exact ref guard must precede all other agent steps")
 	require.Empty(t, guard.If)
+	require.Nil(t, guard.ContinueOnError, "a failed exact ref guard must stop the job")
 	for _, step := range agent.Steps[1:] {
 		for _, value := range step.Env {
 			if strings.Contains(value, "secrets.") {
@@ -310,6 +313,32 @@ func TestInitCI_EmptyEvaluationRootSurvivesCheckout(t *testing.T) {
 	out, err = initCIShell(t, dir, step.Run, step.Env)
 	require.Error(t, err, out)
 	require.Contains(t, out, "Evaluation directory is missing")
+}
+
+func TestInitCI_EmptySymlinkedEvaluationRootIsKept(t *testing.T) {
+	dir, _ := initCIFixture(t)
+	evalsDir := filepath.Join(dir, "evals")
+	require.NoError(t, os.Remove(filepath.Join(evalsDir, ".gitkeep")))
+	require.NoError(t, os.Remove(evalsDir))
+	inside := filepath.Join(dir, "shared-evals")
+	require.NoError(t, os.MkdirAll(inside, 0o755))
+	if err := os.Symlink(inside, evalsDir); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	cmd := newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+	require.FileExists(t, filepath.Join(inside, ".gitkeep"), "an empty in-project symlink target must survive checkout")
+
+	outside := t.TempDir()
+	require.NoError(t, os.Remove(evalsDir))
+	require.NoError(t, os.Symlink(outside, evalsDir))
+	cmd = newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+	require.NoFileExists(t, filepath.Join(outside, ".gitkeep"), "init must not write outside the project")
 }
 
 func TestInitCI_WorkspaceInventoryFollowsEvalRootSymlink(t *testing.T) {
@@ -517,18 +546,26 @@ func TestInitCI_CustomEvalPaths(t *testing.T) {
 	require.NoError(t, os.Remove(workflowPath))
 	cmd := newInitCommand()
 	cmd.SetOut(&bytes.Buffer{})
+	cmd.SilenceUsage = true
 	cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", "generated suites"})
+	require.ErrorContains(t, cmd.Execute(), `--evals-dir "generated suites" conflicts with .waza.yaml paths.evals "configured suites"`)
+	require.NoFileExists(t, workflowPath)
+	require.NoDirExists(t, filepath.Join(dir, "generated suites"))
+
+	cmd = newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", "configured suites"})
 	require.NoError(t, cmd.Execute())
 	initCIAddSkill(t, dir, "reviewed")
 	data, err := os.ReadFile(workflowPath)
 	require.NoError(t, err)
 	var workflow initCIWorkflowSpec
 	require.NoError(t, yaml.Unmarshal(data, &workflow))
-	require.Equal(t, "generated suites/my-skill/suite.yml", workflow.On.Dispatch.Inputs["eval-path"].Default)
+	require.Equal(t, "configured suites/my-skill/suite.yml", workflow.On.Dispatch.Inputs["eval-path"].Default)
 	step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
-	require.Equal(t, "generated suites", step.Env["EVALS_PATH"])
+	require.Equal(t, "configured suites", step.Env["EVALS_PATH"])
 	require.Equal(t, "suite.yml", step.Env["EVAL_FILE"])
-	evalDir := filepath.Join(dir, "generated suites", "reviewed")
+	evalDir := filepath.Join(dir, "configured suites", "reviewed")
 	require.NoError(t, os.MkdirAll(evalDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "suite.yml"), []byte("config: [invalid]\n"), 0o600))
 	step.Env["WAZA_INIT_CI_MODE"] = "reject"
@@ -536,6 +573,66 @@ func TestInitCI_CustomEvalPaths(t *testing.T) {
 	require.Error(t, err, out)
 	require.NotContains(t, out, "No evaluation files found")
 	require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+}
+
+func TestInitCI_RejectsActionsExpressionsInLiteralPaths(t *testing.T) {
+	const expression = "suites-${{ github.token }}"
+	t.Run("init evals dir", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, validateCLIIsolation(dir))
+		cmd := newInitCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", expression})
+		err := cmd.Execute()
+		require.ErrorContains(t, err, `generated CI cannot use path "`+expression+`"`)
+		require.NoFileExists(t, filepath.Join(dir, ".github", "workflows", "eval.yml"))
+		require.NoDirExists(t, filepath.Join(dir, expression))
+	})
+	t.Run("new skill eval file", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, validateCLIIsolation(dir))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("files:\n  evalFile: '${{ github.token }}.yml'\n"), 0o600))
+		cmd := newNewSkillCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{"reviewed", "--output-dir", dir})
+		err := cmd.Execute()
+		require.ErrorContains(t, err, "GitHub Actions would evaluate")
+		require.NoFileExists(t, filepath.Join(dir, "reviewed", ".github", "workflows", "eval.yml"))
+		require.NoFileExists(t, filepath.Join(dir, "reviewed", "SKILL.md"))
+	})
+	t.Run("standalone repair preserves malformed skill", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, validateCLIIsolation(dir))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("files:\n  evalFile: '${{ github.token }}.yml'\n"), 0o600))
+		root := filepath.Join(dir, "reviewed")
+		require.NoError(t, os.MkdirAll(root, 0o700))
+		skillPath := filepath.Join(root, "SKILL.md")
+		original := []byte("User-owned content without frontmatter.\r\nKeep these original bytes.\n")
+		require.NoError(t, os.WriteFile(skillPath, original, 0o600))
+		cmd := newNewSkillCommand()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetIn(strings.NewReader(""))
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{"reviewed", "--output-dir", dir})
+		require.ErrorContains(t, cmd.Execute(), "GitHub Actions would evaluate")
+		require.Contains(t, out.String(), "empty or malformed")
+		preserved, err := os.ReadFile(skillPath)
+		require.NoError(t, err, "rejected configuration must not delete the original skill")
+		require.Equal(t, original, preserved)
+		require.NoDirExists(t, filepath.Join(root, "evals"))
+		require.NoDirExists(t, filepath.Join(root, ".github"))
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("files:\n  evalFile: suite.yml\n"), 0o600))
+		require.NoError(t, cmd.Execute())
+		repaired, err := os.ReadFile(skillPath)
+		require.NoError(t, err)
+		require.Contains(t, string(repaired), "name: reviewed")
+		require.FileExists(t, filepath.Join(root, "evals", "suite.yml"))
+		require.FileExists(t, filepath.Join(root, ".github", "workflows", "eval.yml"))
+	})
 }
 
 func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) {
@@ -615,11 +712,8 @@ func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) 
 func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 	for _, evalFile := range []string{"eval.yaml", "suite.yml"} {
 		t.Run(evalFile, func(t *testing.T) {
-			dir, err := os.MkdirTemp(".", ".standalone-ci-")
-			require.NoError(t, err)
-			dir, err = filepath.Abs(dir)
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir), "standalone fixture must not inherit repository configuration")
 			require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("files:\n  evalFile: "+evalFile+"\n"), 0o600))
 			cmd := newNewSkillCommand()
 			cmd.SetOut(&bytes.Buffer{})
@@ -641,13 +735,62 @@ func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 			require.NoError(t, err)
 			require.Contains(t, string(readme), "checksum-verified standalone Waza "+workflow.Env["WAZA_VERSION"])
 			require.NoError(t, os.Remove(filepath.Join(dir, ".waza.yaml")), "standalone checkout must not inherit parent configuration")
+			require.NoError(t, validateCLIIsolation(root))
+			// Preflight and run must both resolve the standalone skill for required_skills.
+			evalPath := filepath.Join(root, "evals", evalFile)
+			evalData, err := os.ReadFile(evalPath)
+			require.NoError(t, err)
+			required := strings.Replace(string(evalData), "config:\n", "config:\n  required_skills: [reviewed]\n", 1)
+			require.NotEqual(t, string(evalData), required, "fixture must declare required_skills")
+			require.NoError(t, os.WriteFile(evalPath, []byte(required), 0o600))
 			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
 			step.Env["WAZA_INIT_CI_MODE"] = "reject"
 			out, err := initCIShell(t, root, step.Run, step.Env)
 			require.NoError(t, err, out)
+			require.Contains(t, out, "Offline preflight: "+filepath.Join(root, "evals", evalFile))
 			require.NotContains(t, out, "No evaluation files found")
 			require.NoFileExists(t, filepath.Join(root, "runtime-invoked"))
 			require.NoFileExists(t, filepath.Join(root, "results.json"))
+			// Explicit single-file preflight from the checkout must agree with run.
+			t.Chdir(root)
+			single := newPreflightCommand()
+			single.SetOut(&bytes.Buffer{})
+			single.SilenceUsage = true
+			single.SetArgs([]string{filepath.Join("evals", evalFile)})
+			require.NoError(t, single.Execute())
+
+			// The trusted job must load the skill under test without a .waza.yaml.
+			run := initCIStepByName(t, workflow.Jobs["agent"], "waza run")
+			output := filepath.Join(root, "github-output")
+			require.NoError(t, os.WriteFile(output, nil, 0o600))
+			out, err = initCIShell(t, root, run.Run, map[string]string{
+				"EVAL_PATH": filepath.ToSlash(filepath.Join("evals", evalFile)), "COPILOT_GITHUB_TOKEN": "synthetic-offline-token",
+				"GITHUB_OUTPUT": filepath.ToSlash(output), "WAZA_INIT_CI_MODE": "record-skills",
+			})
+			require.NoError(t, err, out)
+			require.FileExists(t, filepath.Join(root, "results.json"), out)
+			sessions, err := os.ReadFile(filepath.Join(root, "session-skill-paths"))
+			require.NoError(t, err, out)
+			wantRoot, err := filepath.EvalSymlinks(root)
+			require.NoError(t, err)
+			lines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(string(sessions), "\r\n", "\n"), "\n"), "\n")
+			require.Len(t, lines, 3, "each scaffolded task must start one recorded session")
+			for _, line := range lines {
+				var resolved []string
+				for _, p := range strings.Split(line, "\x1f") {
+					if p == "" {
+						continue
+					}
+					r, err := filepath.EvalSymlinks(p)
+					require.NoError(t, err)
+					resolved = append(resolved, r)
+				}
+				require.Equal(t, []string{wantRoot}, resolved, "session must receive exactly the standalone skill root")
+			}
+			for _, name := range []string{"results.json", "runtime-invoked", "session-skill-paths"} {
+				require.NoError(t, os.Remove(filepath.Join(root, name)))
+			}
+
 			require.NoError(t, os.WriteFile(filepath.Join(root, "evals", evalFile), []byte("config: [invalid]\n"), 0o600))
 			out, err = initCIShell(t, root, step.Run, step.Env)
 			require.Error(t, err, out)
@@ -664,6 +807,24 @@ func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 }
 
 type initCIEngine struct{ preflightEngineSpy }
+
+// initCISkillRecorder records the skill directories each session receives.
+type initCISkillRecorder struct{ execution.AgentEngine }
+
+func (e *initCISkillRecorder) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	f, err := os.OpenFile("session-skill-paths", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fmt.Fprintln(f, strings.Join(req.SkillPaths, "\x1f")); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	return e.AgentEngine.Execute(ctx, req)
+}
 
 func (*initCIEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	return nil, errors.New("synthetic task runtime error")
@@ -682,6 +843,9 @@ func TestInitCIHelperProcess(t *testing.T) {
 		}
 		if os.Getenv("WAZA_INIT_CI_MODE") == "task-error" {
 			return &initCIEngine{}, nil
+		}
+		if os.Getenv("WAZA_INIT_CI_MODE") == "record-skills" {
+			return &initCISkillRecorder{execution.NewMockEngine("never-call")}, nil
 		}
 		return execution.NewMockEngine("never-call"), nil
 	}

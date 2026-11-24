@@ -368,6 +368,114 @@ func TestNewTaskFromPromptCommand_DefaultAndRelativeRoots(t *testing.T) {
 	}
 }
 
+// Configuration is located from the working directory, not --root; see docs/GUIDE.md.
+// Each fixture contains four distinct skills so the selected configuration
+// source is identified by the exact skill directory passed to the session.
+func TestNewTaskFromPromptCommand_RootConfigurationComesFromWorkingDirectory(t *testing.T) {
+	const customPaths = "paths:\n  skills: custom-skills\n"
+	const defaultPaths = "files:\n  evalFile: eval.yaml\n"
+
+	type fixture struct {
+		callerDir, rootDir                                   string
+		callerDefault, callerCustom, rootDefault, rootCustom string
+	}
+	tests := []struct {
+		name        string
+		configDir   func(f fixture) string
+		config      string
+		wantProject func(f fixture) string
+		wantSkill   func(f fixture) string
+	}{
+		{
+			name:        "no-config",
+			wantProject: func(fixture) string { return "" },
+			wantSkill:   func(f fixture) string { return f.rootDefault },
+		},
+		{
+			name:        "target-root-config-not-consulted",
+			configDir:   func(f fixture) string { return f.rootDir },
+			config:      customPaths,
+			wantProject: func(fixture) string { return "" },
+			wantSkill:   func(f fixture) string { return f.rootDefault },
+		},
+		{
+			name:        "caller-config-custom-paths",
+			configDir:   func(f fixture) string { return f.callerDir },
+			config:      customPaths,
+			wantProject: func(f fixture) string { return f.callerDir },
+			wantSkill:   func(f fixture) string { return f.callerCustom },
+		},
+		{
+			name:        "caller-config-default-paths",
+			configDir:   func(f fixture) string { return f.callerDir },
+			config:      defaultPaths,
+			wantProject: func(f fixture) string { return f.callerDir },
+			wantSkill:   func(f fixture) string { return f.callerDefault },
+		},
+	}
+	for _, tt := range tests {
+		for _, relativeRoot := range []bool{false, true} {
+			rootForm := "absolute-root"
+			if relativeRoot {
+				rootForm = "relative-root"
+			}
+			t.Run(tt.name+"/"+rootForm, func(t *testing.T) {
+				writeSkill := func(dir string) string {
+					require.NoError(t, os.MkdirAll(dir, 0o755))
+					require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"),
+						[]byte("---\nname: "+filepath.Base(dir)+"\ndescription: Test skill\n---\n"), 0o644))
+					return dir
+				}
+				f := fixture{callerDir: t.TempDir()}
+				f.rootDir = t.TempDir()
+				rootArg := f.rootDir
+				if relativeRoot {
+					f.rootDir = filepath.Join(f.callerDir, "selected-root")
+					rootArg = "selected-root"
+				}
+				f.callerDefault = writeSkill(filepath.Join(f.callerDir, "skills", "caller-default"))
+				f.callerCustom = writeSkill(filepath.Join(f.callerDir, "custom-skills", "caller-custom"))
+				f.rootDefault = writeSkill(filepath.Join(f.rootDir, "skills", "root-default"))
+				f.rootCustom = writeSkill(filepath.Join(f.rootDir, "custom-skills", "root-custom"))
+				if tt.configDir != nil {
+					require.NoError(t, os.WriteFile(filepath.Join(tt.configDir(f), ".waza.yaml"), []byte(tt.config), 0o644))
+				}
+				t.Chdir(f.callerDir)
+
+				project, err := projectconfig.Load(f.callerDir)
+				require.NoError(t, err)
+				require.Equal(t, tt.wantProject(f), project.Dir)
+				wantSkillDir := tt.wantSkill(f)
+
+				client := newClientMock(gomock.NewController(t))
+				sessionErr := errors.New("stop after inspecting session configuration")
+				client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
+						assert.Equal(t, []string{f.rootDir, wantSkillDir}, cfg.SkillDirectories)
+						return nil, sessionErr
+					})
+
+				cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
+					NewTaskList:      func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
+					NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
+					DetectContext: func(dir string, opts ...workspace.DetectOption) (*workspace.WorkspaceContext, error) {
+						assert.Equal(t, rootArg, dir)
+						wsCtx, err := workspace.DetectContext(dir, opts...)
+						require.NoError(t, err)
+						require.Len(t, wsCtx.Skills, 1)
+						assert.Equal(t, wantSkillDir, wsCtx.Skills[0].Dir)
+						return wsCtx, nil
+					},
+				})
+				cmd.SetOut(&bytes.Buffer{})
+				cmd.SetErr(&bytes.Buffer{})
+				cmd.SetArgs([]string{"--root", rootArg, "use a skill", filepath.Join(f.callerDir, "task.yaml")})
+				require.ErrorIs(t, cmd.Execute(), sessionErr)
+			})
+		}
+	}
+}
+
 func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFileWithoutSessionLog(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := newClientMock(ctrl)

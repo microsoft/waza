@@ -634,6 +634,8 @@ contact services (including update checks). Credentials and external resulting
 state remain unresolved.
 `--workspace` discovers each skill and resolves its evaluation using the
 project's configured paths, native layout conventions, and filename precedence.
+It also inspects target-free evaluations, such as scenarios, stored directly
+in the evaluations directory or one of its immediate subdirectories.
 Relative configured paths resolve from the project configuration directory;
 `--skills-dir`, `--evals-dir`, and `--eval-file` override the corresponding
 settings in workspace mode.
@@ -851,7 +853,7 @@ Run a prompt through Copilot and generate a task YAML with inferred validators b
 | `--tags <a,b,...>` | Comma-separated tags to attach to the generated task |
 | `--timeout <duration>` | Max time for prompt execution (default: `5m`) |
 | `--overwrite` | Overwrite the output task file if it already exists |
-| `--root <dir>` | Root directory used for skill discovery (default: `.`) |
+| `--root <dir>` | Root directory used for skill discovery (default: `.`). `.waza.yaml` is still located from the working directory, and its configured skill paths stay relative to that file. |
 
 **Example:**
 ```bash

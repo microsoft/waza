@@ -382,7 +382,9 @@ waza preflight --workspace --skills-dir skills --evals-dir evals --eval-file eva
 Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
 locked cached graders, mock matching, references, and static capability support.
 Workspace mode uses the configured skill/evaluation paths and the same native
-evaluation discovery and filename precedence as other workspace commands.
+evaluation discovery and filename precedence as other workspace commands, and
+also inspects target-free evaluations, such as scenarios, stored directly in the
+evaluations directory or one of its immediate subdirectories.
 Relative configured paths resolve from the project configuration directory;
 workspace-mode path and filename flags override those settings.
 Valid unmatched task globs are optional when other patterns discover tasks.
@@ -540,6 +542,7 @@ Initialize a waza project with directory structure.
 - `--no-skill` — Skip the first-skill creation prompt
 - `--skills-dir` — Override detection/defaults with a project-relative skills path
 - `--evals-dir` — Override detection/defaults with a project-relative evals path
+- With an existing `.waza.yaml`, generating `.github/workflows/eval.yml` rejects `--skills-dir` or `--evals-dir` values that differ from its `paths`, so CI validates the same roots that runs use
 - `--results-dir` — Set the results path recorded in newly created configuration
 
 **What it creates:**
@@ -559,8 +562,11 @@ offline preflight using a pinned standalone Waza release, action commit SHAs
 and Ubuntu 24.04. Custom path flags do not update its path filters.
 
 Live evaluations require a manual default-branch dispatch with `run-agent=true`.
-Configure approval for the `waza-agent` environment and its
-`WAZA_COPILOT_TOKEN` secret, passed to the runtime as `COPILOT_GITHUB_TOKEN`.
+Configure the `waza-agent` environment and its `WAZA_COPILOT_TOKEN` secret,
+passed to the runtime as `COPILOT_GITHUB_TOKEN`. Before adding the secret,
+restrict the environment's deployment branches to the default branch and
+require reviewers. The workflow's branch check is not a security boundary: a
+writer can dispatch a modified workflow from another branch.
 Model calls can incur charges. `init` does not configure credentials or grant
 PRs access to secrets, and it preserves existing workflow files. Keep the
 fork-PR and untrusted-input safeguards described in the
@@ -585,6 +591,8 @@ An explicit output directory bounds workspace discovery for the scaffold.
 Without `--output-dir`, existing ancestor workspace discovery is unchanged.
 Standalone scaffolds share `init`'s pinned, offline-default CI policy. The
 manual agent gate rejects mock results and missing or unknown executor identity.
+Standalone repair validates generated CI paths before replacing a malformed
+`SKILL.md`, preserving its original contents when that configuration is rejected.
 
 **Modes:**
 
@@ -639,8 +647,13 @@ The generated task includes inferred validators based on:
 - `--root` — Root directory used for skill discovery
 
 Without `.waza.yaml`, default skill paths resolve from `--root`, not the caller's
-working directory. When configuration is found, configured paths remain relative
-to that configuration file's directory.
+working directory. `.waza.yaml` is located from the current working directory
+(walking up its parents), not from `--root`; a configuration file under `--root`
+is consulted only when it is also found from the working directory. When
+configuration is found, its configured or default skill paths remain relative to
+that configuration file's directory and may therefore be outside `--root`.
+`--root` selects discovery inputs and the SDK source directory; it is not an
+isolation boundary for skills the SDK can load.
 
 **Examples:**
 ```bash

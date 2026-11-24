@@ -2,11 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
 
 	"github.com/microsoft/waza/internal/preflight"
+	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
 )
@@ -22,9 +26,11 @@ references, and static runtime capabilities using local evidence only.
 Uses the same read-only project workspace skill defaults as run where applicable;
 scenario-only disabled discovery never injects ambient skills.
 
-Use --workspace to inspect each evaluation resolved for discovered skills using
-the project's configured paths and filename precedence. Workspace mode also
-accepts --skills-dir, --evals-dir, and --eval-file to override those settings.
+Use --workspace to inspect each evaluation resolved for discovered skills, plus
+target-free evaluations directly under the evals directory or its immediate
+subdirectories, using the project's configured paths and filename precedence.
+Workspace mode also accepts --skills-dir, --evals-dir, and --eval-file to
+override those settings.
 
 Never starts an agent, model, subprocess, mock server, live service, or update
 check. Verified means a static check, not a satisfied requirement, enforced
@@ -98,7 +104,7 @@ Existing run/check exit policies are unchanged.`,
 			if skillsDir != "" || evalsDir != "" || evalFile != "" {
 				return fmt.Errorf("--skills-dir, --evals-dir, and --eval-file require --workspace")
 			}
-			report := preflight.Inspect(args[0], preflight.Options{ContextDir: contextDir})
+			report := preflight.Inspect(args[0], preflight.Options{ContextDir: contextDir, DefaultSkillPaths: standaloneSkillDefaults(args[0])})
 			if format == "json" {
 				encoder := json.NewEncoder(cmd.OutOrStdout())
 				encoder.SetIndent("", "  ")
@@ -116,7 +122,7 @@ Existing run/check exit policies are unchanged.`,
 	}
 	cmd.Flags().StringVar(&format, "format", "human", "Output format: human or json")
 	cmd.Flags().StringVar(&contextDir, "context-dir", "", "Context directory (relative to cwd; default: eval directory/fixtures)")
-	cmd.Flags().BoolVar(&workspaceMode, "workspace", false, "Preflight evaluations resolved for discovered skills")
+	cmd.Flags().BoolVar(&workspaceMode, "workspace", false, "Preflight evaluations for discovered skills and target-free evaluations in the evals directory")
 	cmd.Flags().StringVar(&skillsDir, "skills-dir", "", "Override the configured skills directory in workspace mode")
 	cmd.Flags().StringVar(&evalsDir, "evals-dir", "", "Override the configured evaluations directory in workspace mode")
 	cmd.Flags().StringVar(&evalFile, "eval-file", "", "Override the configured evaluation filename in workspace mode")
@@ -180,9 +186,80 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 			continue
 		}
 		seen[path] = struct{}{}
+		reports = append(reports, preflight.Inspect(path, preflight.Options{DefaultSkillPaths: []string{skill.Dir}}))
+	}
+	// Target-free scenario evals use the separated layout without a matching skill.
+	extra, err := separatedWorkspaceEvals(wsCtx)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range extra {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
 		reports = append(reports, preflight.Inspect(path, preflight.Options{}))
 	}
 	return reports, nil
+}
+
+// separatedWorkspaceEvals lists evaluation files directly under the evals root
+// and its immediate subdirectories, using the configured filename precedence.
+func separatedWorkspaceEvals(wsCtx *workspace.WorkspaceContext) ([]string, error) {
+	evalsDir := wsCtx.EvalsDir
+	if evalsDir == "" {
+		evalsDir = projectconfig.DefaultEvalsDir
+	}
+	if !filepath.IsAbs(evalsDir) {
+		evalsDir = filepath.Join(wsCtx.Root, evalsDir)
+	}
+	names := []string{projectconfig.DefaultEvalFile}
+	if wsCtx.EvalFile != "" && wsCtx.EvalFile != projectconfig.DefaultEvalFile {
+		names = []string{wsCtx.EvalFile, projectconfig.DefaultEvalFile}
+	}
+	firstEval := func(dir string) (string, error) {
+		for _, name := range names {
+			path := filepath.Join(dir, name)
+			info, err := os.Stat(path)
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return "", fmt.Errorf("checking evaluation %q: %w", path, err)
+			}
+			if info.Mode().IsRegular() {
+				return filepath.Clean(path), nil
+			}
+		}
+		return "", nil
+	}
+	entries, err := os.ReadDir(evalsDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("listing evaluations in %q: %w", evalsDir, err)
+	}
+	var paths []string
+	if path, err := firstEval(evalsDir); err != nil {
+		return nil, err
+	} else if path != "" {
+		paths = append(paths, path)
+	}
+	for _, entry := range entries {
+		dir := filepath.Join(evalsDir, entry.Name())
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			continue
+		}
+		path, err := firstEval(dir)
+		if err != nil {
+			return nil, err
+		}
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
 }
 
 func renderPreflightHuman(w io.Writer, r *preflight.Report) error {
@@ -214,6 +291,15 @@ func renderPreflightHuman(w io.Writer, r *preflight.Report) error {
 			d.State, d.Code, d.Severity, d.Source, d.TaskID, d.RequirementID, d.Message, d.Remediation); err != nil {
 			return fmt.Errorf("writing preflight diagnostic: %w", err)
 		}
+	}
+	return nil
+}
+
+// standaloneSkillDefaults mirrors run's owning-skill default for an explicit
+// evaluation path inside a single-skill workspace.
+func standaloneSkillDefaults(evalPath string) []string {
+	if dir := standaloneSkillSpecPath(evalPath).skillDir; dir != "" {
+		return []string{dir}
 	}
 	return nil
 }
