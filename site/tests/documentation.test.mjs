@@ -628,6 +628,16 @@ for (const path of hotfixCandidateNotes) {
     const notes = read(path).replace(/\s+/g, ' ');
     const unsupportedWindowsPass = /synthetic (?:evaluation on Windows|Windows (?:model )?evaluation)(?: also|\. That evaluation)? (?:passed|succeeded)/i;
     assert.match(notes, /\b(?:not merged|is open and may change before merge)\b/i);
+    assert.match(notes, /custom Copilot CLI supplied through `COPILOT_CLI_PATH` must speak protocol 4.*?protocol-3 runtimes, including CLI 1\.0\.85, fail at startup before a session is created/i);
+    for (const field of [
+      'billing.tokenPrices.cachePrice',
+      'billing.tokenPrices.contextMax',
+      'billing.tokenPrices.longContext.cachePrice',
+      'billing.tokenPrices.longContext.contextMax',
+    ]) {
+      assert.ok(notes.includes(field), `${path}: disclose omitted optional field ${field}`);
+    }
+    assert.match(notes, /cacheReadPrice` and `maxPromptTokens`, respectively, when available\. Those fields are optional too/i);
     assert.match(notes, /prompt graders with `evidence_context`, an override must identify the pinned embedded executable/i);
     assert.match(notes, /owned native execution rejects any nonempty `COPILOT_CLI_PATH` override; clear the variable/i);
     assert.match(notes, /an earlier PR head `2a2d29c7465ef6c9c7d1d50649abbc248064f23b`/i);
@@ -636,6 +646,7 @@ for (const path of hotfixCandidateNotes) {
     assert.match(notes, /Neither establishes an authenticated Windows model evaluation at that head/i);
     assert.match(notes, /source-bound record for that specific evaluation has not been verified/i);
     assert.doesNotMatch(notes, unsupportedWindowsPass);
+    assert.doesNotMatch(notes, /#1114|#1120/, 'deferred work must not be included in the candidate scope');
     for (const claim of [
       'A preliminary synthetic evaluation on Windows also passed.',
       'A preliminary synthetic evaluation on Windows.\nThat evaluation passed.',

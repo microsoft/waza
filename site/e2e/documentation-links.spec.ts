@@ -89,6 +89,17 @@ test('candidate release article distinguishes offline checks from unverified SDK
   await expect(article).toContainText('Release candidate, November 23, 2026.');
   await expect(article.getByRole('heading', { name: 'Proposed Copilot SDK v2 migration', exact: true })).toBeVisible();
   await expect(article).toContainText('is open and may change before merge.');
+  await expect(article).toContainText('A custom Copilot CLI supplied through COPILOT_CLI_PATH must speak protocol 4.');
+  await expect(article).toContainText('protocol-3 runtimes, including CLI 1.0.85, fail at startup before a session is created.');
+  for (const field of [
+    'billing.tokenPrices.cachePrice',
+    'billing.tokenPrices.contextMax',
+    'billing.tokenPrices.longContext.cachePrice',
+    'billing.tokenPrices.longContext.contextMax',
+  ]) {
+    await expect(article).toContainText(field);
+  }
+  await expect(article).toContainText('cacheReadPrice and maxPromptTokens, respectively, when available. Those fields are optional too.');
   await expect(article).toContainText('For prompt graders with evidence_context, an override must identify the pinned embedded executable.');
   await expect(article).toContainText('Owned native execution rejects any nonempty COPILOT_CLI_PATH override');
   await expect(article).toContainText('At an earlier PR head 2a2d29c7465ef6c9c7d1d50649abbc248064f23b');
@@ -102,6 +113,8 @@ test('candidate release article distinguishes offline checks from unverified SDK
     'synthetic evaluation on windows also passed',
     'synthetic evaluation on windows. that evaluation passed',
     'synthetic windows evaluation passed',
+    '#1114',
+    '#1120',
   ]) {
     expect(articleText).not.toContain(claim);
   }
