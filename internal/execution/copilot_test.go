@@ -504,6 +504,72 @@ func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
 	require.True(t, resp.Success)
 }
 
+// SDK v2 treats "/" in a session model as a provider qualifier, so a custom
+// provider's slash-containing model name must be registered as a
+// provider-local model whose WireModel is the original name, on both create
+// and resume.
+func TestCopilotCustomProviderSlashModelUsesWireModel(t *testing.T) {
+	t.Setenv("COPILOT_BASE_URL", "https://provider.example/v1")
+	for _, name := range []string{"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER", "COPILOT_PROVIDER_TYPE", "COPILOT_WIRE_API",
+		"COPILOT_PROVIDER_WIRE_API", "COPILOT_API_KEY", "COPILOT_PROVIDER_API_KEY", "COPILOT_BEARER_TOKEN", "COPILOT_PROVIDER_BEARER_TOKEN"} {
+		t.Setenv(name, "")
+	}
+	const model = "anthropic/claude-sonnet-4"
+	wantModel := customProviderName + "/anthropic__claude-sonnet-4"
+	wantModels := []copilot.ProviderModelConfig{{ID: "anthropic__claude-sonnet-4", Provider: customProviderName, WireModel: model}}
+
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+	sessionMock := newSessionMock(ctrl)
+	clientMock.EXPECT().Start(gomock.Any()).Times(1)
+	clientMock.EXPECT().Stop().Times(1)
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, opts *copilot.CreateSessionOptions) (CopilotSession, error) {
+			require.Equal(t, wantModel, opts.Model)
+			require.Equal(t, defaultProviderRef(customProviderName), opts.Inference.DefaultProvider)
+			require.Equal(t, wantModels, opts.Inference.Models)
+			return sessionMock, nil
+		})
+	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, opts *copilot.ResumeSessionOptions) (CopilotSession, error) {
+			require.Equal(t, wantModel, opts.Model)
+			require.Equal(t, defaultProviderRef(customProviderName), opts.Inference.DefaultProvider)
+			require.Equal(t, wantModels, opts.Inference.Models)
+			return sessionMock, nil
+		})
+	sessionMock.EXPECT().Disconnect().Times(2)
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1").Times(1)
+	sessionMock.EXPECT().On(gomock.Any()).Times(6).Return(func() {})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Times(2).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SessionID().Return("session-1").Times(2)
+
+	engine := NewCopilotEngineBuilder(model, &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	sourceDir := t.TempDir()
+	for _, sessionID := range []string{"", "session-1"} {
+		resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello?", SourceDir: sourceDir, SessionID: sessionID})
+		require.NoError(t, err)
+		require.True(t, resp.Success)
+	}
+}
+
+func TestCustomProviderSessionKeepsPlainModelUnqualified(t *testing.T) {
+	provider := customProviderConfig{config: &copilot.NamedProviderConfig{Name: customProviderName, BaseURL: "https://provider.example/v1"}}
+	model, inference := provider.session("gpt-4o-mini", "")
+	require.Equal(t, "gpt-4o-mini", model)
+	require.Nil(t, inference.Models)
+
+	model, inference = customProviderConfig{}.session("anthropic/claude-sonnet-4", "high")
+	require.Equal(t, "anthropic/claude-sonnet-4", model, "without a custom provider the selection is passed through")
+	require.Nil(t, inference.Models)
+	require.Nil(t, inference.Providers)
+	require.Equal(t, "high", inference.ReasoningEffort)
+}
+
 func TestProviderFromEnv_SanitizesHost(t *testing.T) {
 	t.Setenv("COPILOT_BASE_URL", "https://user:secret@example.test:8443/v1?token=abc")
 

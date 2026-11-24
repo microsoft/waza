@@ -137,7 +137,7 @@ jobs:
             # Outputs stay outside the checkout: untracked files mark vcs.modified.
             out="$RUNNER_TEMP/cli/$os-$arch"
             mkdir -p "$out"
-            GOOS="$os" GOARCH="$arch" go build -ldflags "-X main.version=${VERSION}" -o "$out/$name" ./cmd/waza
+            GOOS="$os" GOARCH="$arch" go build -tags copilot_no_inprocess -ldflags "-X main.version=${VERSION}" -o "$out/$name" ./cmd/waza
             (cd "$out" &&
               GITHUB_SHA="$REVISION" bash "$GITHUB_WORKSPACE/.github/scripts/release_binary_check.sh" "$name" &&
               printf '%s\n' "$REVISION" > "$name.source-sha.txt" &&

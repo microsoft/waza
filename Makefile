@@ -7,6 +7,8 @@ BUILD_DIR=.
 GO_FILES=$(shell find . -name '*.go' -not -path './vendor/*' -not -path './*/node_modules/*')
 GO_PACKAGES=$(shell go list ./... | grep -v '/node_modules')
 VERSION?=0.0.0-dev
+# Waza uses spawned stdio only; exclude the SDK's in-process FFI and native dependencies.
+GO_BUILD_TAGS=-tags copilot_no_inprocess
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 WEB_DEPS_STAMP=web/node_modules/.waza-deps-stamp
 WEB_DEPS_INPUTS=web/package.json web/package-lock.json
@@ -36,7 +38,7 @@ build-web: web-deps
 # Build the binary (includes web dashboard)
 build: build-web
 	@echo "Building $(BINARY_NAME)..."
-	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/waza
+	@go build $(GO_BUILD_TAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/waza
 
 # Run tests (requires web assets for embedded FS tests)
 test: build-web
@@ -76,7 +78,7 @@ fmt:
 # Install binary to GOPATH (builds web dashboard first)
 install: build-web
 	@echo "Installing $(BINARY_NAME)..."
-	@go install $(LDFLAGS) ./cmd/waza
+	@go install $(GO_BUILD_TAGS) $(LDFLAGS) ./cmd/waza
 
 # Clean build artifacts
 clean:

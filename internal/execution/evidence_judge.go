@@ -324,8 +324,9 @@ func evidenceJudgeSessionConfig(req *ExecutionRequest, dirs *evidenceJudgeDirs, 
 	}
 	github := provider.github()
 	github.TelemetryEnabled = &no
+	model, inference := provider.session(req.ModelID, req.ReasoningEffort)
 	return &copilot.CreateSessionOptions{
-		SessionID: state.id, Model: req.ModelID, Inference: provider.inference(req.ReasoningEffort),
+		SessionID: state.id, Model: model, Inference: inference,
 		WorkingDirectory: dirs.work, ConfigDirectory: dirs.config,
 		EnableConfigDiscovery: &no,
 		State: copilot.SessionStateOptions{

@@ -34,6 +34,18 @@ func TestDockerRunnerBuildInputs(t *testing.T) {
 	if !strings.Contains(dockerfile, "AS native-reference") || !strings.Contains(dockerfile, "AS native-bundle-test") {
 		t.Fatal("runner Dockerfile must distinguish the native reference from its test-only harness")
 	}
+	if err := checkNativeFreeGoCommands(dockerfile); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("untagged-go-command", func(t *testing.T) {
+		mutated := strings.Replace(dockerfile, "go test -tags copilot_no_inprocess -c", "go test -c", 1)
+		if mutated == dockerfile {
+			t.Fatal("mutation did not remove a native-free build tag")
+		}
+		if checkNativeFreeGoCommands(mutated) == nil {
+			t.Fatal("an untagged CGO_ENABLED=0 Go command must fail the native-free contract")
+		}
+	})
 	ignore := read(".dockerignore")
 	admission := "!examples/\nexamples/*\n!examples/runner/\nexamples/runner/*\n!examples/runner/unit.json\n!examples/runner/copilot-unit.json\n"
 	if !strings.Contains(ignore, admission) {
@@ -116,6 +128,25 @@ func checkDockerRunnerBranches(source []byte) error {
 	}
 	if _, ok := triggers["pull_request"]; ok {
 		return fmt.Errorf("Docker pull requests must run only through the go-ci container caller")
+	}
+	return nil
+}
+
+// checkNativeFreeGoCommands requires every CGO_ENABLED=0 Go build or test to exclude
+// the SDK's in-process FFI, which otherwise links dynamically and fails on musl/scratch.
+func checkNativeFreeGoCommands(dockerfile string) error {
+	commands := 0
+	for _, line := range strings.Split(strings.ReplaceAll(dockerfile, "\r\n", "\n"), "\n") {
+		if !strings.Contains(line, "CGO_ENABLED=0") {
+			continue
+		}
+		commands++
+		if !regexp.MustCompile(`\bgo (build|test) -tags copilot_no_inprocess `).MatchString(line) {
+			return fmt.Errorf("CGO_ENABLED=0 Go command must use -tags copilot_no_inprocess: %s", line)
+		}
+	}
+	if commands == 0 {
+		return fmt.Errorf("runner Dockerfile has no CGO_ENABLED=0 Go commands to inspect")
 	}
 	return nil
 }

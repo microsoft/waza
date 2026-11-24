@@ -195,20 +195,35 @@ func (p customProviderConfig) enabled() bool {
 	return p.config != nil && p.err == nil
 }
 
-// inference returns the session inference options. Without a custom
-// provider it carries only the reasoning effort, leaving the session on the
-// default Copilot API path.
-func (p customProviderConfig) inference(reasoningEffort string) copilot.SessionInferenceOptions {
+// session returns the session model selection and inference options. Without
+// a custom provider it carries only the reasoning effort, leaving the session
+// on the default Copilot API path.
+//
+// SDK v2 parses a "/" in a model selection as a provider qualifier, so a
+// custom-provider model name such as "anthropic/claude-sonnet-4" would name
+// an unknown provider. Such names are registered as a provider-local model
+// definition whose WireModel is the original name, and the session selects
+// it by its qualified ID; the provider still receives the configured name.
+func (p customProviderConfig) session(model, reasoningEffort string) (string, copilot.SessionInferenceOptions) {
 	inference := copilot.SessionInferenceOptions{ReasoningEffort: reasoningEffort}
 	if p.config == nil {
-		return inference
+		return model, inference
 	}
 	clone := *p.config
 	defaultProvider := copilot.String(clone.Name)
 	inference.DefaultProvider = &defaultProvider
 	inference.Providers = []copilot.NamedProviderConfig{clone}
-	return inference
+	if !strings.Contains(model, "/") {
+		return model, inference
+	}
+	localID := strings.ReplaceAll(model, "/", customProviderModelSeparator)
+	inference.Models = []copilot.ProviderModelConfig{{ID: localID, Provider: clone.Name, WireModel: model}}
+	return clone.Name + "/" + localID, inference
 }
+
+// customProviderModelSeparator replaces "/" in provider-local model IDs,
+// which the SDK reserves for provider qualification.
+const customProviderModelSeparator = "__"
 
 // github returns the session GitHub options. A custom provider disables the
 // Copilot API catalog so inference cannot silently fall back to it.
@@ -728,12 +743,13 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		skipAmbientRetrieval = copilot.Bool(true)
 		memory = &copilot.MemoryConfiguration{Enabled: false}
 	}
+	sessionModel, inference := e.provider.session(modelID, req.ReasoningEffort)
 
 	if req.SessionID == "" {
 		// Create session with updated API
 		session, err = client.CreateSession(ctx, &copilot.CreateSessionOptions{
-			Model:     modelID,
-			Inference: e.provider.inference(req.ReasoningEffort),
+			Model:     sessionModel,
+			Inference: inference,
 			GitHub:    e.provider.github(),
 			Tools: copilot.SessionToolOptions{
 				Definitions:    req.Tools,
@@ -772,8 +788,8 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		}
 	} else {
 		session, err = client.ResumeSessionWithOptions(ctx, req.SessionID, &copilot.ResumeSessionOptions{
-			Model:     modelID,
-			Inference: e.provider.inference(req.ReasoningEffort),
+			Model:     sessionModel,
+			Inference: inference,
 			GitHub:    e.provider.github(),
 			Tools: copilot.SessionToolOptions{
 				Definitions:    req.Tools,

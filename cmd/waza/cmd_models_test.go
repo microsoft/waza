@@ -82,7 +82,15 @@ func TestModelsCommand_JSONOutput(t *testing.T) {
 			Multiplier:      copilot.Float64(1.5),
 			DiscountPercent: new(int32(10)),
 			Promo:           &rpc.ModelBillingPromo{},
-			TokenPrices:     &rpc.ModelBillingTokenPrices{BatchSize: int64Ptr(1000)},
+			TokenPrices: &rpc.ModelBillingTokenPrices{
+				BatchSize:       int64Ptr(1000),
+				CacheReadPrice:  copilot.Float64(0.25),
+				MaxPromptTokens: int64Ptr(128000),
+				LongContext: &rpc.ModelBillingTokenPricesLongContext{
+					CacheReadPrice:  copilot.Float64(0.5),
+					MaxPromptTokens: int64Ptr(1000000),
+				},
+			},
 		}},
 	}, nil)
 	client.EXPECT().Stop().Return(nil)
@@ -116,10 +124,21 @@ func TestModelsCommand_JSONOutput(t *testing.T) {
 	limits, ok := capabilities["limits"].(map[string]any)
 	require.True(t, ok, "capabilities.limits must be an object")
 	require.Empty(t, limits)
+	// SDK v2 and runtime 1.0.114 no longer define the deprecated
+	// cachePrice/contextMax fields, so they are absent rather than synthesized
+	// from cacheReadPrice/maxPromptTokens.
 	require.Equal(t, map[string]any{
-		"multiplier":  1.5,
-		"tokenPrices": map[string]any{"batchSize": float64(1000)},
-	}, decoded[0]["billing"], "billing keeps the pre-v2 multiplier/tokenPrices shape")
+		"multiplier": 1.5,
+		"tokenPrices": map[string]any{
+			"batchSize":       float64(1000),
+			"cacheReadPrice":  0.25,
+			"maxPromptTokens": float64(128000),
+			"longContext": map[string]any{
+				"cacheReadPrice":  0.5,
+				"maxPromptTokens": float64(1000000),
+			},
+		},
+	}, decoded[0]["billing"], "billing keeps multiplier/tokenPrices and omits removed deprecated fields")
 }
 
 func int64Ptr(v int64) *int64 { return &v }

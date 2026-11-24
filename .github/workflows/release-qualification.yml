@@ -176,7 +176,7 @@ jobs:
           for target in "${targets[@]}"; do
             read -r goos goarch name <<< "$target"
             GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
-              go build -trimpath -ldflags "-X main.version=${VERSION}" -o "dist/${name}" ./cmd/waza
+              go build -tags copilot_no_inprocess -trimpath -ldflags "-X main.version=${VERSION}" -o "dist/${name}" ./cmd/waza
             bash .github/scripts/release_binary_check.sh "dist/${name}"
             printf '%s\n' "$SOURCE_SHA" > "dist/${name}.source-sha.txt"
             sha256sum "dist/${name}" | sed 's#dist/##' > "dist/${name}.sha256"

@@ -38,7 +38,7 @@ COPY --from=web-builder /build/web/dist/ web/dist/
 # Build the binary with static linking
 RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=waza-go-build,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags '-s -w' -o waza ./cmd/waza
+    CGO_ENABLED=0 GOOS=linux go build -tags copilot_no_inprocess -ldflags '-s -w' -o waza ./cmd/waza
 
 # Verify the binary works
 RUN test "$(od -An -tx1 -N4 ./waza | tr -d ' \n')" = 7f454c46 && \

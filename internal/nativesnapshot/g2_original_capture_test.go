@@ -159,6 +159,15 @@ func frozenOriginalCaptureBinary(t *testing.T) string {
 			source = filepath.Join(scratch, name)
 			require.NoError(t, os.WriteFile(source, raw, 0600))
 		}
+		if name == "orchestration-runner.go" {
+			// Retarget only the Copilot SDK import path to the module the
+			// linked packages now use; the pinned runner logic is unchanged.
+			const oldImport, newImport = `"github.com/github/copilot-sdk/go"`, `"github.com/microsoft/copilot-sdk/go/v2"`
+			require.Equal(t, 1, bytes.Count(raw, []byte(oldImport)))
+			raw = bytes.ReplaceAll(raw, []byte(oldImport), []byte(newImport))
+			source = filepath.Join(scratch, name)
+			require.NoError(t, os.WriteFile(source, raw, 0600))
+		}
 		parts := strings.SplitN(name, "-", 2)
 		replacements[filepath.Join(repository, "internal", parts[0], parts[1])] = source
 	}

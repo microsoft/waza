@@ -9,7 +9,9 @@ import (
 // emitted before the SDK v2 migration: capabilities.supports and
 // capabilities.limits are always objects, the two support flags are always
 // present, policy.terms is a string, and billing carries only multiplier
-// and tokenPrices.
+// and tokenPrices. tokenPrices no longer includes the deprecated cachePrice
+// and contextMax fields: SDK v2 and its bundled runtime do not define them,
+// and waza does not synthesize them from cacheReadPrice/maxPromptTokens.
 type modelJSON struct {
 	ID                        string                `json:"id"`
 	Name                      string                `json:"name"`
