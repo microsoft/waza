@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
@@ -377,8 +377,8 @@ func TestDiagnosticMissingSessionIDDoesNotCreateLedgerEntry(t *testing.T) {
 }
 
 func TestNewOwnedCopilotClientDoesNotUseSharedClient(t *testing.T) {
-	a := NewOwnedCopilotClient(&copilot.ClientOptions{})
-	b := NewOwnedCopilotClient(&copilot.ClientOptions{})
+	a := NewOwnedCopilotClient(&copilot.ClientOptions{Mode: copilot.ModeCodingAgent})
+	b := NewOwnedCopilotClient(&copilot.ClientOptions{Mode: copilot.ModeCodingAgent})
 	require.NotSame(t, a, b)
 	wa, ok := a.(*copilotClientWrapper)
 	require.True(t, ok)
@@ -437,7 +437,7 @@ func TestDiagnosticAnonymousInvocationsAndShutdownKeepSeparateAggregates(t *test
 		return nil
 	})
 	arrived, release := make(chan struct{}, 2), make(chan struct{})
-	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(func(context.Context, *copilot.SessionConfig) (CopilotSession, error) {
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(func(context.Context, *copilot.CreateSessionOptions) (CopilotSession, error) {
 		arrived <- struct{}{}
 		<-release
 		return nil, errors.New(privateDiagnosticSentinel)

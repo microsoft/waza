@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,17 +21,27 @@ type diagnosticRPCRequest struct {
 	ID     json.RawMessage `json:"id"`
 	Method string          `json:"method"`
 	Params struct {
-		SessionID                          string          `json:"sessionId"`
-		Prompt                             string          `json:"prompt"`
-		AvailableTools                     []string        `json:"availableTools"`
-		EnableConfigDiscovery              json.RawMessage `json:"enableConfigDiscovery"`
-		EnableFileHooks                    json.RawMessage `json:"enableFileHooks"`
-		EnableOnDemandInstructionDiscovery json.RawMessage `json:"enableOnDemandInstructionDiscovery"`
-		SkipCustomInstructions             json.RawMessage `json:"skipCustomInstructions"`
-		SkipEmbeddingRetrieval             json.RawMessage `json:"skipEmbeddingRetrieval"`
-		EnableSessionStore                 json.RawMessage `json:"enableSessionStore"`
-		EnableHostGitOperations            json.RawMessage `json:"enableHostGitOperations"`
-		Memory                             json.RawMessage `json:"memory"`
+		SessionID             string          `json:"sessionId"`
+		Prompt                string          `json:"prompt"`
+		EnableConfigDiscovery json.RawMessage `json:"enableConfigDiscovery"`
+		Tools                 struct {
+			AvailableTools []string `json:"availableTools"`
+		} `json:"tools"`
+		Hooks struct {
+			EnableRepositoryHooks json.RawMessage `json:"enableRepositoryHooks"`
+		} `json:"hooks"`
+		Instructions struct {
+			OnDemandDiscovery      json.RawMessage `json:"onDemandDiscovery"`
+			SkipCustomInstructions json.RawMessage `json:"skipCustomInstructions"`
+		} `json:"instructions"`
+		State struct {
+			SkipEmbeddingRetrieval  json.RawMessage `json:"skipEmbeddingRetrieval"`
+			EnableCrossSessionStore json.RawMessage `json:"enableCrossSessionStore"`
+			Memory                  json.RawMessage `json:"memory"`
+		} `json:"state"`
+		Git struct {
+			EnableHostGitOperations json.RawMessage `json:"enableHostGitOperations"`
+		} `json:"git"`
 	} `json:"params"`
 }
 
@@ -126,7 +136,7 @@ func (s *diagnosticRPCServer) common(req diagnosticRPCRequest) {
 	var result any
 	switch req.Method {
 	case "connect":
-		result = map[string]any{"ok": true, "protocolVersion": 3, "version": "offline-test"}
+		result = map[string]any{"ok": true, "protocolVersion": 4, "version": "offline-test"}
 	case "auth.getStatus":
 		result = map[string]any{"isAuthenticated": true}
 	case "session.create", "session.resume":
@@ -166,7 +176,7 @@ func offlineDiagnosticEngine(t *testing.T, address string, observer func(Executi
 	t.Helper()
 	e := NewCopilotEngineBuilder("requested-model", &CopilotEngineBuilderOptions{
 		NewCopilotClient: func(options *copilot.ClientOptions) CopilotClient {
-			options.Connection = copilot.URIConnection{URL: address}
+			useTCPRuntime(t, options, address)
 			return NewOwnedCopilotClient(options)
 		},
 		DiagnosticObserver: observer,

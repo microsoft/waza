@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
@@ -43,7 +43,7 @@ func promptJudgingProducer(t *testing.T) *models.EvaluationOutcome {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("producer-selected-file fixture requires Linux/macOS")
 	}
-	client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+	client := &copilotfake.Client{Send: func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 		for _, name := range []string{"a.txt", "b.txt"} {
 			require.NoError(t, os.WriteFile(filepath.Join(config.WorkingDirectory, name), []byte("PRIVATE_FILE_BODY_"+name), 0600))
 		}

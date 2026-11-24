@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/spf13/cobra"
 )
@@ -67,7 +67,7 @@ func newModelsCommandWithOptions(options *modelsCommandOptions) *cobra.Command {
 			})
 
 			if jsonOutput {
-				data, err := json.MarshalIndent(models, "", "  ")
+				data, err := json.MarshalIndent(modelsJSON(models), "", "  ")
 				if err != nil {
 					return fmt.Errorf("failed to marshal models: %w", err)
 				}
@@ -84,7 +84,7 @@ func newModelsCommandWithOptions(options *modelsCommandOptions) *cobra.Command {
 	return cmd
 }
 
-func renderModelsTable(cmd *cobra.Command, models []copilot.ModelInfo) error {
+func renderModelsTable(cmd *cobra.Command, models []copilot.Model) error {
 	w := cmd.OutOrStdout()
 
 	if len(models) == 0 {
@@ -110,13 +110,13 @@ func renderModelsTable(cmd *cobra.Command, models []copilot.ModelInfo) error {
 
 	for _, m := range models {
 		vision := "no"
-		if m.Capabilities.Supports.Vision {
+		if supports := m.Capabilities.Supports; supports != nil && supports.Vision != nil && *supports.Vision {
 			vision = "yes"
 		}
 
 		contextWindow := "-"
-		if m.Capabilities.Limits.MaxContextWindowTokens != nil && *m.Capabilities.Limits.MaxContextWindowTokens > 0 {
-			contextWindow = formatTokenCount(*m.Capabilities.Limits.MaxContextWindowTokens)
+		if limits := m.Capabilities.Limits; limits != nil && limits.MaxContextWindowTokens != nil && *limits.MaxContextWindowTokens > 0 {
+			contextWindow = formatTokenCount(*limits.MaxContextWindowTokens)
 		}
 
 		fmt.Fprintf(w, "%-*s  %-*s  %-8s  %s\n", idWidth, m.ID, nameWidth, m.Name, vision, contextWindow) //nolint:errcheck
@@ -126,7 +126,7 @@ func renderModelsTable(cmd *cobra.Command, models []copilot.ModelInfo) error {
 	return nil
 }
 
-func formatTokenCount(tokens int) string {
+func formatTokenCount(tokens int64) string {
 	if tokens >= 1_000_000 {
 		return fmt.Sprintf("%dM", tokens/1_000_000)
 	}

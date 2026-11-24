@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
@@ -130,7 +130,7 @@ func TestOwnedNativeShutdownPreservesSharedCommandMockRuntime(t *testing.T) {
 	stub := &stubClient{}
 	var registry string
 	sharedConstruct = func(options *copilot.ClientOptions) CopilotClient {
-		connection, ok := options.Connection.(copilot.StdioConnection)
+		connection, ok := options.Runtime.(copilot.SpawnedStdioConnection)
 		require.True(t, ok)
 		for _, entry := range connection.Env {
 			if value, ok := strings.CutPrefix(entry, "WAZA_COMMAND_MOCK_ROOT="); ok {

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +20,7 @@ type observedDisconnectClient struct {
 	disconnected chan struct{}
 }
 
-func (c *observedDisconnectClient) CreateSession(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+func (c *observedDisconnectClient) CreateSession(ctx context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 	session, err := c.CopilotClient.CreateSession(ctx, config)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func TestShutdownUsageDoesNotReenterAbandonedDisconnect(t *testing.T) {
 				})
 				disconnected := make(chan struct{})
 				sharedConstruct = func(options *copilot.ClientOptions) CopilotClient {
-					options.Connection = copilot.URIConnection{URL: address}
+					useTCPRuntime(t, options, address)
 					return &observedDisconnectClient{CopilotClient: newCopilotClient(options), disconnected: disconnected}
 				}
 				var seen []ExecutionDiagnostic

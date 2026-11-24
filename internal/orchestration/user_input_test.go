@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -324,13 +324,13 @@ func TestProductionCopilotEngineAnswersNativeQuestionsFromTaskYAML(t *testing.T)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var sdkErrors []error
-			client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
-				require.NotNil(t, config.OnUserInputRequest, "callback must be registered for prompt %q", options.Prompt)
+			client := &copilotfake.Client{Send: func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+				require.NotNil(t, config.Interaction.OnUserInputRequest, "callback must be registered for prompt %q", options.Prompt)
 				question := copilot.UserInputRequest{Question: "Deploy where?", Choices: []string{"staging", "prod"}}
 				if options.Prompt == "continue" {
 					question = copilot.UserInputRequest{Question: tc.followUp}
 				}
-				answer, err := config.OnUserInputRequest(question, copilot.UserInputInvocation{SessionID: "native-session"})
+				answer, err := config.Interaction.OnUserInputRequest(question, copilot.UserInputInvocation{SessionID: "native-session"})
 				if err != nil {
 					sdkErrors = append(sdkErrors, err)
 				} else {
@@ -511,15 +511,15 @@ func TestRunBenchmarkLegacyAdaptiveResponderLeavesNativeCallbackUnset(t *testing
 func TestProductionEngineAdaptiveResponderAnswersNativeQuestionMidTurn(t *testing.T) {
 	var agentAnswers []copilot.UserInputResponse
 	var responderPrompts []string
-	client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
-		for _, tool := range config.Tools {
+	client := &copilotfake.Client{Send: func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+		for _, tool := range config.Tools.Definitions {
 			if tool.Name == "responder_reply" || tool.Name == "responder_stop" {
 				responderPrompts = append(responderPrompts, options.Prompt)
 				name, args := "responder_stop", map[string]any{}
 				if strings.Contains(options.Prompt, "Question: Your name?") {
 					name, args = "responder_reply", map[string]any{"answer": "Ada"}
 				}
-				for _, candidate := range config.Tools {
+				for _, candidate := range config.Tools.Definitions {
 					if candidate.Name == name {
 						_, err := candidate.Handler(copilot.ToolInvocation{ToolName: name, Arguments: args})
 						require.NoError(t, err)
@@ -528,8 +528,8 @@ func TestProductionEngineAdaptiveResponderAnswersNativeQuestionMidTurn(t *testin
 				return nil, nil
 			}
 		}
-		require.NotNil(t, config.OnUserInputRequest)
-		answer, err := config.OnUserInputRequest(copilot.UserInputRequest{Question: "Your name?"}, copilot.UserInputInvocation{SessionID: "agent"})
+		require.NotNil(t, config.Interaction.OnUserInputRequest)
+		answer, err := config.Interaction.OnUserInputRequest(copilot.UserInputRequest{Question: "Your name?"}, copilot.UserInputInvocation{SessionID: "agent"})
 		require.NoError(t, err)
 		agentAnswers = append(agentAnswers, answer)
 		return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "Hello " + answer.Answer}}}, nil

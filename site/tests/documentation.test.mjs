@@ -1120,7 +1120,7 @@ test('release entry points agree on published versions and the current runner re
     .find((line) => line.startsWith('- **Bounded local compatibility'));
   assert.match(changelogEntry ?? '', new RegExp(`writer schema ${escapedReleaseWriter}\\b`));
 
-  const sdk = read('go.mod').match(/github\.com\/github\/copilot-sdk\/go v(\S+)/)?.[1];
+  const sdk = read('go.mod').match(/github\.com\/microsoft\/copilot-sdk\/go\/v2 v(\S+)/)?.[1];
   const bundledCLI = read('internal/embedded/zcopilot_darwin_arm64.go').match(/Version:\s+"([^"]+)"/)?.[1];
   assert.ok(sdk && bundledCLI);
   for (const path of embeddedFiles) {
@@ -1141,7 +1141,7 @@ test('release entry points agree on published versions and the current runner re
     }
   }
   assert.ok(read('site/src/content/docs/reference/cli.mdx').includes(
-    `github.com/github/copilot-sdk/go\` v${sdk} with bundled CLI ${bundledCLI}`,
+    `github.com/microsoft/copilot-sdk/go/v2\` v${sdk} with bundled CLI ${bundledCLI}`,
   ));
   const runtimeEntry = read('CHANGELOG.md').split('\n')
     .find((line) => line.startsWith('- **Copilot runtime dependencies**'));

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -109,7 +109,7 @@ func TestCopilotEngine_Execute_UsesCallerDeadline(t *testing.T) {
 
 	expectedDeadline := time.Now().Add(time.Minute)
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, _ *copilot.SessionConfig) (CopilotSession, error) {
+		func(ctx context.Context, _ *copilot.CreateSessionOptions) (CopilotSession, error) {
 			deadline, ok := ctx.Deadline()
 			require.True(t, ok)
 			assert.WithinDuration(t, expectedDeadline, deadline, time.Second)
@@ -161,7 +161,7 @@ func TestCopilotEngine_Execute_NoDefaultTimeout(t *testing.T) {
 	clientMock := newClientMock(ctrl)
 
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, _ *copilot.SessionConfig) (CopilotSession, error) {
+		func(ctx context.Context, _ *copilot.CreateSessionOptions) (CopilotSession, error) {
 			_, ok := ctx.Deadline()
 			assert.False(t, ok)
 			return nil, errors.New("session create failed")
@@ -253,12 +253,12 @@ func TestCopilotEngine_Execute_PassesGraderRequestOptionsAndDeletesEphemeralSess
 	tool := copilot.Tool{Name: "set_waza_grade_pass"}
 
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
+		func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
 			require.Equal(t, "judge-model", cfg.Model)
-			require.NotNil(t, cfg.Streaming)
-			require.True(t, *cfg.Streaming)
-			require.Empty(t, cfg.SkillDirectories)
-			require.Equal(t, "set_waza_grade_pass", cfg.Tools[0].Name)
+			require.NotNil(t, cfg.Events.Streaming)
+			require.True(t, *cfg.Events.Streaming)
+			require.Empty(t, cfg.Skills.Directories)
+			require.Equal(t, "set_waza_grade_pass", cfg.Tools.Definitions[0].Name)
 			require.NotEmpty(t, cfg.WorkingDirectory)
 			return sessionMock, nil
 		})
@@ -304,11 +304,11 @@ func TestCopilotEngine_Execute_ResumedEphemeralSessionIsNotDeletedOrTracked(t *t
 	sessionMock := newSessionMock(ctrl)
 
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "existing-session", gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
-			require.NotNil(t, cfg.Streaming)
-			require.True(t, *cfg.Streaming)
-			require.Empty(t, cfg.SkillDirectories)
-			require.Equal(t, "judge-tool", cfg.Tools[0].Name)
+		func(_ context.Context, _ string, cfg *copilot.ResumeSessionOptions) (CopilotSession, error) {
+			require.NotNil(t, cfg.Events.Streaming)
+			require.True(t, *cfg.Events.Streaming)
+			require.Empty(t, cfg.Skills.Directories)
+			require.Equal(t, "judge-tool", cfg.Tools.Definitions[0].Name)
 			return sessionMock, nil
 		})
 	sessionMock.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
@@ -385,7 +385,8 @@ func TestCopilotEngineBuilder_CLIArgsOmitsModel(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	conn, ok := captured.Connection.(copilot.StdioConnection)
+	require.Equal(t, copilot.ModeCodingAgent, captured.Mode)
+	conn, ok := captured.Runtime.(copilot.SpawnedStdioConnection)
 	require.True(t, ok, "Connection must be a copilot.StdioConnection")
 	require.Empty(t, conn.Args,
 		"Connection.Args must NOT carry --model: copilot-runtime 1.0.85+ rejects the flag at startup (#630)")
@@ -419,7 +420,7 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenNoDefaultModel(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	conn, ok := captured.Connection.(copilot.StdioConnection)
+	conn, ok := captured.Runtime.(copilot.SpawnedStdioConnection)
 	require.True(t, ok, "Connection must be a copilot.StdioConnection")
 	require.Empty(t, conn.Args,
 		"Connection.Args must be empty when no defaultModelID is provided so the embedded CLI can pick its own fallback")
@@ -453,7 +454,7 @@ func TestCopilotEngineBuilder_CLIArgsEmptyWhenCustomProvider(t *testing.T) {
 	}).Build()
 
 	require.NotNil(t, captured, "NewCopilotClient must receive non-nil ClientOptions")
-	conn, ok := captured.Connection.(copilot.StdioConnection)
+	conn, ok := captured.Runtime.(copilot.SpawnedStdioConnection)
 	require.True(t, ok, "Connection must be a copilot.StdioConnection")
 	require.Empty(t, conn.Args,
 		"Connection.Args must be empty when a custom BYOK provider is configured so the embedded CLI does not pre-validate a provider-only model ID against the GitHub Copilot catalog (#305)")

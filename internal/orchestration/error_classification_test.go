@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
@@ -40,7 +40,7 @@ func TestBenchmarkOperationalErrorTrialPrecedence(t *testing.T) {
 			spec := &models.EvalSpec{SpecIdentity: models.SpecIdentity{Name: "classification"},
 				Config: models.Config{EngineType: "copilot-sdk", ModelID: "mock-model", TimeoutSec: 30, TrialsPerTask: len(control.statuses)},
 				Tasks:  []string{"task.yaml"}, Graders: []models.GraderConfig{evidenceConfig("judge")}}
-			client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			client := &copilotfake.Client{Send: func(_ *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 				return []copilot.SessionEvent{
 					{Data: &copilot.UserMessageData{Content: options.Prompt}},
 					{Data: &copilot.AssistantMessageData{Content: "retained output"}},

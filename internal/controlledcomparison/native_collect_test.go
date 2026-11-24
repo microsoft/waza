@@ -16,8 +16,8 @@ import (
 	"strings"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/controlledcomparison"
 	"github.com/microsoft/waza/internal/execution"
@@ -112,7 +112,7 @@ type nativeTestClient struct {
 	created         bool
 	deleted         bool
 	stopped         bool
-	verifyWorkspace func(*copilot.SessionConfig)
+	verifyWorkspace func(*copilot.CreateSessionOptions)
 }
 
 func (c *nativeTestClient) Start(context.Context) error { return c.startErr }
@@ -126,19 +126,19 @@ func (c *nativeTestClient) Stop() error {
 func (c *nativeTestClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatusResponse, error) {
 	return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
 }
-func (c *nativeTestClient) CreateSession(_ context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
+func (c *nativeTestClient) CreateSession(_ context.Context, config *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
 	c.created = true
 	require.Equal(c.t, "fixed-model", config.Model)
-	require.NotNil(c.t, config.AvailableTools)
-	require.Empty(c.t, config.AvailableTools)
-	require.Empty(c.t, config.SkillDirectories)
-	require.Equal(c.t, utils.Ptr(false), config.EnableSkills)
+	require.NotNil(c.t, config.Tools.AvailableTools)
+	require.Empty(c.t, config.Tools.AvailableTools)
+	require.Empty(c.t, config.Skills.Directories)
+	require.Equal(c.t, utils.Ptr(false), config.Skills.Enabled)
 	if c.verifyWorkspace != nil {
 		c.verifyWorkspace(config)
 	}
 	return c.session, nil
 }
-func (c *nativeTestClient) ResumeSessionWithOptions(context.Context, string, *copilot.ResumeSessionConfig) (execution.CopilotSession, error) {
+func (c *nativeTestClient) ResumeSessionWithOptions(context.Context, string, *copilot.ResumeSessionOptions) (execution.CopilotSession, error) {
 	return nil, fmt.Errorf("native collection must not resume sessions")
 }
 func (c *nativeTestClient) DeleteSession(_ context.Context, id string) error {
@@ -146,7 +146,7 @@ func (c *nativeTestClient) DeleteSession(_ context.Context, id string) error {
 	require.Equal(c.t, c.session.id, id)
 	return nil
 }
-func (c *nativeTestClient) ListModels(context.Context) ([]copilot.ModelInfo, error) {
+func (c *nativeTestClient) ListModels(context.Context) ([]copilot.Model, error) {
 	return nil, fmt.Errorf("native collection must not discover models")
 }
 

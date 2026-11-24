@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 )
 
 // CopilotSession is just an interface over [*copilot.Session]
@@ -33,7 +33,7 @@ type CopilotSession interface {
 // CopilotClient is just an interface over [*copilot.Client]
 type CopilotClient interface {
 	// CreateSession maps to [copilot.Client.CreateSession]
-	CreateSession(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error)
+	CreateSession(ctx context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error)
 
 	// GetAuthStatus maps to [copilot.Client.GetAuthStatus]
 	GetAuthStatus(ctx context.Context) (*copilot.GetAuthStatusResponse, error)
@@ -44,14 +44,14 @@ type CopilotClient interface {
 	// Stop maps to [copilot.Client.Stop]
 	Stop() error
 
-	// ResumeSessionWithOptions maps to [copilot.Client.ResumeSessionWithOptions]
-	ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (CopilotSession, error)
+	// ResumeSessionWithOptions maps to [copilot.Client.ResumeSession]
+	ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionOptions) (CopilotSession, error)
 
 	// DeleteSession maps to [copilot.Client.DeleteSession]
 	DeleteSession(ctx context.Context, sessionID string) error
 
 	// ListModels maps to [copilot.Client.ListModels]
-	ListModels(ctx context.Context) ([]copilot.ModelInfo, error)
+	ListModels(ctx context.Context) ([]copilot.Model, error)
 }
 
 func newCopilotClient(clientOptions *copilot.ClientOptions) CopilotClient {
@@ -71,7 +71,7 @@ type copilotClientWrapper struct {
 	inner *copilot.Client
 }
 
-func (w *copilotClientWrapper) CreateSession(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+func (w *copilotClientWrapper) CreateSession(ctx context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 	sess, err := w.inner.CreateSession(ctx, config)
 
 	if err != nil {
@@ -81,8 +81,8 @@ func (w *copilotClientWrapper) CreateSession(ctx context.Context, config *copilo
 	return &copilotSessionWrapper{inner: sess, client: w.inner}, nil
 }
 
-func (w *copilotClientWrapper) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (CopilotSession, error) {
-	sess, err := w.inner.ResumeSessionWithOptions(ctx, sessionID, config)
+func (w *copilotClientWrapper) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionOptions) (CopilotSession, error) {
+	sess, err := w.inner.ResumeSession(ctx, sessionID, config)
 
 	if err != nil {
 		return nil, err
@@ -111,7 +111,7 @@ func (w *copilotClientWrapper) DeleteSession(ctx context.Context, sessionID stri
 	return w.inner.DeleteSession(ctx, sessionID)
 }
 
-func (w *copilotClientWrapper) ListModels(ctx context.Context) ([]copilot.ModelInfo, error) {
+func (w *copilotClientWrapper) ListModels(ctx context.Context) ([]copilot.Model, error) {
 	return w.inner.ListModels(ctx)
 }
 
@@ -166,7 +166,7 @@ func (w *copilotSessionWrapper) shutdownUsage(ctx context.Context, report func(D
 		if !allowResume {
 			return nil, fail(CodeUsageMissingOrPartial, fmt.Errorf("shutdown usage unavailable: isolated sessions cannot resume for usage fallback"))
 		}
-		resumed, err := w.client.ResumeSessionWithOptions(ctx, session.SessionID, &copilot.ResumeSessionConfig{})
+		resumed, err := w.client.ResumeSession(ctx, session.SessionID, &copilot.ResumeSessionOptions{})
 		if err != nil {
 			return nil, fail(CodeResume, err)
 		}

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,8 +38,9 @@ func TestPath(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 		defer cancel()
 		client := copilot.NewClient(&copilot.ClientOptions{
-			Connection:      copilot.StdioConnection{Path: path},
-			UseLoggedInUser: copilot.Bool(false),
+			Runtime: copilot.SpawnedStdioConnection{Path: path},
+			Mode:    copilot.ModeCodingAgent,
+			GitHub:  copilot.ClientGitHubOptions{UseLoggedInUser: copilot.Bool(false)},
 		})
 		t.Cleanup(func() { require.NoError(t, client.Stop()) })
 		require.NoError(t, client.Start(ctx))
@@ -48,7 +49,7 @@ func TestPath(t *testing.T) {
 		require.NotNil(t, pong)
 		status, err := client.GetStatus(ctx)
 		require.NoError(t, err)
-		require.Equal(t, "1.0.112", status.Version)
+		require.Equal(t, "1.0.114", status.Version)
 		schemaBytes, err := os.ReadFile(filepath.Join(filepath.Dir(path), "schemas", "session-events.schema.json"))
 		require.NoError(t, err)
 		var schema struct {
@@ -67,13 +68,18 @@ func TestPath(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}))
 		defer provider.Close()
-		session, err := client.CreateSession(ctx, &copilot.SessionConfig{
-			Model:                 "offline-smoke-test",
-			Provider:              &copilot.ProviderConfig{Type: "openai", BaseURL: provider.URL},
+		defaultProvider := copilot.String("offline-smoke-provider")
+		session, err := client.CreateSession(ctx, &copilot.CreateSessionOptions{
+			Model: "offline-smoke-test",
+			Inference: copilot.SessionInferenceOptions{
+				DefaultProvider: &defaultProvider,
+				Providers:       []copilot.NamedProviderConfig{{Name: "offline-smoke-provider", Type: "openai", BaseURL: provider.URL}},
+			},
+			GitHub:                copilot.SessionGitHubOptions{Capi: &copilot.CapiSessionOptions{Enabled: copilot.Bool(false)}},
 			WorkingDirectory:      t.TempDir(),
 			EnableConfigDiscovery: copilot.Bool(false),
-			AvailableTools:        []string{},
-			OnPermissionRequest:   copilot.PermissionHandler.ApproveAll,
+			Tools:                 copilot.SessionToolOptions{AvailableTools: []string{}},
+			Permissions:           copilot.SessionPermissionOptions{OnRequest: copilot.PermissionHandler.ApproveAll},
 		})
 		require.NoError(t, err)
 		require.NotEmpty(t, session.SessionID)

@@ -11,39 +11,39 @@ import (
 	"errors"
 	"io"
 
-	"github.com/github/copilot-sdk/go/embeddedcli"
 	"github.com/klauspost/compress/zstd"
+	"github.com/microsoft/copilot-sdk/go/v2/embeddedcli"
 )
 
-//go:embed zcopilot_1.0.112_darwin_amd64.zst
+//go:embed zcopilot_1.0.114_darwin_amd64.zst
 var localEmbeddedCopilotCLI []byte
 
-//go:embed zcopilot_1.0.112_darwin_amd64.license
+//go:embed zcopilot_1.0.114_darwin_amd64.license
 var localEmbeddedCopilotCLILicense []byte
 
-//go:embed zcopilotruntime_1.0.112_darwin-x64.dylib.zst
+//go:embed zcopilotruntime_1.0.114_darwin-x64.dylib.zst
 var localEmbeddedCopilotRuntimeLib []byte
 
-//go:embed zcopilotruntimewrapper_1.0.112_darwin-x64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.114_darwin-x64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutable []byte
 
-//go:embed zcopilotruntimeassets_1.0.112_darwin-x64.tgz
+//go:embed zcopilotruntimeassets_1.0.114_darwin-x64.tgz
 var localEmbeddedCopilotRuntimeAssets []byte
 
 func init() {
 	embeddedcli.Setup(embeddedcli.Config{
 		Cli:                   cliReader(),
 		License:               localEmbeddedCopilotCLILicense,
-		Version:               "1.0.112",
-		CliHash:               mustDecodeBase64("GqjoJ++xkXZ1zQFvnbIHsrrXY+/KkFXxF4WmmJE5YBc="),
+		Version:               "1.0.114",
+		CliHash:               mustDecodeBase64("lhjcUZryw/lorSj4i/RKv1asrcl9a0nlWZzUOcMX1Ys="),
 		RuntimeLib:            runtimeLibReader(),
-		RuntimeLibHash:        mustDecodeBase64("nKtfrVgPw8JSGeHArdzp+v4Zf26XG48O+zW3nMmVEYg="),
+		RuntimeLibHash:        mustDecodeBase64("tYgcgBXsNetRC7mTzD1pMmrRNd73+SSNqklR4SQtXQc="),
 		RuntimeNode:           runtimeLibReader(),
-		RuntimeNodeHash:       mustDecodeBase64("nKtfrVgPw8JSGeHArdzp+v4Zf26XG48O+zW3nMmVEYg="),
+		RuntimeNodeHash:       mustDecodeBase64("tYgcgBXsNetRC7mTzD1pMmrRNd73+SSNqklR4SQtXQc="),
 		RuntimeExecutable:     runtimeExecutableReader(),
-		RuntimeExecutableHash: mustDecodeBase64("GqjoJ++xkXZ1zQFvnbIHsrrXY+/KkFXxF4WmmJE5YBc="),
+		RuntimeExecutableHash: mustDecodeBase64("lhjcUZryw/lorSj4i/RKv1asrcl9a0nlWZzUOcMX1Ys="),
 		RuntimeAssets:         bytes.NewReader(localEmbeddedCopilotRuntimeAssets),
-		RuntimeAssetsHash:     mustDecodeBase64("JuAI8q+46nYnDFi4jZAHr9jY/ULIonrfMLSWwXIlKFo="),
+		RuntimeAssetsHash:     mustDecodeBase64("eSFVQHiMie9h53b4LzrbjkU6dA7rIM3chUIMEJnq8BM="),
 	})
 }
 

@@ -20,8 +20,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/runnercontract"
@@ -46,7 +46,7 @@ type runnerSDKClient struct {
 	deletes                       atomic.Int32
 	forced                        chan struct{}
 	forceOnce                     sync.Once
-	config                        *copilot.SessionConfig
+	config                        *copilot.CreateSessionOptions
 	workspace                     string
 }
 
@@ -77,10 +77,10 @@ func (c *runnerSDKClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatus
 	return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
 }
 
-func (c *runnerSDKClient) ListModels(context.Context) ([]copilot.ModelInfo, error) {
-	model := copilot.ModelInfo{ID: "explicit-test-model", SupportedReasoningEfforts: []string{"low"}}
-	model.Capabilities.Supports.ReasoningEffort = true
-	return []copilot.ModelInfo{model}, nil
+func (c *runnerSDKClient) ListModels(context.Context) ([]copilot.Model, error) {
+	model := copilot.Model{ID: "explicit-test-model", SupportedReasoningEfforts: []string{"low"}}
+	model.Capabilities.Supports = &rpc.ModelCapabilitiesSupports{ReasoningEffort: copilot.Bool(true)}
+	return []copilot.Model{model}, nil
 }
 
 func (c *runnerSDKClient) DeleteSession(context.Context, string) error {
@@ -91,29 +91,30 @@ func (c *runnerSDKClient) DeleteSession(context.Context, string) error {
 	return nil
 }
 
-func (c *runnerSDKClient) CreateSession(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
+func (c *runnerSDKClient) CreateSession(_ context.Context, cfg *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
 	c.creates.Add(1)
 	c.config = cfg
 	require.Equal(c.t, "explicit-test-model", cfg.Model)
-	require.Equal(c.t, copilot.Bool(false), cfg.EnableSkills)
+	require.Equal(c.t, copilot.Bool(false), cfg.Skills.Enabled)
 	require.Equal(c.t, copilot.Bool(false), cfg.EnableConfigDiscovery)
-	require.Equal(c.t, copilot.Bool(false), cfg.EnableFileHooks)
-	require.Equal(c.t, copilot.Bool(false), cfg.EnableOnDemandInstructionDiscovery)
-	require.Equal(c.t, copilot.Bool(true), cfg.SkipCustomInstructions)
-	require.Equal(c.t, copilot.Bool(true), cfg.SkipEmbeddingRetrieval)
-	require.Equal(c.t, copilot.Bool(false), cfg.EnableSessionStore)
-	require.Equal(c.t, copilot.Bool(false), cfg.EnableHostGitOperations)
-	require.Equal(c.t, &copilot.MemoryConfiguration{Enabled: false}, cfg.Memory)
-	require.Empty(c.t, cfg.HookDirectories)
-	require.Empty(c.t, cfg.PluginDirectories)
-	require.Empty(c.t, cfg.InstructionDirectories)
-	require.Empty(c.t, cfg.SkillDirectories)
-	require.Empty(c.t, cfg.MCPServers)
-	require.Empty(c.t, cfg.Tools)
-	require.NotNil(c.t, cfg.AvailableTools)
-	require.Empty(c.t, cfg.AvailableTools, "no model-initiated tools may be exposed")
-	require.NotNil(c.t, cfg.OnPermissionRequest)
-	require.NotNil(c.t, cfg.Hooks.OnPreToolUse)
+	require.Equal(c.t, copilot.Bool(false), cfg.Hooks.EnableRepositoryHooks)
+	require.Equal(c.t, copilot.Bool(false), cfg.Instructions.OnDemandDiscovery)
+	require.Equal(c.t, copilot.Bool(true), cfg.Instructions.SkipCustomInstructions)
+	require.Equal(c.t, copilot.Bool(true), cfg.State.SkipEmbeddingRetrieval)
+	require.Equal(c.t, copilot.Bool(false), cfg.State.EnableCrossSessionStore)
+	require.Equal(c.t, copilot.Bool(false), cfg.Git.EnableHostGitOperations)
+	require.Equal(c.t, &copilot.MemoryConfiguration{Enabled: false}, cfg.State.Memory)
+	require.Empty(c.t, cfg.Hooks.Directories)
+	require.Empty(c.t, cfg.Plugins.Directories)
+	require.Empty(c.t, cfg.Instructions.Directories)
+	require.Empty(c.t, cfg.Skills.Directories)
+	require.Empty(c.t, cfg.MCP.Servers)
+	require.Empty(c.t, cfg.Tools.Definitions)
+	require.NotNil(c.t, cfg.Tools.AvailableTools)
+	require.Empty(c.t, cfg.Tools.AvailableTools, "no model-initiated tools may be exposed")
+	require.NotNil(c.t, cfg.Permissions.OnRequest)
+	require.NotNil(c.t, cfg.Hooks.Handlers)
+	require.NotNil(c.t, cfg.Hooks.Handlers.OnPreToolUse)
 	c.workspace = cfg.WorkingDirectory
 	require.NotEmpty(c.t, c.workspace)
 	if c.mode == "create-hang" {
@@ -151,10 +152,10 @@ func (s *runnerSDKSession) SendAndWait(_ context.Context, options copilot.Messag
 		return nil, errors.New("transport killed during send")
 	}
 	if c.mode == "denied-tool" {
-		decision, err := c.config.OnPermissionRequest(&copilot.PermissionRequestShell{}, copilot.PermissionInvocation{})
+		decision, err := c.config.Permissions.OnRequest(&copilot.PermissionRequestShell{}, copilot.PermissionInvocation{})
 		require.NoError(c.t, err)
 		require.IsType(c.t, &rpc.PermissionDecisionReject{}, decision)
-		out, err := c.config.Hooks.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: "bash"}, copilot.HookInvocation{})
+		out, err := c.config.Hooks.Handlers.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: "bash"}, copilot.HookInvocation{})
 		require.NoError(c.t, err)
 		require.Equal(c.t, "deny", out.PermissionDecision)
 	}
@@ -299,7 +300,7 @@ func TestRunnerCopilotExactCLIHTTP(t *testing.T) {
 				require.Len(t, *clients, before+1)
 				c := (*clients)[before]
 				if control == "reasoning-effort" {
-					require.Equal(t, "low", c.config.ReasoningEffort)
+					require.Equal(t, "low", c.config.Inference.ReasoningEffort)
 				}
 				require.EqualValues(t, 1, c.starts.Load())
 				require.EqualValues(t, 1, c.creates.Load())

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 )
 
 func main() {
@@ -38,8 +38,9 @@ func run() error {
 		return err
 	}
 	client := copilot.NewClient(&copilot.ClientOptions{
-		Connection:      copilot.StdioConnection{Path: cli},
-		UseLoggedInUser: copilot.Bool(false),
+		Mode:    copilot.ModeCodingAgent,
+		Runtime: copilot.SpawnedStdioConnection{Path: cli},
+		GitHub:  copilot.ClientGitHubOptions{UseLoggedInUser: copilot.Bool(false)},
 	})
 	if err := client.Start(ctx); err != nil {
 		return err
@@ -49,16 +50,27 @@ func run() error {
 	if err := os.MkdirAll(workingDir, 0700); err != nil {
 		return err
 	}
-	session, err := client.CreateSession(ctx, &copilot.SessionConfig{
-		Model:                              "offline-model",
-		Provider:                           &copilot.ProviderConfig{Type: "openai", BaseURL: os.Getenv("COPILOT_BASE_URL"), APIKey: "offline-synthetic-not-a-credential", WireAPI: "chat"},
-		WorkingDirectory:                   workingDir,
-		EnableConfigDiscovery:              copilot.Bool(true),
-		EnableFileHooks:                    copilot.Bool(true),
-		SkipCustomInstructions:             copilot.Bool(false),
-		EnableOnDemandInstructionDiscovery: copilot.Bool(true),
-		AvailableTools:                     []string{},
-		OnPermissionRequest:                copilot.PermissionHandler.ApproveAll,
+	providerName := "offline-provider"
+	defaultProvider := copilot.String(providerName)
+	session, err := client.CreateSession(ctx, &copilot.CreateSessionOptions{
+		Model: "offline-model",
+		Inference: copilot.SessionInferenceOptions{
+			DefaultProvider: &defaultProvider,
+			Providers: []copilot.NamedProviderConfig{{
+				Name: providerName, Type: "openai", BaseURL: os.Getenv("COPILOT_BASE_URL"),
+				APIKey: "offline-synthetic-not-a-credential", WireAPI: "chat",
+			}},
+		},
+		GitHub:                copilot.SessionGitHubOptions{Capi: &copilot.CapiSessionOptions{Enabled: copilot.Bool(false)}},
+		WorkingDirectory:      workingDir,
+		EnableConfigDiscovery: copilot.Bool(true),
+		Hooks:                 copilot.SessionHookOptions{EnableRepositoryHooks: copilot.Bool(true)},
+		Instructions: copilot.CreateSessionInstructionOptions{
+			SkipCustomInstructions: copilot.Bool(false),
+			OnDemandDiscovery:      copilot.Bool(true),
+		},
+		Tools:       copilot.SessionToolOptions{AvailableTools: []string{}},
+		Permissions: copilot.SessionPermissionOptions{OnRequest: copilot.PermissionHandler.ApproveAll},
 	})
 	if err != nil {
 		return err

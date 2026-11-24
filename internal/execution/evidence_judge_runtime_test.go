@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/embedded"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -167,7 +167,7 @@ func TestEvidenceJudgePinnedRuntimeIsolation(t *testing.T) {
 			defer transport.client.CloseIdleConnections()
 			if test.intercepted {
 				executor.newClient = func(options *copilot.ClientOptions) evidenceJudgeClient {
-					options.RequestHandler = &copilot.CopilotRequestHandler{
+					options.Models.RequestHandler = &copilot.CopilotRequestHandler{
 						Transport: transport,
 						OpenWebSocket: func(*copilot.CopilotRequestContext) (copilot.CopilotWebSocketHandler, error) {
 							return nil, fmt.Errorf("runtime probe denies WebSockets")

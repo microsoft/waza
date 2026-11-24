@@ -26,7 +26,7 @@ import (
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/discovery"

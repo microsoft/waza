@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
@@ -37,10 +37,10 @@ func evidenceConfig(name string, files ...string) models.GraderConfig {
 
 func evidenceRunner(t *testing.T) (*EvalRunner, *copilotfake.Client) {
 	t.Helper()
-	client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
-		if len(config.Tools) > 0 {
+	client := &copilotfake.Client{Send: func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+		if len(config.Tools.Definitions) > 0 {
 			require.NoError(t, os.WriteFile(filepath.Join(config.WorkingDirectory, "a.txt"), []byte("LEGACY_MUTATION_CANARY"), 0600))
-			_, err := config.Tools[0].Handler(copilot.ToolInvocation{ToolName: config.Tools[0].Name, Arguments: map[string]any{}})
+			_, err := config.Tools.Definitions[0].Handler(copilot.ToolInvocation{ToolName: config.Tools.Definitions[0].Name, Arguments: map[string]any{}})
 			require.NoError(t, err)
 		} else {
 			for _, name := range []string{"a.txt", "b.txt"} {
@@ -75,10 +75,10 @@ func TestEvidenceRunnerFixtureDeclarationsStayOutsideActorSession(t *testing.T) 
 				params.EvidenceContext.NonSecretLiterals = &values
 			}
 			runner.cfg.Spec().Graders = []models.GraderConfig{grader}
-			client.Send = func(session *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			client.Send = func(session *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 				require.Equal(t, "Inspect "+sha, options.Prompt)
 				require.Empty(t, session.Tools)
-				require.Empty(t, session.MCPServers)
+				require.Empty(t, session.MCP.Servers)
 				require.NotContains(t, options.Prompt, "EVALUATOR_ONLY_DECLARATION_CANARY")
 				return []copilot.SessionEvent{
 					{Data: &copilot.UserMessageData{Content: options.Prompt}},
@@ -133,7 +133,7 @@ func TestEvidenceRunnerObservationsNeverPersistFixtureDeclarations(t *testing.T)
 			params.EvidenceContext.NonSecretLiterals = &[]string{unused}
 			params.EvidenceContext.EvaluatorOnly = []string{"private.txt"}
 			if problem == "missing-message" {
-				client.Send = func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+				client.Send = func(_ *copilot.CreateSessionOptions, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 					return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "Done"}}}, nil
 				}
 			}
@@ -215,8 +215,8 @@ func TestRecoveryBenchmarkPreservesMCPAdmissionAndIndependentJudgeCapture(t *tes
 			}
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "mocks", "request.json"), []byte(`{"responses":[{"sequence":`+sequence+`}]}`), 0600))
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: task\nname: Recovery report\ninputs: {prompt: Recover and write report.txt}\n"), 0600))
-			client := &copilotfake.Client{Send: func(session *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
-				require.Contains(t, session.MCPServers, "dependency")
+			client := &copilotfake.Client{Send: func(session *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+				require.Contains(t, session.MCP.Servers, "dependency")
 				require.NoError(t, os.WriteFile(filepath.Join(session.WorkingDirectory, "report.txt"), []byte("RECOVERED_REPORT_CANARY"), 0600))
 				return []copilot.SessionEvent{
 					{Data: &copilot.UserMessageData{Content: options.Prompt}},
@@ -346,7 +346,7 @@ func TestEvidenceRunnerFinalTurnFilesAndAttemptBindingFailClosed(t *testing.T) {
 			runner, client := evidenceRunner(t)
 			runner.cfg.Spec().Graders = runner.cfg.Spec().Graders[:1]
 			turns, judgments := 0, 0
-			client.Send = func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			client.Send = func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 				turns++
 				file := filepath.Join(config.WorkingDirectory, "a.txt")
 				require.NoError(t, os.WriteFile(file, []byte(fmt.Sprintf("ACTOR_TURN_%d_CANARY", turns)), 0600))
@@ -413,7 +413,7 @@ func TestEvidenceRunnerLabeledEvidenceControls(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			runner, client := evidenceRunner(t)
 			runner.cfg.Spec().Graders = []models.GraderConfig{evidenceConfig("report", "report.json")}
-			client.Send = func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			client.Send = func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 				if !tc.missing {
 					require.NoError(t, os.WriteFile(filepath.Join(config.WorkingDirectory, "report.json"), []byte(tc.file), 0600))
 				}

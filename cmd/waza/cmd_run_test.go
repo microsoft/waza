@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/executionisolation"
@@ -2826,10 +2826,10 @@ func testWazaRun(t *testing.T, cwd string, args []string) (evalNames []string, s
 		sess := newSessionMock(ctrl)
 
 		// currently, each run of an eval spec requires us a new copilot engine.
-		client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
-			require.NotEmpty(t, config.SkillDirectories, "all of our tests expect some skills to be found")
+		client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, config *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
+			require.NotEmpty(t, config.Skills.Directories, "all of our tests expect some skills to be found")
 
-			for _, sp := range config.SkillDirectories {
+			for _, sp := range config.Skills.Directories {
 				skillsLoaded = append(skillsLoaded, filepath.Base(sp))
 			}
 

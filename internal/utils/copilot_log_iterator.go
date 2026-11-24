@@ -7,7 +7,7 @@ import (
 	"iter"
 	"os"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 )
 
 // NewCopilotLogIterator creates an iterator for an events.jsonl formatted log

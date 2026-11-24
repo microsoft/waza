@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/github/copilot-sdk/go/rpc"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -61,12 +61,18 @@ func TestDiagnosticNativeTransportCallbackPolicy(t *testing.T) {
 							ID     json.RawMessage `json:"id"`
 							Method string          `json:"method"`
 							Params struct {
-								SessionID         string   `json:"sessionId"`
-								AvailableTools    []string `json:"availableTools"`
-								Hooks             bool     `json:"hooks"`
-								RequestPermission bool     `json:"requestPermission"`
-								RequestID         string   `json:"requestId"`
-								Result            struct {
+								SessionID string `json:"sessionId"`
+								Tools     struct {
+									AvailableTools []string `json:"availableTools"`
+								} `json:"tools"`
+								Hooks struct {
+									HasHandlers bool `json:"hasHandlers"`
+								} `json:"hooks"`
+								Permissions struct {
+									Request bool `json:"request"`
+								} `json:"permissions"`
+								RequestID string `json:"requestId"`
+								Result    struct {
 									Kind string `json:"kind"`
 								} `json:"result"`
 							} `json:"params"`
@@ -95,14 +101,14 @@ func TestDiagnosticNativeTransportCallbackPolicy(t *testing.T) {
 						response := map[string]any{"jsonrpc": "2.0", "id": req.ID}
 						switch req.Method {
 						case "connect":
-							response["result"] = map[string]any{"ok": true, "protocolVersion": 3, "version": "offline-policy"}
+							response["result"] = map[string]any{"ok": true, "protocolVersion": 4, "version": "offline-policy"}
 						case "auth.getStatus":
 							response["result"] = map[string]any{"isAuthenticated": true}
 						case "session.create", "session.resume":
 							require.Equal(t, resume, req.Method == "session.resume")
-							require.ElementsMatch(t, allowed, req.Params.AvailableTools)
-							require.True(t, req.Params.Hooks)
-							require.True(t, req.Params.RequestPermission)
+							require.ElementsMatch(t, allowed, req.Params.Tools.AvailableTools)
+							require.True(t, req.Params.Hooks.HasHandlers)
+							require.True(t, req.Params.Permissions.Request)
 							sessionID = req.Params.SessionID
 							if unsupported {
 								response["error"] = map[string]any{"code": -32000, "message": "offline policy unsupported"}

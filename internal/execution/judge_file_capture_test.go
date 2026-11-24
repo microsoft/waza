@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/judgeevidence"
 	"github.com/microsoft/waza/internal/models"
@@ -20,14 +20,14 @@ func TestJudgeFilesAreCapturedBeforeActorDisconnect(t *testing.T) {
 		t.Skip("secure selected-file capture requires Linux/macOS")
 	}
 	client := &copilotfake.Client{
-		Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+		Send: func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 			require.NoError(t, os.WriteFile(filepath.Join(config.WorkingDirectory, "report.txt"), []byte("ACTOR_FINAL_CANARY"), 0600))
 			return []copilot.SessionEvent{
 				{Data: &copilot.UserMessageData{Content: options.Prompt}},
 				{Data: &copilot.AssistantMessageData{Content: "done"}},
 			}, nil
 		},
-		Disconnect: func(config *copilot.SessionConfig) error {
+		Disconnect: func(config *copilot.CreateSessionOptions) error {
 			return os.WriteFile(filepath.Join(config.WorkingDirectory, "report.txt"), []byte("DISCONNECT_RESTORED_CANARY"), 0600)
 		},
 	}
@@ -54,7 +54,7 @@ func TestJudgeFilesAreCapturedBeforeActorDisconnect(t *testing.T) {
 
 func TestWorkspaceCaptureLimitStillDisconnectsAndReportsError(t *testing.T) {
 	client := &copilotfake.Client{
-		Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+		Send: func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 			content := bytes.Repeat([]byte("x"), (16<<20)+1)
 			require.NoError(t, os.WriteFile(filepath.Join(config.WorkingDirectory, "oversized.bin"), content, 0600))
 			return []copilot.SessionEvent{
@@ -62,7 +62,7 @@ func TestWorkspaceCaptureLimitStillDisconnectsAndReportsError(t *testing.T) {
 				{Data: &copilot.AssistantMessageData{Content: "done"}},
 			}, nil
 		},
-		Disconnect: func(config *copilot.SessionConfig) error {
+		Disconnect: func(config *copilot.CreateSessionOptions) error {
 			return os.WriteFile(filepath.Join(config.WorkingDirectory, "oversized.bin"), []byte("RESTORED"), 0600)
 		},
 	}

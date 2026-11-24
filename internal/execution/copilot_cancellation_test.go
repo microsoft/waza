@@ -8,8 +8,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -371,7 +371,7 @@ func TestDefaultSharedEngineRefreshesRetiredClientForLaterTrial(t *testing.T) {
 	replacementSession := newSessionMock(ctrl)
 	firstCreate := 0
 	firstClient.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(context.Context, *copilot.SessionConfig) (CopilotSession, error) {
+		func(context.Context, *copilot.CreateSessionOptions) (CopilotSession, error) {
 			firstCreate++
 			if firstCreate == 1 {
 				return blockedSession, nil

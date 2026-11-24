@@ -3,7 +3,7 @@ package copilotevents
 import (
 	"encoding/json"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 )
 
 const legacyToolExecutionPartialResultType copilot.SessionEventType = "tool.execution_partial_result"

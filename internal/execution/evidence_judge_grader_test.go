@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/judgeevidence"
@@ -19,19 +19,19 @@ type reasoningJudgeClient struct{ *execution.MockCopilotClient }
 func (*reasoningJudgeClient) ForceStop() {}
 
 func TestEvidenceGraderRejectsUnsupportedReasoningBeforeCreatingSession(t *testing.T) {
-	supported := copilot.ModelInfo{ID: "judge", SupportedReasoningEfforts: []string{"low"}}
-	supported.Capabilities.Supports.ReasoningEffort = true
+	supported := copilot.Model{ID: "judge", SupportedReasoningEfforts: []string{"low"}}
+	supported.Capabilities.Supports = &copilot.ModelCapabilitiesSupports{ReasoningEffort: copilot.Bool(true)}
 	missing := supported
 	missing.SupportedReasoningEfforts = nil
 	for _, tc := range []struct {
 		name, model string
-		catalog     []copilot.ModelInfo
+		catalog     []copilot.Model
 		catalogErr  error
 	}{
 		{"auto", "auto", nil, nil},
-		{"unsupported effort", "judge", []copilot.ModelInfo{supported}, nil},
-		{"unsupported model", "judge", []copilot.ModelInfo{{ID: "judge"}}, nil},
-		{"missing metadata", "judge", []copilot.ModelInfo{missing}, nil},
+		{"unsupported effort", "judge", []copilot.Model{supported}, nil},
+		{"unsupported model", "judge", []copilot.Model{{ID: "judge"}}, nil},
+		{"missing metadata", "judge", []copilot.Model{missing}, nil},
 		{"unknown model", "judge", nil, nil},
 		{"catalog failure", "judge", nil, errors.New("CATALOG_PRIVATE_CANARY")},
 		{"canceled catalog", "judge", nil, context.Canceled},
@@ -46,12 +46,12 @@ func TestEvidenceGraderRejectsUnsupportedReasoningBeforeCreatingSession(t *testi
 			client := &reasoningJudgeClient{execution.NewMockCopilotClient(gomock.NewController(t))}
 			client.EXPECT().Start(gomock.Any()).Return(nil)
 			client.EXPECT().Stop().Return(nil)
-			client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, *copilot.SessionConfig) (execution.CopilotSession, error) {
+			client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
 				t.Error("unsupported reasoning settings reached session creation")
 				return nil, errors.New("unexpected session")
 			}).AnyTimes()
 			if tc.model != "auto" {
-				client.EXPECT().ListModels(gomock.Any()).DoAndReturn(func(catalogCtx context.Context) ([]copilot.ModelInfo, error) {
+				client.EXPECT().ListModels(gomock.Any()).DoAndReturn(func(catalogCtx context.Context) ([]copilot.Model, error) {
 					if errors.Is(tc.catalogErr, context.Canceled) {
 						cancel()
 						<-catalogCtx.Done()

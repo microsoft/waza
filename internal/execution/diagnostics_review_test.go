@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
@@ -43,7 +43,7 @@ func TestDiagnosticSkillHelpersNeverLogPrivateData(t *testing.T) {
 			req.NoSkills, req.SourceDir, req.SkillName = false, source, "private-name"
 			if kind != "malformed agent" {
 				session := NewMockCopilotSession(gomock.NewController(t))
-				client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+				client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 					require.NotNil(t, config.SystemMessage)
 					require.Contains(t, config.SystemMessage.Content, content)
 					return session, nil

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Copilot runtime dependencies** — Migrate to the Copilot Go SDK v2 module `github.com/microsoft/copilot-sdk/go/v2`; Go SDK to `2.0.1` and bundled CLI to `1.0.114` (#1117). Session policy, provider, permission, and result contracts are unchanged.
+
 ## [0.42.0] - 2026-11-21
 
 The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.42.0)

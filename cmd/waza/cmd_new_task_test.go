@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/azure/azure-dev/cli/azd/pkg/ux"
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
@@ -209,8 +209,8 @@ func TestNewTaskFromPromptCommand_DiscoveredSkillsPassedToCopilotSession(t *test
 
 	skillDir := t.TempDir()
 
-	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
-		assert.Contains(t, cfg.SkillDirectories, skillDir)
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, cfg *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
+		assert.Contains(t, cfg.Skills.Directories, skillDir)
 		return nil, errors.New("create failed")
 	})
 

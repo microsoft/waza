@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
@@ -85,18 +85,18 @@ func (c *responderCaptureClient) Stop() error                 { return nil }
 func (c *responderCaptureClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatusResponse, error) {
 	return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
 }
-func (c *responderCaptureClient) ListModels(context.Context) ([]copilot.ModelInfo, error) {
+func (c *responderCaptureClient) ListModels(context.Context) ([]copilot.Model, error) {
 	return nil, nil
 }
 func (c *responderCaptureClient) DeleteSession(context.Context, string) error { return nil }
-func (c *responderCaptureClient) CreateSession(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
+func (c *responderCaptureClient) CreateSession(_ context.Context, cfg *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
 	c.session.workspace = cfg.WorkingDirectory
-	c.session.inputHandler = cfg.OnUserInputRequest
+	c.session.inputHandler = cfg.Interaction.OnUserInputRequest
 	return c.session, nil
 }
-func (c *responderCaptureClient) ResumeSessionWithOptions(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (execution.CopilotSession, error) {
+func (c *responderCaptureClient) ResumeSessionWithOptions(_ context.Context, _ string, cfg *copilot.ResumeSessionOptions) (execution.CopilotSession, error) {
 	require.Equal(c.session.t, c.session.workspace, cfg.WorkingDirectory)
-	c.session.inputHandler = cfg.OnUserInputRequest
+	c.session.inputHandler = cfg.Interaction.OnUserInputRequest
 	return c.session, nil
 }
 

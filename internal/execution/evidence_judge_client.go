@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/embedded"
 )
 
@@ -25,7 +25,7 @@ func (c *evidenceJudgeOwnedClient) ForceStop() {
 	c.inner.ForceStop()
 }
 
-func (c *evidenceJudgeOwnedClient) CreateSession(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+func (c *evidenceJudgeOwnedClient) CreateSession(ctx context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 	session, err := c.inner.CreateSession(ctx, config)
 	if err != nil {
 		return nil, err

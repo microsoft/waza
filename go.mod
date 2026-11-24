@@ -18,7 +18,6 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/azure/azure-dev/cli/azd v1.38.0
 	github.com/charmbracelet/huh v1.0.0
-	github.com/github/copilot-sdk/go v1.0.34
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.20.4
@@ -157,6 +156,7 @@ require (
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/microsoft/ApplicationInsights-Go v0.4.4 // indirect
+	github.com/microsoft/copilot-sdk/go/v2 v2.0.1
 	github.com/microsoft/go-deviceid v1.0.0 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
@@ -211,6 +211,6 @@ require (
 )
 
 tool (
-	github.com/github/copilot-sdk/go/cmd/bundler
+	github.com/microsoft/copilot-sdk/go/v2/cmd/bundler
 	go.uber.org/mock/mockgen
 )

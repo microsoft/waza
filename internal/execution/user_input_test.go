@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -242,15 +242,15 @@ func TestCopilotUserInputCallbackOnCreateAndResume(t *testing.T) {
 	clientMock := newClientMock(ctrl)
 	sessionMock := newSessionMock(ctrl)
 
-	var createCfg *copilot.SessionConfig
-	var resumeCfg *copilot.ResumeSessionConfig
+	var createCfg *copilot.CreateSessionOptions
+	var resumeCfg *copilot.ResumeSessionOptions
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
+		func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
 			createCfg = cfg
 			return sessionMock, nil
 		})
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-q", gomock.Any()).Times(2).DoAndReturn(
-		func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
+		func(_ context.Context, _ string, cfg *copilot.ResumeSessionOptions) (CopilotSession, error) {
 			resumeCfg = cfg
 			return sessionMock, nil
 		})
@@ -269,17 +269,17 @@ func TestCopilotUserInputCallbackOnCreateAndResume(t *testing.T) {
 			)
 			switch turn {
 			case 1:
-				resp, err = createCfg.OnUserInputRequest(copilot.UserInputRequest{Question: "Deploy where?", Choices: []string{"staging", "prod"}},
+				resp, err = createCfg.Interaction.OnUserInputRequest(copilot.UserInputRequest{Question: "Deploy where?", Choices: []string{"staging", "prod"}},
 					copilot.UserInputInvocation{SessionID: "session-q"})
 				require.NoError(t, err)
 				require.Equal(t, copilot.UserInputResponse{Answer: "staging"}, resp)
 			case 2:
-				resp, err = resumeCfg.OnUserInputRequest(copilot.UserInputRequest{Question: "Release note?"},
+				resp, err = resumeCfg.Interaction.OnUserInputRequest(copilot.UserInputRequest{Question: "Release note?"},
 					copilot.UserInputInvocation{SessionID: "session-q"})
 				require.NoError(t, err)
 				require.Equal(t, copilot.UserInputResponse{Answer: "fixes login", WasFreeform: true}, resp)
 			case 3:
-				_, err = resumeCfg.OnUserInputRequest(copilot.UserInputRequest{Question: "Anything else?"},
+				_, err = resumeCfg.Interaction.OnUserInputRequest(copilot.UserInputRequest{Question: "Anything else?"},
 					copilot.UserInputInvocation{SessionID: "session-q"})
 				require.Error(t, err)
 			}
@@ -300,7 +300,7 @@ func TestCopilotUserInputCallbackOnCreateAndResume(t *testing.T) {
 	first, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "start", UserInput: script})
 	require.NoError(t, err)
 	require.True(t, first.Success, first.ErrorMsg)
-	require.NotNil(t, createCfg.OnUserInputRequest)
+	require.NotNil(t, createCfg.Interaction.OnUserInputRequest)
 	require.Len(t, first.UserInputRequests, 1)
 
 	second, err := engine.Execute(context.Background(), &ExecutionRequest{
@@ -308,7 +308,7 @@ func TestCopilotUserInputCallbackOnCreateAndResume(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, second.Success, second.ErrorMsg)
-	require.NotNil(t, resumeCfg.OnUserInputRequest)
+	require.NotNil(t, resumeCfg.Interaction.OnUserInputRequest)
 	require.Len(t, second.UserInputRequests, 2)
 	require.Equal(t, 1, second.UserInputRequests[0].Sequence)
 	require.Equal(t, 2, second.UserInputRequests[1].Sequence)
@@ -332,8 +332,8 @@ func TestCopilotRejectsUserInputDuringDisconnect(t *testing.T) {
 	session := newSessionMock(ctrl)
 	var handler copilot.UserInputHandler
 	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
-			handler = cfg.OnUserInputRequest
+		func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
+			handler = cfg.Interaction.OnUserInputRequest
 			return session, nil
 		})
 	client.EXPECT().DeleteSession(gomock.Any(), "late").AnyTimes()
@@ -368,15 +368,15 @@ func TestCopilotLeavesUserInputCallbackUnsetWithoutScript(t *testing.T) {
 
 	createCalled, resumeCalled := false, false
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
+		func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
 			createCalled = true
-			require.Nil(t, cfg.OnUserInputRequest, "absent user_input_responses must not enable the SDK ask_user tool")
+			require.Nil(t, cfg.Interaction.OnUserInputRequest, "absent user_input_responses must not enable the SDK ask_user tool")
 			return sessionMock, nil
 		})
 	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-n", gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
+		func(_ context.Context, _ string, cfg *copilot.ResumeSessionOptions) (CopilotSession, error) {
 			resumeCalled = true
-			require.Nil(t, cfg.OnUserInputRequest)
+			require.Nil(t, cfg.Interaction.OnUserInputRequest)
 			return sessionMock, nil
 		})
 	sessionMock.EXPECT().Disconnect().AnyTimes()
@@ -481,9 +481,9 @@ func TestCopilotEngineBindsTurnContextForUserInput(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
 	sessionMock := newSessionMock(ctrl)
-	var cfg *copilot.SessionConfig
+	var cfg *copilot.CreateSessionOptions
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, c *copilot.SessionConfig) (CopilotSession, error) {
+		func(_ context.Context, c *copilot.CreateSessionOptions) (CopilotSession, error) {
 			cfg = c
 			return sessionMock, nil
 		})
@@ -493,7 +493,7 @@ func TestCopilotEngineBindsTurnContextForUserInput(t *testing.T) {
 	sessionMock.EXPECT().SessionID().AnyTimes().Return("session-t")
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
-			_, err := cfg.OnUserInputRequest(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{SessionID: "session-t"})
+			_, err := cfg.Interaction.OnUserInputRequest(copilot.UserInputRequest{Question: "Q"}, copilot.UserInputInvocation{SessionID: "session-t"})
 			require.NoError(t, err)
 			return &copilot.SessionEvent{}, nil
 		})

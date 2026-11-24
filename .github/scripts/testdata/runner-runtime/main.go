@@ -143,7 +143,7 @@ func respond(req request, mode string, writer io.Writer) error {
 	var result any
 	switch req.Method {
 	case "connect":
-		version := 3
+		version := 4
 		if mode == "bad-protocol" {
 			version = 999
 		}

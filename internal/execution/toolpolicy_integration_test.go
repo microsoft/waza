@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -20,9 +20,9 @@ func TestCopilotResumeToolPolicy(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			client := newClientMock(ctrl)
 			session := newSessionMock(ctrl)
-			var cfg *copilot.ResumeSessionConfig
+			var cfg *copilot.ResumeSessionOptions
 			client.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", gomock.Any()).DoAndReturn(
-				func(_ context.Context, _ string, c *copilot.ResumeSessionConfig) (CopilotSession, error) {
+				func(_ context.Context, _ string, c *copilot.ResumeSessionOptions) (CopilotSession, error) {
 					cfg = c
 					return session, nil
 				})
@@ -32,18 +32,18 @@ func TestCopilotResumeToolPolicy(t *testing.T) {
 			session.EXPECT().On(gomock.Any()).Times(3).Return(func() {})
 			session.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
 				func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
-					require.Equal(t, policy.SessionToolFilter(), cfg.AvailableTools)
-					decision, err := cfg.OnPermissionRequest(&copilot.PermissionRequestShell{}, copilot.PermissionInvocation{})
+					require.Equal(t, policy.SessionToolFilter(), cfg.Tools.AvailableTools)
+					decision, err := cfg.Permissions.OnRequest(&copilot.PermissionRequestShell{}, copilot.PermissionInvocation{})
 					require.NoError(t, err)
 					if policy.Active() {
 						require.IsType(t, &rpc.PermissionDecisionReject{}, decision)
-						require.NotNil(t, cfg.Hooks)
-						out, err := cfg.Hooks.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: "web_fetch"}, copilot.HookInvocation{})
+						require.NotNil(t, cfg.Hooks.Handlers)
+						out, err := cfg.Hooks.Handlers.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: "web_fetch"}, copilot.HookInvocation{})
 						require.NoError(t, err)
 						require.Equal(t, "deny", out.PermissionDecision)
 					} else {
 						require.IsType(t, &rpc.PermissionDecisionApproveOnce{}, decision)
-						require.Nil(t, cfg.Hooks)
+						require.Nil(t, cfg.Hooks.Handlers)
 					}
 					return &copilot.SessionEvent{}, nil
 				})
@@ -72,18 +72,18 @@ func TestCopilotNewSessionDenyAllWithoutCallbacks(t *testing.T) {
 	client := newClientMock(ctrl)
 	session := newSessionMock(ctrl)
 	emptyTools := []string{}
-	var cfg *copilot.SessionConfig
+	var cfg *copilot.CreateSessionOptions
 	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+		func(_ context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 			cfg = config
-			require.NotNil(t, cfg.AvailableTools)
-			require.Empty(t, cfg.AvailableTools)
-			require.Empty(t, cfg.Tools)
-			require.Empty(t, cfg.MCPServers)
-			require.Equal(t, copilot.Bool(false), cfg.EnableSkills)
-			require.NotNil(t, cfg.OnPermissionRequest)
-			require.NotNil(t, cfg.Hooks)
-			require.NotNil(t, cfg.Hooks.OnPreToolUse)
+			require.NotNil(t, cfg.Tools.AvailableTools)
+			require.Empty(t, cfg.Tools.AvailableTools)
+			require.Empty(t, cfg.Tools.Definitions)
+			require.Empty(t, cfg.MCP.Servers)
+			require.Equal(t, copilot.Bool(false), cfg.Skills.Enabled)
+			require.NotNil(t, cfg.Permissions.OnRequest)
+			require.NotNil(t, cfg.Hooks.Handlers)
+			require.NotNil(t, cfg.Hooks.Handlers.OnPreToolUse)
 			return session, nil
 		})
 	client.EXPECT().DeleteSession(gomock.Any(), "session-1")
@@ -95,12 +95,12 @@ func TestCopilotNewSessionDenyAllWithoutCallbacks(t *testing.T) {
 			for _, request := range []copilot.PermissionRequest{
 				&copilot.PermissionRequestShell{}, &copilot.PermissionRequestCustomTool{ToolName: "unexpected"}, nil,
 			} {
-				decision, err := cfg.OnPermissionRequest(request, copilot.PermissionInvocation{})
+				decision, err := cfg.Permissions.OnRequest(request, copilot.PermissionInvocation{})
 				require.NoError(t, err)
 				require.IsType(t, &rpc.PermissionDecisionReject{}, decision)
 			}
 			for _, tool := range []string{"bash", "set_waza_grade_pass", ""} {
-				output, err := cfg.Hooks.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: tool}, copilot.HookInvocation{})
+				output, err := cfg.Hooks.Handlers.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: tool}, copilot.HookInvocation{})
 				require.NoError(t, err)
 				require.NotNil(t, output)
 				require.Equal(t, "deny", output.PermissionDecision)
