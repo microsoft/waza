@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -437,6 +438,9 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 	gradedRun := *run
 	gradedRun.PromptJudging = slices.Clone(run.PromptJudging)
 	usesEvidence := models.UsesJudgeEvidence(spec.Graders, tc)
+	// completed holds grader results finished before a grader error; they are
+	// retained without synthesizing results for the failing or remaining graders.
+	var completed map[string]models.GraderResults
 	fail := func(err error, invalidEvidence bool) (*models.RunResult, error) {
 		if usesEvidence && invalidEvidence && len(gradedRun.PromptJudging) == len(run.PromptJudging) {
 			configurations := append([]models.GraderConfig(nil), spec.Graders...)
@@ -460,7 +464,8 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 				gradedRun.PromptJudging = append(gradedRun.PromptJudging, observation)
 			}
 		}
-		gradedRun.Validations = map[string]models.GraderResults{}
+		gradedRun.Validations = make(map[string]models.GraderResults, len(completed))
+		maps.Copy(gradedRun.Validations, completed)
 		gradedRun.Status, gradedRun.ErrorMsg = models.StatusError, err.Error()
 		gradedRun.RequirementExplanations = evidence.ExplainRegradedRequirements(spec, tc, &gradedRun)
 		return &gradedRun, err
@@ -564,6 +569,7 @@ func gradeRunWithJudge(ctx context.Context, spec *models.EvalSpec, tc *models.Te
 
 	graderResults, err := graders.RunAll(ctx, spec.Graders, tc, gradingCtx, judgeModel, spec.Config.JudgeReasoningEffort, false)
 	if err != nil {
+		completed = graderResults
 		return fail(err, false)
 	}
 

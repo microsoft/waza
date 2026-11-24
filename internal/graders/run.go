@@ -18,7 +18,10 @@ func (e *RunError) Error() string { return e.err.Error() }
 func (e *RunError) Unwrap() error { return e.err }
 
 // RunAll runs spec-level graders and task-level validators, returning the
-// combined results. Judge settings provide defaults for prompt graders.
+// combined results. Judge settings provide defaults for prompt graders. When a
+// grader cannot be created or run, RunAll stops and returns the results of the
+// graders that already completed (nil when none did) with a *RunError. No result
+// is synthesized for the failing grader, later graders, or expectations.
 func RunAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.TestCase, gCtx *Context, judgeModel, judgeReasoningEffort string, updateSnapshots bool) (map[string]models.GraderResults, error) {
 	return runAll(ctx, specGraders, tc, gCtx, judgeModel, judgeReasoningEffort, updateSnapshots, Create)
 }
@@ -128,12 +131,12 @@ func runAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 		params := applyDefaults(vCfg.Parameters, judgeModel, judgeReasoningEffort, updateSnapshots)
 		grader, err := create(vCfg.Identifier, params)
 		if err != nil {
-			return nil, &RunError{Kind: vCfg.Kind, err: fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)}
+			return completedResults(results), &RunError{Kind: vCfg.Kind, err: fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)}
 		}
 
 		result, err := grader.Grade(ctx, gCtx)
 		if err != nil {
-			return nil, &RunError{Kind: grader.Kind(), err: fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)}
+			return completedResults(results), &RunError{Kind: grader.Kind(), err: fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)}
 		}
 
 		result.Weight = vCfg.EffectiveWeight()
@@ -142,18 +145,18 @@ func runAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 
 	for _, vCfg := range tc.Validators {
 		if vCfg.Kind == "" {
-			return nil, &RunError{Kind: vCfg.Kind, err: fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)}
+			return completedResults(results), &RunError{Kind: vCfg.Kind, err: fmt.Errorf("no kind associated with grader %s", vCfg.Identifier)}
 		}
 
 		params := applyDefaults(vCfg.Parameters, judgeModel, judgeReasoningEffort, updateSnapshots)
 		grader, err := create(vCfg.Identifier, params)
 		if err != nil {
-			return nil, &RunError{Kind: vCfg.Kind, err: fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)}
+			return completedResults(results), &RunError{Kind: vCfg.Kind, err: fmt.Errorf("failed to create grader %s: %w", vCfg.Identifier, err)}
 		}
 
 		result, err := grader.Grade(ctx, gCtx)
 		if err != nil {
-			return nil, &RunError{Kind: grader.Kind(), err: fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)}
+			return completedResults(results), &RunError{Kind: grader.Kind(), err: fmt.Errorf("failed to run grader %s: %w", vCfg.Identifier, err)}
 		}
 
 		result.Weight = vCfg.EffectiveWeight()
@@ -166,6 +169,15 @@ func runAll(ctx context.Context, specGraders []models.GraderConfig, tc *models.T
 	}
 
 	return results, nil
+}
+
+// completedResults returns the results recorded before a grader error, or nil
+// when no grader completed.
+func completedResults(results map[string]models.GraderResults) map[string]models.GraderResults {
+	if len(results) == 0 {
+		return nil
+	}
+	return results
 }
 
 // evaluateExpectations synthesizes grader results from the expectation-level
