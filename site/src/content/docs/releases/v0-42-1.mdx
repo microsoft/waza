@@ -27,7 +27,7 @@ summarizes the dogfood lessons and upgrade considerations.
 | [Scaffolded trigger examples #1090](https://github.com/microsoft/waza/issues/1090), [PR #1107](https://github.com/microsoft/waza/pull/1107) | Include generated trigger examples in the development report rather than leaving the scaffold disconnected from evaluation. |
 | [Generated CI #947](https://github.com/microsoft/waza/issues/947) | Pin generated automation and make live agent execution an explicit choice rather than a surprising default. |
 | [Dependency patch PR #1103](https://github.com/microsoft/waza/pull/1103) | Update `go-jose/v4` from 4.1.4 to 4.1.6 for GHSA-mgcc-cww5-fp2q. |
-| [Copilot SDK v2 #1117](https://github.com/microsoft/waza/issues/1117), [PR #1118](https://github.com/microsoft/waza/pull/1118) | Proposed: move from `github.com/github/copilot-sdk/go` v1.0.34 and bundled CLI 1.0.112 to `github.com/microsoft/copilot-sdk/go/v2` v2.0.1 and bundled CLI 1.0.114, preserving existing result and policy contracts. |
+| [Copilot SDK v2 #1117](https://github.com/microsoft/waza/issues/1117), [PR #1118](https://github.com/microsoft/waza/pull/1118) | Proposed: move from `github.com/github/copilot-sdk/go` v1.0.34 and bundled CLI 1.0.112 to `github.com/microsoft/copilot-sdk/go/v2` v2.0.1 and bundled CLI 1.0.114, preserving result and policy contracts; deprecated `models --json` billing fields are no longer available. |
 
 The source comparison and final changelog will identify the merged patch scope.
 An open issue or pull request in this table is not evidence that a fix has
@@ -58,11 +58,13 @@ The SDK migration in [PR #1118](https://github.com/microsoft/waza/pull/1118)
 is open and may change before merge. As proposed, Waza keeps launching the
 bundled Copilot CLI as a separate process rather than adopting the v2 SDK's
 in-process default, and it still refuses to fall back to a CLI found on `PATH`.
-The new runtime speaks SDK protocol 4, so a custom `COPILOT_CLI_PATH` override
-needs a compatible Copilot CLI; checks of compatible and incompatible
-overrides are still outstanding. `waza models --json` keeps its previous
-fields, except the deprecated `tokenPrices.cachePrice` value, which the v2 SDK
-no longer provides.
+Compatibility of a custom Copilot CLI supplied through `COPILOT_CLI_PATH` has
+not been verified yet and remains an open candidate limitation.
+
+`waza models --json` is not fully unchanged: the deprecated optional
+`billing.tokenPrices.cachePrice` and `contextMax` fields, including their
+long-context variants, are no longer available from the v2 SDK and runtime.
+Scripts that read them must adapt.
 
 The migration currently has offline evidence only: guarded Go and
 compatibility suites, lint and cross-compilation. Authenticated runs against
