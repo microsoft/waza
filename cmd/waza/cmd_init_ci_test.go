@@ -194,30 +194,60 @@ func TestInitCI_OfflineCommandsAndTrust(t *testing.T) {
 	require.Equal(t, "waza-agent", agent.Environment)
 	require.Equal(t, 45, agent.TimeoutMinutes)
 	// Evaluate the emitted condition with deterministic event values, not a
-	// separately authored copy of the desired gate.
+	// separately authored copy of the desired gate. GitHub expression string
+	// comparison ignores case, so evaluate it with nocasematch.
 	condition := strings.NewReplacer(
 		"github.event_name", `"$EVENT"`,
 		"inputs.run-agent", `"$OPT_IN" == true`,
 		"github.ref", `"$REF"`,
 		"format('refs/heads/{0}', github.event.repository.default_branch)", `"$DEFAULT_REF"`,
 	).Replace(agent.If)
+	// Git refs are case-sensitive; the first job step must enforce the exact
+	// ref before any step can receive the environment secret.
+	guard := initCIStepByName(t, agent, "exact-default-ref")
+	require.Equal(t, guard.ID, agent.Steps[0].ID, "exact ref guard must precede all other agent steps")
+	require.Empty(t, guard.If)
+	for _, step := range agent.Steps[1:] {
+		for _, value := range step.Env {
+			if strings.Contains(value, "secrets.") {
+				require.Empty(t, step.If, "secret-bearing step %q must not run after a failed ref guard", step.ID)
+			}
+		}
+	}
+	require.Equal(t, "refs/heads/${{ github.event.repository.default_branch }}", guard.Env["DEFAULT_REF"])
 	for _, tc := range []struct {
 		event, optIn, ref, defaultRef string
-		selected                      bool
+		jobSelected, admitted         bool
 	}{
-		{"pull_request", "true", "refs/heads/main", "refs/heads/main", false},
-		{"push", "true", "refs/heads/main", "refs/heads/main", false},
-		{"workflow_dispatch", "false", "refs/heads/main", "refs/heads/main", false},
-		{"workflow_dispatch", "true", "refs/heads/topic", "refs/heads/main", false},
-		{"workflow_dispatch", "true", "refs/heads/main", "refs/heads/main", true},
-		{"pull_request", "true", "refs/heads/develop", "refs/heads/develop", false},
-		{"workflow_dispatch", "true", "refs/heads/main", "refs/heads/develop", false},
-		{"workflow_dispatch", "true", "refs/heads/develop", "refs/heads/develop", true},
+		{"pull_request", "true", "refs/heads/main", "refs/heads/main", false, false},
+		{"push", "true", "refs/heads/main", "refs/heads/main", false, false},
+		{"workflow_dispatch", "false", "refs/heads/main", "refs/heads/main", false, false},
+		{"workflow_dispatch", "true", "refs/heads/topic", "refs/heads/main", false, false},
+		{"workflow_dispatch", "true", "refs/heads/main", "refs/heads/main", true, true},
+		{"pull_request", "true", "refs/heads/develop", "refs/heads/develop", false, false},
+		{"workflow_dispatch", "true", "refs/heads/main", "refs/heads/develop", false, false},
+		{"workflow_dispatch", "true", "refs/heads/develop", "refs/heads/develop", true, true},
+		// A distinct case-variant branch passes the case-insensitive job
+		// condition and must be rejected by the exact guard.
+		{"workflow_dispatch", "true", "refs/heads/MAIN", "refs/heads/main", true, false},
+		{"workflow_dispatch", "true", "refs/heads/Develop", "refs/heads/develop", true, false},
 	} {
-		out, err = initCIShell(t, dir, "[[ "+condition+" ]]", map[string]string{
+		out, err = initCIShell(t, dir, "shopt -s nocasematch\n[[ "+condition+" ]]", map[string]string{
 			"EVENT": tc.event, "OPT_IN": tc.optIn, "REF": tc.ref, "DEFAULT_REF": tc.defaultRef,
 		})
-		require.Equal(t, tc.selected, err == nil, "%+v: %s", tc, out)
+		require.Equal(t, tc.jobSelected, err == nil, "job condition %+v: %s", tc, out)
+		if !tc.jobSelected {
+			continue
+		}
+		defaultBranch := strings.TrimPrefix(tc.defaultRef, "refs/heads/")
+		out, err = initCIShell(t, dir, guard.Run, map[string]string{
+			"GITHUB_REF":  tc.ref,
+			"DEFAULT_REF": strings.ReplaceAll(guard.Env["DEFAULT_REF"], "${{ github.event.repository.default_branch }}", defaultBranch),
+		})
+		require.Equal(t, tc.admitted, err == nil, "exact ref guard %+v: %s", tc, out)
+		if !tc.admitted {
+			require.Contains(t, out, "Trusted evaluations run only from "+tc.defaultRef)
+		}
 	}
 }
 
