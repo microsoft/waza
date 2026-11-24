@@ -207,14 +207,10 @@ func detectPaths(root string) detectedPaths {
 	return dp
 }
 
-func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir, flagEvalsDir, flagResultsDir string) error {
+func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir, flagEvalsDir, flagResultsDir string) (resultErr error) {
 	dir := "."
 	if len(args) > 0 {
 		dir = args[0]
-	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
 	out := cmd.OutOrStdout()
@@ -226,7 +222,10 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	wazaConfigPath := filepath.Join(absDir, ".waza.yaml")
 	_, wazaStatErr := os.Stat(wazaConfigPath)
-	needConfigPrompt := wazaStatErr != nil
+	if wazaStatErr != nil && !errors.Is(wazaStatErr, fs.ErrNotExist) {
+		return fmt.Errorf("checking project configuration %s: %w", wazaConfigPath, wazaStatErr)
+	}
+	needConfigPrompt := errors.Is(wazaStatErr, fs.ErrNotExist)
 	needSkillPrompt := !noSkill
 
 	// --- Phase 1: Configuration (if .waza.yaml missing) ---
@@ -244,6 +243,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	// If .waza.yaml exists, read engine/model from it so scaffolded evals
 	// match the project's actual config instead of hardcoded defaults.
+	var configErr error
 	if !needConfigPrompt {
 		if cfg, err := projectconfig.Load(absDir); err == nil {
 			engine = cfg.Defaults.Engine
@@ -254,8 +254,21 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			files = cfg.Files
 			configuredSkills, configuredEvals = cfg.Paths.Skills, cfg.Paths.Evals
 			hasConfiguredPaths = true
+		} else {
+			configErr = err
 		}
 	}
+
+	workflowPath := filepath.Join(absDir, ".github", "workflows", "eval.yml")
+	_, workflowStatErr := os.Lstat(workflowPath)
+	if workflowStatErr != nil && !errors.Is(workflowStatErr, fs.ErrNotExist) {
+		return fmt.Errorf("checking generated workflow %s: %w", workflowPath, workflowStatErr)
+	}
+	needWorkflow := errors.Is(workflowStatErr, fs.ErrNotExist)
+	if needWorkflow && configErr != nil {
+		return fmt.Errorf("loading existing project configuration: %w", configErr)
+	}
+	useConfiguredWorkflowPaths := needWorkflow && hasConfiguredPaths
 
 	// --- Path resolution: CLI flags > detected paths > config defaults ---
 	// Only run detection when at least one path is still using its default
@@ -268,10 +281,10 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	var detected detectedPaths
 	if needDetection {
 		detected = detectPaths(absDir)
-		if detected.SkillsDir != "" && skillsPath == projectconfig.DefaultSkillsDir {
+		if !useConfiguredWorkflowPaths && detected.SkillsDir != "" && skillsPath == projectconfig.DefaultSkillsDir {
 			skillsPath = detected.SkillsDir
 		}
-		if detected.EvalsDir != "" && evalsPath == projectconfig.DefaultEvalsDir {
+		if !useConfiguredWorkflowPaths && detected.EvalsDir != "" && evalsPath == projectconfig.DefaultEvalsDir {
 			evalsPath = detected.EvalsDir
 		}
 		if detected.ResultsDir != "" && resultsPath == projectconfig.DefaultResultsDir {
@@ -289,15 +302,12 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	if flagResultsDir != "" {
 		resultsPath = flagResultsDir
 	}
-	if hasConfiguredPaths {
-		workflowPath := filepath.Join(absDir, ".github", "workflows", "eval.yml")
-		if _, err := os.Lstat(workflowPath); errors.Is(err, fs.ErrNotExist) {
-			if err := rejectConfiguredPathOverride("--skills-dir", "paths.skills", flagSkillsDir, configuredSkills); err != nil {
-				return err
-			}
-			if err := rejectConfiguredPathOverride("--evals-dir", "paths.evals", flagEvalsDir, configuredEvals); err != nil {
-				return err
-			}
+	if useConfiguredWorkflowPaths {
+		if err := rejectConfiguredPathOverride("--skills-dir", "paths.skills", flagSkillsDir, configuredSkills); err != nil {
+			return err
+		}
+		if err := rejectConfiguredPathOverride("--evals-dir", "paths.evals", flagEvalsDir, configuredEvals); err != nil {
+			return err
 		}
 	}
 
@@ -315,19 +325,43 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		}
 	}
 
-	// Validate resolved paths are safe (applies to all code paths: flags, detection, defaults)
-	for _, p := range []string{skillsPath, evalsPath, resultsPath} {
-		cleaned := filepath.Clean(p)
-		if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-			return fmt.Errorf("path %q must be relative and within the project directory", p)
-		}
-		if strings.ContainsAny(p, ":#") {
-			return fmt.Errorf("path %q contains invalid characters", p)
-		}
-	}
-
 	var inventory []skillEntry
 	var skillsMissingEvals int
+	var workflow string
+	var root *os.Root
+	var fw *scaffold.FileWriter
+	defer func() {
+		if root != nil {
+			if err := root.Close(); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("closing project directory %s: %w", absDir, err))
+			}
+		}
+	}()
+	prepareScaffold := func() error {
+		for _, p := range []string{skillsPath, evalsPath, resultsPath} {
+			cleaned := filepath.Clean(p)
+			if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+				return fmt.Errorf("path %q must be relative and within the project directory", p)
+			}
+			if strings.ContainsAny(p, ":#") {
+				return fmt.Errorf("path %q contains invalid characters", p)
+			}
+		}
+		var err error
+		workflow, err = ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+		root, err = os.OpenRoot(absDir)
+		if err != nil {
+			return fmt.Errorf("opening project directory %s: %w", absDir, err)
+		}
+		fw = scaffold.NewFileWriter(absDir)
+		return nil
+	}
 
 	if isTTY {
 		// Engine selector (separate form)
@@ -409,6 +443,9 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 				_ = err
 			}
 		}
+		if err := prepareScaffold(); err != nil {
+			return err
+		}
 
 		// --- Phase 2: Discover & Display Inventory (using configured paths) ---
 		inventory = displayInventory(out, absDir,
@@ -440,7 +477,9 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			}
 
 			if scaffoldMissing {
-				scaffoldMissingEvals(absDir, evalsPath, inventory, engine, model, files)
+				if err := scaffoldMissingEvals(root, fw, absDir, evalsPath, inventory, engine, model, files); err != nil {
+					return err
+				}
 				// Re-display inventory showing updated state
 				inventory = displayInventory(out, absDir,
 					workspace.WithSkillsDir(skillsPath),
@@ -478,6 +517,9 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		}
 	} else {
 		// Non-TTY: use defaults, skip forms
+		if err := prepareScaffold(); err != nil {
+			return err
+		}
 		fmt.Fprintf(out, "\nUsing defaults: engine=%s, model=%s, scaffold missing evals=yes, create skill=no\n", engine, model) //nolint:errcheck
 
 		// Discover inventory using configured paths
@@ -494,7 +536,9 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		scaffoldMissing = skillsMissingEvals > 0
 
 		if scaffoldMissing {
-			scaffoldMissingEvals(absDir, evalsPath, inventory, engine, model, files)
+			if err := scaffoldMissingEvals(root, fw, absDir, evalsPath, inventory, engine, model, files); err != nil {
+				return err
+			}
 			// Re-display inventory after scaffolding
 			inventory = displayInventory(out, absDir,
 				workspace.WithSkillsDir(skillsPath),
@@ -517,10 +561,6 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	configLabel := fmt.Sprintf("Project defaults (%s, %s)", engine, model)
 
-	workflow, err := ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))
-	if err != nil {
-		return err
-	}
 	entries := []scaffold.FileEntry{
 		{Path: filepath.Join(absDir, skillsPath), Label: "Skill definitions", IsDir: true},
 		{Path: filepath.Join(absDir, evalsPath), Label: "Evaluation suites", IsDir: true},
@@ -540,18 +580,20 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			evalsHaveFiles = true
 		}
 	}
-	walkErr := filepath.WalkDir(walkRoot, func(_ string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	if !evalsHaveFiles {
+		walkErr := filepath.WalkDir(walkRoot, func(_ string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !entry.IsDir() {
+				evalsHaveFiles = true
+				return fs.SkipAll
+			}
+			return nil
+		})
+		if walkErr != nil && !errors.Is(walkErr, fs.ErrNotExist) {
+			return fmt.Errorf("checking evaluation directory %s: %w", evalsRoot, walkErr)
 		}
-		if !entry.IsDir() {
-			evalsHaveFiles = true
-			return fs.SkipAll
-		}
-		return nil
-	})
-	if walkErr != nil && !errors.Is(walkErr, fs.ErrNotExist) {
-		return fmt.Errorf("checking evaluation directory %s: %w", evalsRoot, walkErr)
 	}
 	if !evalsHaveFiles {
 		entries = append(entries, scaffold.FileEntry{
@@ -561,8 +603,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		})
 	}
 
-	fw := scaffold.NewFileWriter(absDir)
-	inv, err := fw.Write(entries)
+	inv, err := fw.WriteRooted(root, entries)
 	if err != nil {
 		return err
 	}
@@ -614,7 +655,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 }
 
 // scaffoldMissingEvals creates eval suites for skills that lack them.
-func scaffoldMissingEvals(absDir, evalsDir string, inventory []skillEntry, engine, model string, files projectconfig.FilesConfig) {
+func scaffoldMissingEvals(root *os.Root, fw *scaffold.FileWriter, absDir, evalsDir string, inventory []skillEntry, engine, model string, files projectconfig.FilesConfig) error {
 	for _, inv := range inventory {
 		if inv.HasEval {
 			continue
@@ -623,15 +664,20 @@ func scaffoldMissingEvals(absDir, evalsDir string, inventory []skillEntry, engin
 		tasksDir := filepath.Join(evalDir, "tasks")
 		fixturesDir := filepath.Join(evalDir, "fixtures")
 
-		for _, d := range []string{tasksDir, fixturesDir} {
-			os.MkdirAll(d, 0o755) //nolint:errcheck
+		entries := []scaffold.FileEntry{
+			{Path: tasksDir, IsDir: true},
+			{Path: fixturesDir, IsDir: true},
+			{Path: filepath.Join(evalDir, files.EvalFile), Content: scaffold.EvalYAMLWithTaskGlob(inv.Name, engine, model, files.TaskGlob)},
 		}
-		os.WriteFile(filepath.Join(evalDir, files.EvalFile), []byte(scaffold.EvalYAMLWithTaskGlob(inv.Name, engine, model, files.TaskGlob)), 0o644) //nolint:errcheck
 		for name, content := range scaffold.TaskFilesWithSuffix(files.TaskFileSuffix) {
-			os.WriteFile(filepath.Join(tasksDir, name), []byte(content), 0o644) //nolint:errcheck
+			entries = append(entries, scaffold.FileEntry{Path: filepath.Join(tasksDir, name), Content: content})
 		}
-		os.WriteFile(filepath.Join(fixturesDir, "sample.py"), []byte(scaffold.Fixture()), 0o644) //nolint:errcheck
+		entries = append(entries, scaffold.FileEntry{Path: filepath.Join(fixturesDir, "sample.py"), Content: scaffold.Fixture()})
+		if _, err := fw.WriteRooted(root, entries); err != nil {
+			return fmt.Errorf("scaffolding missing evaluation for skill %q: %w", inv.Name, err)
+		}
 	}
+	return nil
 }
 
 func printNextSteps(out io.Writer) {

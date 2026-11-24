@@ -2,6 +2,8 @@ package scaffold
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -214,4 +216,120 @@ func TestFileWriter_FileEntry_DirExistsAtPath(t *testing.T) {
 	_, err := fw.Write(entries)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exists but is a directory")
+}
+
+func TestFileWriter_RootedCreationDoesNotOverwriteCompetingFile(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, root.Close()) })
+	path := filepath.Join(dir, "task.yaml")
+	original := []byte("competing task\n")
+	fw := NewFileWriter(dir)
+	fw.beforeRootedCreate = func(path string) {
+		require.NoError(t, os.WriteFile(path, original, 0o600))
+	}
+
+	_, err = fw.WriteRooted(root, []FileEntry{{Path: path, Content: "generated task\n"}})
+	require.ErrorIs(t, err, os.ErrExist)
+	preserved, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, original, preserved)
+}
+
+func TestFileWriter_RootedCreationRejectsSwappedParent(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	probe := filepath.Join(dir, "link-probe")
+	if err := os.Symlink(outside, probe); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	require.NoError(t, os.Remove(probe))
+	parent := filepath.Join(dir, "evals")
+	require.NoError(t, os.MkdirAll(parent, 0o755))
+	sentinel := filepath.Join(outside, "sentinel.txt")
+	require.NoError(t, os.WriteFile(sentinel, []byte("outside sentinel"), 0o600))
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, root.Close()) })
+	fw := NewFileWriter(dir)
+	fw.beforeRootedCreate = func(string) {
+		require.NoError(t, os.Rename(parent, filepath.Join(dir, "original-evals")))
+		require.NoError(t, os.Symlink(outside, parent))
+	}
+
+	path := filepath.Join(parent, "new", "task.yaml")
+	_, err = fw.WriteRooted(root, []FileEntry{{Path: path, Content: "generated task\n"}})
+	require.Error(t, err)
+	require.NoDirExists(t, filepath.Join(outside, "new"))
+	preserved, readErr := os.ReadFile(sentinel)
+	require.NoError(t, readErr)
+	require.Equal(t, "outside sentinel", string(preserved))
+}
+
+type failingRootedFile struct {
+	*os.File
+	writeErr error
+	closeErr error
+	short    bool
+}
+
+func (f *failingRootedFile) Write(p []byte) (int, error) {
+	if f.writeErr != nil || f.short {
+		n, err := f.File.Write(p[:len(p)/2])
+		if err != nil {
+			return n, err
+		}
+		return n, f.writeErr
+	}
+	return f.File.Write(p)
+}
+
+func (f *failingRootedFile) Close() error {
+	return errors.Join(f.File.Close(), f.closeErr)
+}
+
+func TestFileWriter_RootedCreationReportsWriteAndCloseFailures(t *testing.T) {
+	for _, mode := range []string{"write", "short write", "close"} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			root, err := os.OpenRoot(dir)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, root.Close()) })
+			path := filepath.Join(dir, "task.yaml")
+			injected := errors.New("injected " + mode + " failure")
+			fw := NewFileWriter(dir)
+			fw.openRootedFile = func(root *os.Root, name string) (io.WriteCloser, error) {
+				file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+				if err != nil {
+					return nil, err
+				}
+				wrapped := &failingRootedFile{File: file}
+				switch mode {
+				case "write":
+					wrapped.writeErr = injected
+				case "short write":
+					wrapped.short = true
+				case "close":
+					wrapped.closeErr = injected
+				}
+				return wrapped, nil
+			}
+
+			_, err = fw.WriteRooted(root, []FileEntry{{Path: path, Content: "generated task\n"}})
+			if mode == "short write" {
+				require.ErrorIs(t, err, io.ErrShortWrite)
+			} else {
+				require.ErrorIs(t, err, injected)
+			}
+			require.ErrorContains(t, err, path)
+			require.ErrorContains(t, err, "partial output may remain")
+			retained, readErr := os.ReadFile(path)
+			require.NoError(t, readErr)
+			if mode == "close" {
+				require.Equal(t, "generated task\n", string(retained))
+			} else {
+				require.Equal(t, "generat", string(retained))
+			}
+		})
+	}
 }

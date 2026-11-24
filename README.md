@@ -698,6 +698,12 @@ child processes.
 
 Initialize a waza project workspace with separated `skills/` and `evals/` directories. Idempotent — creates only missing files.
 
+When generating a workflow, existing `.waza.yaml` skill and eval paths take
+precedence over discovery. On Windows, macOS, and Linux, project and missing-eval
+scaffold writes use a rooted handle to reject symlink escapes; filesystem mounts
+and the separate `new skill` flow are not constrained by this. A failed scaffold
+can leave partial output.
+
 | Flag | Description |
 |------|-------------|
 | `--no-skill` | Skip the first-skill creation prompt |

@@ -545,6 +545,12 @@ Initialize a waza project with directory structure.
 - With an existing `.waza.yaml`, generating `.github/workflows/eval.yml` rejects `--skills-dir` or `--evals-dir` values that differ from its `paths`, so CI validates the same roots that runs use
 - `--results-dir` — Set the results path recorded in newly created configuration
 
+When generating a workflow, configured skill and eval paths take precedence over
+auto-detected paths. On Windows, macOS, and Linux, project and missing-eval
+scaffold writes use a rooted handle to reject symlink escapes. Filesystem mounts
+and the separate `new skill` flow are not constrained by this. Existing files
+are preserved, but a failed scaffold can leave partial output.
+
 **What it creates:**
 - `skills/` — Skill definitions directory
 - `evals/` — Evaluation suites directory

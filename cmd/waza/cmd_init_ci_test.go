@@ -341,6 +341,96 @@ func TestInitCI_EmptySymlinkedEvaluationRootIsKept(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(outside, ".gitkeep"), "init must not write outside the project")
 }
 
+func TestInitCI_EvaluationRootUnderSymlink(t *testing.T) {
+	t.Run("outside missing descendant", func(t *testing.T) {
+		dir := t.TempDir()
+		outside := t.TempDir()
+		sentinel := filepath.Join(outside, "sentinel.txt")
+		require.NoError(t, os.WriteFile(sentinel, []byte("outside sentinel"), 0o600))
+		if err := os.Symlink(outside, filepath.Join(dir, "alias")); err != nil {
+			t.Skipf("directory symlink unavailable: %v", err)
+		}
+
+		cmd := newInitCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", filepath.Join("alias", "nested")})
+		err := cmd.Execute()
+		require.NoDirExists(t, filepath.Join(outside, "nested"), "init must not create missing directories outside the project")
+		preserved, readErr := os.ReadFile(sentinel)
+		require.NoError(t, readErr)
+		require.Equal(t, "outside sentinel", string(preserved))
+		require.Error(t, err)
+	})
+
+	t.Run("outside existing task", func(t *testing.T) {
+		dir := t.TempDir()
+		outside := t.TempDir()
+		initCIAddSkill(t, dir, "reviewed")
+		tasks := filepath.Join(outside, "nested", "reviewed", "tasks")
+		require.NoError(t, os.MkdirAll(tasks, 0o755))
+		sentinel := filepath.Join(tasks, "basic-usage.yaml")
+		original := []byte("existing task sentinel\n")
+		require.NoError(t, os.WriteFile(sentinel, original, 0o600))
+		if err := os.Symlink(outside, filepath.Join(dir, "alias")); err != nil {
+			t.Skipf("directory symlink unavailable: %v", err)
+		}
+
+		cmd := newInitCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", filepath.Join("alias", "nested")})
+		err := cmd.Execute()
+		preserved, readErr := os.ReadFile(sentinel)
+		require.NoError(t, readErr)
+		require.Equal(t, original, preserved, "missing-eval scaffolding must preserve the existing task")
+		require.NoFileExists(t, filepath.Join(outside, "nested", "reviewed", "eval.yaml"))
+		require.Error(t, err)
+	})
+
+	for _, absolute := range []bool{false, true} {
+		name := "relative inside"
+		if absolute {
+			name = "absolute inside"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			inside := filepath.Join(dir, "shared")
+			require.NoError(t, os.MkdirAll(inside, 0o755))
+			target := "shared"
+			if absolute {
+				target = inside
+			}
+			if err := os.Symlink(target, filepath.Join(dir, "alias")); err != nil {
+				t.Skipf("directory symlink unavailable: %v", err)
+			}
+			cmd := newInitCommand()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", filepath.Join("alias", "nested")})
+			require.NoError(t, cmd.Execute())
+			require.FileExists(t, filepath.Join(inside, "nested", ".gitkeep"))
+		})
+	}
+}
+
+func TestInitCI_MissingEvalPreservesExistingTask(t *testing.T) {
+	dir := t.TempDir()
+	initCIAddSkill(t, dir, "reviewed")
+	tasks := filepath.Join(dir, "evals", "reviewed", "tasks")
+	require.NoError(t, os.MkdirAll(tasks, 0o755))
+	task := filepath.Join(tasks, "basic-usage.yaml")
+	original := []byte("existing task sentinel\r\n")
+	require.NoError(t, os.WriteFile(task, original, 0o600))
+
+	cmd := newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+	preserved, err := os.ReadFile(task)
+	require.NoError(t, err)
+	require.Equal(t, original, preserved)
+	require.FileExists(t, filepath.Join(dir, "evals", "reviewed", "eval.yaml"))
+	require.FileExists(t, filepath.Join(dir, "evals", "reviewed", "fixtures", "sample.py"))
+}
+
 func TestInitCI_WorkspaceInventoryFollowsEvalRootSymlink(t *testing.T) {
 	dir, _ := initCIFixture(t)
 	cfg := projectconfig.New()
@@ -575,6 +665,92 @@ func TestInitCI_CustomEvalPaths(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
 }
 
+func TestInitCI_ExistingConfigSelectsPathsOverDetection(t *testing.T) {
+	for _, suffix := range []string{"/", ""} {
+		name := "without trailing slash"
+		if suffix != "" {
+			name = "with trailing slash"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			skillsPath, evalsPath := "skills"+suffix, "evals"+suffix
+			configPath := filepath.Join(dir, ".waza.yaml")
+			config := []byte(fmt.Sprintf("paths:\n  skills: %s\n  evals: %s\n", skillsPath, evalsPath))
+			require.NoError(t, os.WriteFile(configPath, config, 0o600))
+			initCIAddSkill(t, dir, "configured")
+			decoySkill := filepath.Join(dir, "a-skills", "decoy")
+			require.NoError(t, os.MkdirAll(decoySkill, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(decoySkill, "SKILL.md"), []byte("# decoy\n"), 0o600))
+			configuredEval := filepath.Join(dir, "evals", "configured", "eval.yaml")
+			decoyEval := filepath.Join(dir, "a-evals", "decoy", "eval.yaml")
+			for _, path := range []string{configuredEval, decoyEval} {
+				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+				require.NoError(t, os.WriteFile(path, []byte("config: [invalid]\n"), 0o600))
+			}
+
+			var initOut bytes.Buffer
+			cmd := newInitCommand()
+			cmd.SetOut(&initOut)
+			cmd.SetArgs([]string{dir, "--no-skill"})
+			require.NoError(t, cmd.Execute())
+			require.Contains(t, initOut.String(), "Skill: configured")
+			require.NotContains(t, initOut.String(), "Skill: decoy")
+			preserved, err := os.ReadFile(configPath)
+			require.NoError(t, err)
+			require.Equal(t, config, preserved)
+
+			data, err := os.ReadFile(filepath.Join(dir, ".github", "workflows", "eval.yml"))
+			require.NoError(t, err)
+			var workflow initCIWorkflowSpec
+			require.NoError(t, yaml.Unmarshal(data, &workflow))
+			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+			require.Equal(t, skillsPath, step.Env["SKILLS_PATH"])
+			require.Equal(t, evalsPath, step.Env["EVALS_PATH"])
+			require.Equal(t, "evals/my-skill/eval.yaml", workflow.On.Dispatch.Inputs["eval-path"].Default)
+
+			ordinary, err := initCIShell(t, dir, "waza preflight --workspace", map[string]string{"WAZA_INIT_CI_MODE": "reject"})
+			require.Error(t, err, ordinary)
+			require.Contains(t, ordinary, configuredEval)
+			require.NotContains(t, ordinary, decoyEval)
+			step.Env["WAZA_INIT_CI_MODE"] = "reject"
+			generated, err := initCIShell(t, dir, step.Run, step.Env)
+			require.Error(t, err, generated)
+			require.Contains(t, generated, configuredEval)
+			require.NotContains(t, generated, decoyEval)
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+		})
+	}
+}
+
+func TestInitCI_ExistingWorkflowRetainsDetection(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, validateCLIIsolation(dir))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("paths:\n  skills: skills/\n  evals: evals/\n"), 0o600))
+	skillDir := filepath.Join(dir, "a-skills", "reviewed")
+	evalDir := filepath.Join(dir, "a-evals", "reviewed")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.MkdirAll(evalDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# reviewed\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(evalDir, "eval.yaml"), []byte("config: [invalid]\n"), 0o600))
+	workflowPath := filepath.Join(dir, ".github", "workflows", "eval.yml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(workflowPath), 0o755))
+	original := []byte("existing workflow sentinel\n")
+	require.NoError(t, os.WriteFile(workflowPath, original, 0o600))
+
+	var out bytes.Buffer
+	cmd := newInitCommand()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, out.String(), "Skill: reviewed")
+	require.Contains(t, out.String(), "a-skills")
+	require.Contains(t, out.String(), "a-evals")
+	preserved, err := os.ReadFile(workflowPath)
+	require.NoError(t, err)
+	require.Equal(t, original, preserved)
+}
+
 func TestInitCI_RejectsActionsExpressionsInLiteralPaths(t *testing.T) {
 	const expression = "suites-${{ github.token }}"
 	t.Run("init evals dir", func(t *testing.T) {
@@ -588,6 +764,37 @@ func TestInitCI_RejectsActionsExpressionsInLiteralPaths(t *testing.T) {
 		require.ErrorContains(t, err, `generated CI cannot use path "`+expression+`"`)
 		require.NoFileExists(t, filepath.Join(dir, ".github", "workflows", "eval.yml"))
 		require.NoDirExists(t, filepath.Join(dir, expression))
+	})
+	t.Run("init rejection preserves existing missing-eval task", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, validateCLIIsolation(dir))
+		initCIAddSkill(t, dir, "reviewed")
+		tasks := filepath.Join(dir, expression, "reviewed", "tasks")
+		require.NoError(t, os.MkdirAll(tasks, 0o755))
+		task := filepath.Join(tasks, "basic-usage.yaml")
+		original := []byte("existing task sentinel\r\n")
+		require.NoError(t, os.WriteFile(task, original, 0o600))
+
+		cmd := newInitCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", expression})
+		require.ErrorContains(t, cmd.Execute(), "GitHub Actions would evaluate")
+		preserved, err := os.ReadFile(task)
+		require.NoError(t, err)
+		require.Equal(t, original, preserved)
+		require.NoFileExists(t, filepath.Join(dir, expression, "reviewed", "eval.yaml"))
+		require.NoDirExists(t, filepath.Join(dir, expression, "reviewed", "fixtures"))
+		require.NoFileExists(t, filepath.Join(dir, ".github", "workflows", "eval.yml"))
+	})
+	t.Run("init rejection does not create target directory", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "not-created")
+		cmd := newInitCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", expression})
+		require.ErrorContains(t, cmd.Execute(), "GitHub Actions would evaluate")
+		require.NoDirExists(t, dir)
 	})
 	t.Run("new skill eval file", func(t *testing.T) {
 		dir := t.TempDir()

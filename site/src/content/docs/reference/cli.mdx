@@ -252,7 +252,10 @@ waza init [directory]
 | `--evals-dir` | Project-relative evals directory; overrides detection and defaults |
 | `--results-dir` | Project-relative results directory recorded in new configuration |
 
-When `.waza.yaml` already exists and init generates `.github/workflows/eval.yml`, `--skills-dir` and `--evals-dir` must match its `paths` values so CI validates the same roots that runs use.
+When `.waza.yaml` already exists and init generates `.github/workflows/eval.yml`,
+its skill and eval paths take precedence over auto-detection. `--skills-dir`
+and `--evals-dir` must match those configured paths so CI validates the same
+roots that runs use.
 
 ### Creates
 
@@ -269,6 +272,11 @@ project-root/
 Existing project files are preserved. Missing `.waza.yaml` configuration records
 the selected paths and engine/model defaults; an existing configuration is not
 rewritten. The results directory is configured, not created by this scaffold.
+
+On Windows, macOS, and Linux, project and missing-eval scaffold writes use a
+rooted handle to reject symlink escapes. Filesystem mounts and the separate
+`new skill` flow are not constrained by this. A failed scaffold can leave
+partial output.
 
 The generated workflow pins a standalone Waza release, action commit SHAs and
 Ubuntu 24.04. Pull requests run offline preflight, not live agent evaluations.
