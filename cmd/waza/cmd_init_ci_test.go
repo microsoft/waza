@@ -315,6 +315,32 @@ func TestInitCI_EmptyEvaluationRootSurvivesCheckout(t *testing.T) {
 	require.Contains(t, out, "Evaluation directory is missing")
 }
 
+func TestInitCI_EmptySymlinkedEvaluationRootIsKept(t *testing.T) {
+	dir, _ := initCIFixture(t)
+	evalsDir := filepath.Join(dir, "evals")
+	require.NoError(t, os.Remove(filepath.Join(evalsDir, ".gitkeep")))
+	require.NoError(t, os.Remove(evalsDir))
+	inside := filepath.Join(dir, "shared-evals")
+	require.NoError(t, os.MkdirAll(inside, 0o755))
+	if err := os.Symlink(inside, evalsDir); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	cmd := newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+	require.FileExists(t, filepath.Join(inside, ".gitkeep"), "an empty in-project symlink target must survive checkout")
+
+	outside := t.TempDir()
+	require.NoError(t, os.Remove(evalsDir))
+	require.NoError(t, os.Symlink(outside, evalsDir))
+	cmd = newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill"})
+	require.NoError(t, cmd.Execute())
+	require.NoFileExists(t, filepath.Join(outside, ".gitkeep"), "init must not write outside the project")
+}
+
 func TestInitCI_WorkspaceInventoryFollowsEvalRootSymlink(t *testing.T) {
 	dir, _ := initCIFixture(t)
 	cfg := projectconfig.New()

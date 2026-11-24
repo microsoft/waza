@@ -516,7 +516,16 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	}
 	evalsRoot := filepath.Join(absDir, evalsPath)
 	evalsHaveFiles := false
-	walkErr := filepath.WalkDir(evalsRoot, func(_ string, entry fs.DirEntry, err error) error {
+	// WalkDir does not follow a symlinked root, so inspect its target. A
+	// target outside the project cannot be kept by this repository's Git.
+	walkRoot := evalsRoot
+	if resolved, err := filepath.EvalSymlinks(evalsRoot); err == nil && resolved != evalsRoot {
+		walkRoot = resolved
+		if !pathWithinResolvedDir(absDir, resolved) {
+			evalsHaveFiles = true
+		}
+	}
+	walkErr := filepath.WalkDir(walkRoot, func(_ string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -631,6 +640,17 @@ func absOrDefault(path string) string {
 }
 
 // --- Init template content ---
+
+// pathWithinResolvedDir reports whether resolvedPath is dir or inside dir
+// after resolving dir's own symlinks.
+func pathWithinResolvedDir(dir, resolvedPath string) bool {
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(resolvedDir, resolvedPath)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
+}
 
 // ciWorkflow renders the generated workflow. GitHub Actions evaluates ${{ in
 // otherwise quoted scalars, so literal paths containing it are rejected.
