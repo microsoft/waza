@@ -690,6 +690,16 @@ jobs:
     # Configure protection rules and WAZA_COPILOT_TOKEN in this environment.
     environment: waza-agent
     steps:
+      # Expression string comparison ignores case; Git refs do not.
+      - name: Require exact default-branch ref
+        id: exact-default-ref
+        env:
+          DEFAULT_REF: refs/heads/${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_REF" != "$DEFAULT_REF" ]; then
+            echo "::error::Trusted evaluations run only from $DEFAULT_REF, not $GITHUB_REF."
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
