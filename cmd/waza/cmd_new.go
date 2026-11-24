@@ -323,6 +323,10 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 		}
 	}
 
+	workflow, err := ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
+	if err != nil {
+		return err
+	}
 	entries := []scaffold.FileEntry{
 		{Path: filepath.Join(rootDir, "SKILL.md"), Label: "Skill definition", Content: skillMD},
 		{Path: filepath.Join(evalsDir, files.EvalFile), Label: "Eval configuration", Content: scaffold.EvalYAMLWithTaskGlob(skillName, engine, model, files.TaskGlob)},
@@ -342,7 +346,7 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	}
 
 	entries = append(entries,
-		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))},
+		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: workflow},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, ".gitignore"), Label: "Build artifacts excluded", Content: defaultGitignore()},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, "README.md"), Label: "Getting started guide", Content: defaultReadme(skillName)},
 	)

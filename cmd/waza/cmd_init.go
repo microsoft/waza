@@ -502,11 +502,15 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	configLabel := fmt.Sprintf("Project defaults (%s, %s)", engine, model)
 
+	workflow, err := ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))
+	if err != nil {
+		return err
+	}
 	entries := []scaffold.FileEntry{
 		{Path: filepath.Join(absDir, skillsPath), Label: "Skill definitions", IsDir: true},
 		{Path: filepath.Join(absDir, evalsPath), Label: "Evaluation suites", IsDir: true},
 		{Path: filepath.Join(absDir, ".waza.yaml"), Label: configLabel, Content: wazaConfigContent},
-		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))},
+		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: workflow},
 		{Path: filepath.Join(absDir, ".gitignore"), Label: "Build artifacts excluded", Content: initGitignore()},
 		{Path: filepath.Join(absDir, "README.md"), Label: "Getting started guide", Content: initReadme(projectName)},
 	}
@@ -628,7 +632,14 @@ func absOrDefault(path string) string {
 
 // --- Init template content ---
 
-func ciWorkflow(skillsPath, evalsPath, evalFile, defaultEvalPath string) string {
+// ciWorkflow renders the generated workflow. GitHub Actions evaluates ${{ in
+// otherwise quoted scalars, so literal paths containing it are rejected.
+func ciWorkflow(skillsPath, evalsPath, evalFile, defaultEvalPath string) (string, error) {
+	for _, value := range []string{skillsPath, evalsPath, evalFile, defaultEvalPath} {
+		if strings.Contains(value, "${{") {
+			return "", fmt.Errorf("generated CI cannot use path %q: GitHub Actions would evaluate its ${{ expression; choose a path without ${{", value)
+		}
+	}
 	content := `name: Validate and Evaluate Skills
 
 on:
@@ -773,7 +784,7 @@ jobs:
 		"__EVALS_PATH__", string(quotedPath),
 		"__EVAL_FILE__", string(quotedEvalFile),
 		"__DEFAULT_EVAL_PATH__", string(quotedDefault),
-	).Replace(content)
+	).Replace(content), nil
 }
 
 func initGitignore() string {

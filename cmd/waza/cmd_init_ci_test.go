@@ -27,6 +27,8 @@ type initCIStep struct {
 	Uses string
 	Env  map[string]string
 	With map[string]string
+	// ContinueOnError is untyped so any emitted value, including an expression, is observed.
+	ContinueOnError any `yaml:"continue-on-error"`
 }
 
 type initCIJob struct {
@@ -207,6 +209,7 @@ func TestInitCI_OfflineCommandsAndTrust(t *testing.T) {
 	guard := initCIStepByName(t, agent, "exact-default-ref")
 	require.Equal(t, guard.ID, agent.Steps[0].ID, "exact ref guard must precede all other agent steps")
 	require.Empty(t, guard.If)
+	require.Nil(t, guard.ContinueOnError, "a failed exact ref guard must stop the job")
 	for _, step := range agent.Steps[1:] {
 		for _, value := range step.Env {
 			if strings.Contains(value, "secrets.") {
@@ -536,6 +539,35 @@ func TestInitCI_CustomEvalPaths(t *testing.T) {
 	require.Error(t, err, out)
 	require.NotContains(t, out, "No evaluation files found")
 	require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+}
+
+func TestInitCI_RejectsActionsExpressionsInLiteralPaths(t *testing.T) {
+	const expression = "suites-${{ github.token }}"
+	t.Run("init evals dir", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, validateCLIIsolation(dir))
+		cmd := newInitCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", expression})
+		err := cmd.Execute()
+		require.ErrorContains(t, err, `generated CI cannot use path "`+expression+`"`)
+		require.NoFileExists(t, filepath.Join(dir, ".github", "workflows", "eval.yml"))
+		require.NoDirExists(t, filepath.Join(dir, expression))
+	})
+	t.Run("new skill eval file", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, validateCLIIsolation(dir))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("files:\n  evalFile: '${{ github.token }}.yml'\n"), 0o600))
+		cmd := newNewSkillCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{"reviewed", "--output-dir", dir})
+		err := cmd.Execute()
+		require.ErrorContains(t, err, "GitHub Actions would evaluate")
+		require.NoFileExists(t, filepath.Join(dir, "reviewed", ".github", "workflows", "eval.yml"))
+		require.NoFileExists(t, filepath.Join(dir, "reviewed", "SKILL.md"))
+	})
 }
 
 func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) {
