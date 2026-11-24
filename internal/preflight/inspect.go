@@ -27,6 +27,9 @@ import (
 type Options struct {
 	// ContextDir follows run's CLI resolution: relative to the process cwd.
 	ContextDir string
+	// DefaultSkillPaths mirrors run's caller-supplied workspace skill defaults,
+	// such as the owning skill of an evaluation in a standalone skill workspace.
+	DefaultSkillPaths []string
 }
 
 // Inspect performs local reads only. It does not construct an engine or grader,
@@ -76,7 +79,7 @@ func Inspect(evalPath string, opts Options) *Report {
 		}
 	}
 	inspectLockedGraders(r, spec, evalPath)
-	applyWorkspaceSkillDefaults(r, spec)
+	applyWorkspaceSkillDefaults(r, spec, opts.DefaultSkillPaths)
 	if err := orchestration.ValidateRequiredSkillConfiguration(spec, base); err != nil {
 		r.add("skill.required", Invalid, evalPath, "", "", "Required skills are missing or cannot be parsed in configured eval-level directories.", "Configure readable skill_directories containing every required_skills declaration; runtime discovery precedence is preserved.")
 	}

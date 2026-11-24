@@ -634,6 +634,8 @@ contact services (including update checks). Credentials and external resulting
 state remain unresolved.
 `--workspace` discovers each skill and resolves its evaluation using the
 project's configured paths, native layout conventions, and filename precedence.
+It also inspects target-free evaluations, such as scenarios, stored directly
+in the evaluations directory or one of its immediate subdirectories.
 Relative configured paths resolve from the project configuration directory;
 `--skills-dir`, `--evals-dir`, and `--eval-file` override the corresponding
 settings in workspace mode.

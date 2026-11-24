@@ -639,6 +639,13 @@ func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 			require.Contains(t, string(readme), "checksum-verified standalone Waza "+workflow.Env["WAZA_VERSION"])
 			require.NoError(t, os.Remove(filepath.Join(dir, ".waza.yaml")), "standalone checkout must not inherit parent configuration")
 			require.NoError(t, validateCLIIsolation(root))
+			// Preflight and run must both resolve the standalone skill for required_skills.
+			evalPath := filepath.Join(root, "evals", evalFile)
+			evalData, err := os.ReadFile(evalPath)
+			require.NoError(t, err)
+			required := strings.Replace(string(evalData), "config:\n", "config:\n  required_skills: [reviewed]\n", 1)
+			require.NotEqual(t, string(evalData), required, "fixture must declare required_skills")
+			require.NoError(t, os.WriteFile(evalPath, []byte(required), 0o600))
 			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
 			step.Env["WAZA_INIT_CI_MODE"] = "reject"
 			out, err := initCIShell(t, root, step.Run, step.Env)
@@ -647,6 +654,13 @@ func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 			require.NotContains(t, out, "No evaluation files found")
 			require.NoFileExists(t, filepath.Join(root, "runtime-invoked"))
 			require.NoFileExists(t, filepath.Join(root, "results.json"))
+			// Explicit single-file preflight from the checkout must agree with run.
+			t.Chdir(root)
+			single := newPreflightCommand()
+			single.SetOut(&bytes.Buffer{})
+			single.SilenceUsage = true
+			single.SetArgs([]string{filepath.Join("evals", evalFile)})
+			require.NoError(t, single.Execute())
 
 			// The trusted job must load the skill under test without a .waza.yaml.
 			run := initCIStepByName(t, workflow.Jobs["agent"], "waza run")

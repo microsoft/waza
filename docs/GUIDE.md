@@ -382,7 +382,9 @@ waza preflight --workspace --skills-dir skills --evals-dir evals --eval-file eva
 Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
 locked cached graders, mock matching, references, and static capability support.
 Workspace mode uses the configured skill/evaluation paths and the same native
-evaluation discovery and filename precedence as other workspace commands.
+evaluation discovery and filename precedence as other workspace commands, and
+also inspects target-free evaluations, such as scenarios, stored directly in the
+evaluations directory or one of its immediate subdirectories.
 Relative configured paths resolve from the project configuration directory;
 workspace-mode path and filename flags override those settings.
 Valid unmatched task globs are optional when other patterns discover tasks.
