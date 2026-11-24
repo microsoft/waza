@@ -65,7 +65,7 @@ waza preflight --workspace
 | `--format` | `human` | `human` or `json` inventory/diagnostics |
 | `--context-dir` | eval directory/fixtures | Context directory; relative values resolve from cwd |
 | `--workspace` | `false` | Preflight evaluations resolved for discovered skills, plus target-free evaluations in the evaluations directory or its immediate subdirectories |
-| `--skills-dir` | configured path | Override the skills directory with `--workspace` |
+| `--skills-dir` | configured path | Override skill discovery and required-skill inspection with `--workspace` |
 | `--evals-dir` | configured path | Override the evaluations directory with `--workspace` |
 | `--eval-file` | configured filename | Override the evaluation filename with `--workspace` |
 | `--strict` | `false` | Exit 1 for unresolved/unsupported prerequisites, not only invalid configuration |
@@ -77,7 +77,10 @@ or runtime enforcement. The separately typed report is not `results.json`.
 Workspace mode uses native skill/evaluation discovery, including configured
 filename precedence and supported separated, nested, and co-located layouts.
 Relative configured paths resolve from the project configuration directory;
-workspace-mode path and filename flags override those settings.
+workspace-mode path and filename flags override those settings. These flags affect
+preflight only; they do not change the configuration used by a later `waza run`.
+The skills override applies to required-skill discovery when discovery is enabled
+and no eval-level skill directories are specified.
 Ref-only eval graders with a missing pinned cache remain unresolved until
 their preset/fallback can supply the effective name. Explicit duplicate names
 remain invalid; task/checkpoint graders still require inline declarations.

@@ -30,7 +30,9 @@ Use --workspace to inspect each evaluation resolved for discovered skills, plus
 target-free evaluations directly under the evals directory or its immediate
 subdirectories, using the project's configured paths and filename precedence.
 Workspace mode also accepts --skills-dir, --evals-dir, and --eval-file to
-override those settings.
+override those settings. When skill discovery is enabled and no eval-level
+directories are specified, --skills-dir also selects the required-skill discovery
+root. It does not change the configuration used by a later run.
 
 Never starts an agent, model, subprocess, mock server, live service, or update
 check. Verified means a static check, not a satisfied requirement, enforced
@@ -169,11 +171,15 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	// Explicit-path run treats a workspace discovery failure as no owning
 	// skill; use that same context for each inspected evaluation.
 	runCtx, _ := resolveWorkspace(nil)
-	defaultsForEval := func(path string) []string {
+	optionsForEval := func(path string) preflight.Options {
+		opts := preflight.Options{}
 		if dir := standaloneSkillSpecPathInWorkspace(path, runCtx).skillDir; dir != "" {
-			return []string{dir}
+			opts.DefaultSkillPaths = []string{dir}
 		}
-		return nil
+		if overrides.skillsDir != "" {
+			opts.WorkspaceSkillsDir = paths.skillsDir
+		}
+		return opts
 	}
 	reports := make([]*preflight.Report, 0, len(wsCtx.Skills))
 	seen := make(map[string]struct{}, len(wsCtx.Skills))
@@ -194,7 +200,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 			continue
 		}
 		seen[path] = struct{}{}
-		reports = append(reports, preflight.Inspect(path, preflight.Options{DefaultSkillPaths: defaultsForEval(path)}))
+		reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
 	}
 	// Target-free scenario evals use the separated layout without a matching skill.
 	extra, err := separatedWorkspaceEvals(wsCtx)
@@ -206,7 +212,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 			continue
 		}
 		seen[path] = struct{}{}
-		reports = append(reports, preflight.Inspect(path, preflight.Options{DefaultSkillPaths: defaultsForEval(path)}))
+		reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
 	}
 	return reports, nil
 }

@@ -550,6 +550,194 @@ tasks: [task.yaml]
 	}
 }
 
+func TestPreflightWorkspaceSkillsDirOverridesRequiredSkills(t *testing.T) {
+	const skill = "---\nname: %s\ndescription: Local skill\n---\n# %s\n"
+	const eval = `schemaVersion: "1.4"
+name: inventory
+skill: owner
+version: "1.0"
+config:
+  executor: mock
+  model: harness
+  trials_per_task: 1
+  timeout_seconds: 10
+  required_skills: [dependency]
+%s
+metrics: [{name: accuracy, weight: 1, threshold: 0.8}]
+tasks: [task.yaml]
+`
+	for _, tc := range []struct {
+		name                       string
+		configured, selected       bool
+		missingRoot, absolute      bool
+		explicit, badExplicit      bool
+		disabled                   bool
+		noConfig, extraEval        bool
+		wantConfigured, wantChosen bool
+	}{
+		{name: "selected root only", selected: true, wantChosen: true},
+		{name: "configured root only", configured: true, wantConfigured: true},
+		{name: "both roots and absolute override", configured: true, selected: true, absolute: true, wantConfigured: true, wantChosen: true},
+		{name: "neither root"},
+		{name: "missing selected root", configured: true, missingRoot: true, wantConfigured: true},
+		{name: "no project config", selected: true, noConfig: true, wantChosen: true},
+		{name: "extra eval", selected: true, extraEval: true, wantChosen: true},
+		{name: "explicit eval directories", explicit: true, wantConfigured: true, wantChosen: true},
+		{name: "explicit directories do not fall back", selected: true, explicit: true, badExplicit: true},
+		{name: "disabled discovery", disabled: true, missingRoot: true, wantConfigured: true, wantChosen: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			writeSkill := func(root, name string) {
+				t.Helper()
+				skillDir := filepath.Join(dir, root, name)
+				require.NoError(t, os.MkdirAll(skillDir, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(fmt.Sprintf(skill, name, name)), 0o600))
+			}
+			writeSkill("skills", "owner")
+			if !tc.extraEval {
+				writeSkill("custom-skills", "owner")
+			}
+			if tc.configured {
+				writeSkill("skills", "dependency")
+			}
+			if tc.selected {
+				writeSkill("custom-skills", "dependency")
+			}
+			evalDir := filepath.Join(dir, "evals", "owner")
+			require.NoError(t, os.MkdirAll(filepath.Join(evalDir, "fixtures"), 0o700))
+			configExtra := ""
+			if tc.explicit {
+				if tc.badExplicit {
+					writeSkill(filepath.Join("evals", "owner", "explicit"), "other")
+					configExtra = "  skill_directories: [explicit/other]"
+				} else {
+					writeSkill(filepath.Join("evals", "owner", "explicit"), "dependency")
+					configExtra = "  skill_directories: [explicit/dependency]"
+				}
+			} else if tc.disabled {
+				configExtra = "  disabled_skills: ['*']"
+			}
+			evalPath := filepath.Join(evalDir, "eval.yaml")
+			require.NoError(t, os.WriteFile(evalPath, []byte(fmt.Sprintf(eval, configExtra)), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(evalDir, "task.yaml"), []byte("id: task\nname: Task\ninputs: {prompt: ready}\n"), 0o600))
+			configPath := filepath.Join(dir, ".waza.yaml")
+			writeConfig := func(root string) {
+				t.Helper()
+				data := []byte(fmt.Sprintf("paths:\n  skills: %s\n  evals: evals\n", root))
+				require.NoError(t, os.WriteFile(configPath, data, 0o600))
+			}
+			selectedRoot := "custom-skills"
+			if tc.missingRoot {
+				selectedRoot = "missing-skills"
+			}
+			env := map[string]string{
+				"WAZA_INIT_CI_MODE": "reject",
+				"REPORT_PATH":       filepath.ToSlash(filepath.Join(dir, "preflight.json")),
+				"SKILLS_OVERRIDE":   selectedRoot,
+			}
+			if tc.absolute {
+				env["SKILLS_OVERRIDE"] = filepath.ToSlash(filepath.Join(dir, selectedRoot))
+			}
+			checkPreflight := func(t *testing.T, override, wantValid bool) {
+				t.Helper()
+				command := `waza preflight --workspace --format json > "$REPORT_PATH"`
+				if override {
+					command = `waza preflight --workspace --skills-dir "$SKILLS_OVERRIDE" --format json > "$REPORT_PATH"`
+				}
+				out, runErr := initCIShell(t, dir, command, env)
+				data, err := os.ReadFile(filepath.Join(dir, "preflight.json"))
+				require.NoError(t, err, out)
+				var reports []preflight.Report
+				require.NoError(t, json.Unmarshal(data, &reports), string(data))
+				require.Len(t, reports, 1)
+				require.Equal(t, evalPath, reports[0].Source)
+				require.Len(t, reports[0].Tasks, 1)
+				require.Equal(t, "task", reports[0].Tasks[0].ID)
+				var invalidRequired, unresolvedRoot bool
+				for _, d := range reports[0].Diagnostics {
+					invalidRequired = invalidRequired || d.Code == "skill.required" && d.State == preflight.Invalid
+					if d.Code == "workspace.skills" && d.State == preflight.Unresolved {
+						unresolvedRoot = true
+						require.Contains(t, d.Message, "Selected workspace skills folder is unavailable")
+					}
+				}
+				require.Equal(t, !wantValid, invalidRequired, "%s\n%s", out, data)
+				require.Equal(t, wantValid, runErr == nil, "%s\n%s", out, data)
+				require.Equal(t, override && tc.missingRoot && !tc.explicit && !tc.disabled, unresolvedRoot, string(data))
+				require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+				require.NoError(t, os.Remove(filepath.Join(dir, "preflight.json")))
+			}
+			checkRun := func(t *testing.T, root string, wantValid bool) {
+				t.Helper()
+				out, runErr := initCIShell(t, dir, `waza run "$EVAL_PATH" --output results.json`, map[string]string{
+					"EVAL_PATH": filepath.ToSlash(evalPath), "WAZA_INIT_CI_MODE": "record-skills",
+				})
+				require.Equal(t, wantValid, runErr == nil, out)
+				if wantValid {
+					require.FileExists(t, filepath.Join(dir, "results.json"))
+					paths, err := os.ReadFile(filepath.Join(dir, "session-skill-paths"))
+					require.NoError(t, err)
+					lines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(string(paths), "\r\n", "\n"), "\n"), "\n")
+					require.Len(t, lines, 1, "the only task must have one recorded mock session")
+					var sessionPaths []string
+					if lines[0] != "" {
+						sessionPaths = strings.Split(lines[0], "\x1f")
+					}
+					if tc.disabled {
+						require.Empty(t, sessionPaths)
+					} else {
+						skillPath := filepath.Join(dir, root, "dependency")
+						if tc.explicit {
+							skillPath = filepath.Join(evalDir, "explicit", "dependency")
+						}
+						require.Contains(t, sessionPaths, skillPath)
+						if tc.explicit {
+							require.Equal(t, []string{skillPath}, sessionPaths)
+						} else {
+							otherRoot := "skills"
+							if root == "skills" {
+								otherRoot = "custom-skills"
+							}
+							require.NotContains(t, sessionPaths, filepath.Join(dir, otherRoot, "dependency"))
+						}
+					}
+					require.NoError(t, os.Remove(filepath.Join(dir, "results.json")))
+					require.NoError(t, os.Remove(filepath.Join(dir, "session-skill-paths")))
+				} else {
+					if tc.noConfig && root == "skills" || tc.missingRoot && root == selectedRoot {
+						require.Contains(t, out, "required_skills specified but no skill_directories configured")
+					} else {
+						require.Contains(t, out, "required skills not found")
+						require.Contains(t, out, "dependency")
+					}
+					require.NoFileExists(t, filepath.Join(dir, "results.json"))
+				}
+				if _, err := os.Stat(filepath.Join(dir, "runtime-invoked")); err == nil {
+					require.NoError(t, os.Remove(filepath.Join(dir, "runtime-invoked")))
+				} else {
+					require.ErrorIs(t, err, os.ErrNotExist)
+				}
+			}
+
+			if !tc.noConfig {
+				writeConfig("skills")
+			}
+			t.Run("configured preflight", func(t *testing.T) { checkPreflight(t, false, tc.wantConfigured) })
+			t.Run("configured run", func(t *testing.T) { checkRun(t, "skills", tc.wantConfigured) })
+			writeConfig(selectedRoot)
+			t.Run("selected-root run", func(t *testing.T) { checkRun(t, selectedRoot, tc.wantChosen) })
+			if tc.noConfig {
+				require.NoError(t, os.Remove(configPath))
+			} else {
+				writeConfig("skills")
+			}
+			t.Run("overridden preflight", func(t *testing.T) { checkPreflight(t, true, tc.wantChosen) })
+		})
+	}
+}
+
 type preflightFailWriter struct {
 	failAt, calls int
 }

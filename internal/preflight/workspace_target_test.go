@@ -42,7 +42,7 @@ func TestInspectWorkspaceBlankTargetParity(t *testing.T) {
 				spec, err := models.ParseEvalSpecOffline([]byte(eval), "eval.yaml", nil)
 				require.NoError(t, err)
 				report := &Report{Complete: true}
-				applyWorkspaceSkillDefaults(report, spec, nil)
+				applyWorkspaceSkillDefaults(report, spec, Options{})
 				require.Equal(t, target.want, spec.SkillName, "a blank-target check must not rewrite nonblank or whitespace values")
 				switch {
 				case explicit:
@@ -77,7 +77,7 @@ func TestInspectWorkspaceBlankTargetParity(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			applyWorkspaceSkillDefaults(&Report{Complete: true}, spec, nil)
+			applyWorkspaceSkillDefaults(&Report{Complete: true}, spec, Options{})
 			require.Contains(t, spec.Config.SkillPaths, canonicalSkillDir, "absent scenario retains legacy workspace discovery")
 		})
 	}

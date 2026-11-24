@@ -386,7 +386,10 @@ evaluation discovery and filename precedence as other workspace commands, and
 also inspects target-free evaluations, such as scenarios, stored directly in the
 evaluations directory or one of its immediate subdirectories.
 Relative configured paths resolve from the project configuration directory;
-workspace-mode path and filename flags override those settings.
+workspace-mode path and filename flags override those settings. `--skills-dir`
+also selects the root used to inspect required skills; it does not change the
+configuration used by a later `waza run`. Explicit eval-level directories and
+disabled skill discovery retain precedence.
 Valid unmatched task globs are optional when other patterns discover tasks.
 CSV paths must be lexically within the eval directory and remain within it
 after resolving symlinks;

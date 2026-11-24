@@ -638,7 +638,9 @@ It also inspects target-free evaluations, such as scenarios, stored directly
 in the evaluations directory or one of its immediate subdirectories.
 Relative configured paths resolve from the project configuration directory;
 `--skills-dir`, `--evals-dir`, and `--eval-file` override the corresponding
-settings in workspace mode.
+settings in workspace mode. `--skills-dir` also selects the root used to inspect
+required skills when discovery is enabled and no eval-level directories are
+specified; it does not change the configuration used by a later `waza run`.
 Eager schema matchers are guarded before decoding; external schema prerequisites
 remain unresolved and leave the affected inventory incomplete.
 This also covers grader schema files and MCP tool input schemas encountered

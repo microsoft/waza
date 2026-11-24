@@ -177,8 +177,10 @@ evidence, not verification of a commit or successful worktree creation.
 
 Legacy suites and scenarios with an explicit target also receive the same
 read-only `.waza.yaml` workspace skill-directory defaults as `waza run` when eval
-directories are omitted. Explicit eval directories take precedence. Disabled
-scenario discovery does not inspect or inject ambient project skills.
+directories are omitted. With `--workspace --skills-dir`, preflight instead uses
+the selected root for required-skill discovery; this does not change a later
+`waza run`. Explicit eval directories take precedence. Disabled scenario
+discovery does not inspect or inject ambient project skills.
 
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
 nonempty `scenario`. Existing v1 suites retain their version/default/discovery
