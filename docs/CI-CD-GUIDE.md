@@ -56,7 +56,8 @@ race/atomic durations and their source runs. Record run, attempt, and checkout
 SHA for every sample; document any aggregation and apply it consistently rather
 than cherry-picking runs. When independent cases are promoted from a parent,
 use each case's disjoint child PASS span, never both parent and child durations.
-The current table records one PR run for the bundled CLI 1.0.112 payload; its
+The table records one historical PR run for the bundled CLI 1.0.112 payload
+(Copilot SDK v1); it has not been re-measured for any later bundled runtime. Its
 header identifies the shard that reached its deadline and the single projected
 cost, which should be replaced by successful main-push samples.
 Timing history affects placement only: discovery still determines the complete
@@ -67,7 +68,7 @@ deadline, atomic coverage, full discovery inventory, and selected test names;
 the aggregate gate verifies identical inventories and exactly-once selection.
 Planner estimates and replayed assignments are diagnostics only; acceptance
 depends on measured workflow runs.
-The bundled CLI 1.0.112 payload raised the native total to about 6,400
+Historically, the bundled CLI 1.0.112 payload raised the native total to about 6,400
 seconds; four shards then averaged about 1,600 seconds against the
 1,800-second deadline, so a runner only 13% slower timed out. Five shards keep
 the planned maximum near 1,300 seconds without raising the deadline or
