@@ -742,7 +742,8 @@ jobs:
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # Configure protection rules and WAZA_COPILOT_TOKEN in this environment.
+    # Restrict this environment to the default branch and require reviewers
+    # before adding WAZA_COPILOT_TOKEN; the branch check below is not a boundary.
     environment: waza-agent
     steps:
       # Expression string comparison ignores case; Git refs do not.
@@ -877,14 +878,17 @@ func initReadme(projectName string) string {
 ## Intentional agent-backed CI
 
 Review the evaluation, executor, model, tools, graders, and dependencies first.
-Configure the **waza-agent** GitHub environment with protection rules and a
-**WAZA_COPILOT_TOKEN** secret: a supported Copilot token with model access.
+Configure the **waza-agent** GitHub environment and its **WAZA_COPILOT_TOKEN**
+secret: a supported Copilot token with model access. Before adding the secret,
+restrict the environment's deployment branches to the default branch and require
+reviewers. The workflow's branch check is not a security boundary: a writer can
+dispatch a modified workflow from another branch.
 CI passes it as **COPILOT_GITHUB_TOKEN**, not the workflow's default GitHub token.
 Local login state does not authenticate a hosted runner.
 
 On the repository's default branch, manually dispatch the generated workflow,
 set **run-agent** to true, and choose **eval-path**. It defaults to offline-only;
-pull requests and non-default branches cannot select the agent job. Intentional
+the generated workflow skips the agent job for pull requests and non-default branches. Intentional
 execution can incur usage and runs reviewed code with that credential. Fixture
 isolation is not sandboxing. The executor in your eval is preserved, never
 silently replaced with mock; the agent-evidence gate rejects mock or unknown

@@ -276,8 +276,10 @@ Custom path flags do not rewrite its path filters.
 
 Live execution requires a manual default-branch dispatch with `run-agent=true`,
 the `waza-agent` environment and its `WAZA_COPILOT_TOKEN` secret (passed as
-`COPILOT_GITHUB_TOKEN`). Configure environment approval and authentication
-before opting in; model calls can incur charges. `init` does not create secrets
+`COPILOT_GITHUB_TOKEN`). Before adding the secret, restrict the environment's
+deployment branches to the default branch and require reviewers; the workflow's
+branch check does not stop a writer from dispatching a modified workflow from
+another branch. Configure authentication before opting in; model calls can incur charges. `init` does not create secrets
 or grant pull requests access to them. Existing workflow files are preserved,
 not upgraded automatically. See the [CI/CD guide](../../guides/ci-cd/).
 

@@ -516,8 +516,10 @@ Invalid configuration fails; unresolved runtime prerequisites warn. An empty
 inventory is not a successful evaluation.
 
 For intentional agent execution, review the eval, model, tools, graders, and
-dependencies. Configure protection rules and WAZA_COPILOT_TOKEN with model access
-in the waza-agent environment. Manually dispatch on the repository's default
+dependencies. Before adding WAZA_COPILOT_TOKEN with model access to the waza-agent
+environment, restrict its deployment branches to the default branch and require
+reviewers; the workflow's branch check does not stop a writer from dispatching a
+modified workflow from another branch. Manually dispatch on the repository's default
 branch with run-agent enabled and the reviewed eval-path. Pull requests cannot
 run the agent job. Execution can incur usage; fixture isolation is not sandboxing.
 The agent-evidence gate requires a fresh, passing copilot-sdk result and rejects

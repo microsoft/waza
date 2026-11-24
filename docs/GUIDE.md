@@ -562,8 +562,11 @@ offline preflight using a pinned standalone Waza release, action commit SHAs
 and Ubuntu 24.04. Custom path flags do not update its path filters.
 
 Live evaluations require a manual default-branch dispatch with `run-agent=true`.
-Configure approval for the `waza-agent` environment and its
-`WAZA_COPILOT_TOKEN` secret, passed to the runtime as `COPILOT_GITHUB_TOKEN`.
+Configure the `waza-agent` environment and its `WAZA_COPILOT_TOKEN` secret,
+passed to the runtime as `COPILOT_GITHUB_TOKEN`. Before adding the secret,
+restrict the environment's deployment branches to the default branch and
+require reviewers. The workflow's branch check is not a security boundary: a
+writer can dispatch a modified workflow from another branch.
 Model calls can incur charges. `init` does not configure credentials or grant
 PRs access to secrets, and it preserves existing workflow files. Keep the
 fork-PR and untrusted-input safeguards described in the

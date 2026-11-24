@@ -90,7 +90,10 @@ evaluation filenames.
 Live execution is a separate manual default-branch dispatch with
 `run-agent=true`. Configure the `waza-agent` environment, its approval policy
 and the `WAZA_COPILOT_TOKEN` secret, which the workflow passes as
-`COPILOT_GITHUB_TOKEN`. Dispatching opts into agent execution and potential model
+`COPILOT_GITHUB_TOKEN`. Before adding the secret, restrict the environment's
+deployment branches to the default branch and require reviewers. The workflow's
+branch check is not a security boundary: a writer can dispatch a modified
+workflow from another branch. Dispatching opts into agent execution and potential model
 charges. `init` does not create credentials, grant PRs access to secrets or
 rewrite existing workflows. Review the [security guidance](#8-secure-secrets)
 before enabling live execution.
