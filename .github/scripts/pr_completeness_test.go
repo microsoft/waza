@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -479,19 +480,19 @@ func TestCompletenessWindowsControlsSelectedByNativeJob(t *testing.T) {
 	}
 	source = normalizeWorkflowLineEndings(source)
 	const command = `log="$(mktemp)"
-go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts | sed 's/\r$//' | tee "$log"
+go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths|PowerShellBuildNativeFree)$' ./.github/scripts | sed 's/\r$//' | tee "$log"
 if grep -q -- '--- SKIP:' "$log"; then
   echo "Native Windows shell controls must not skip." >&2
   exit 1
 fi
-for control in TestCompletenessGoLintShellExecution TestOrdinaryShellOverridesAndDisabledPaths; do
+for control in TestCompletenessGoLintShellExecution TestOrdinaryShellOverridesAndDisabledPaths TestPowerShellBuildNativeFree; do
   grep -Fxq "=== RUN   $control" "$log"
   grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"
 done
 rm "$log"
 `
-	controls := []string{"TestCompletenessGoLintShellExecution", "TestOrdinaryShellOverridesAndDisabledPaths"}
-	for _, name := range []string{"pr_completeness_test.go", "go_ci_test.go"} {
+	controls := []string{"TestCompletenessGoLintShellExecution", "TestOrdinaryShellOverridesAndDisabledPaths", "TestPowerShellBuildNativeFree"}
+	for _, name := range []string{"pr_completeness_test.go", "go_ci_test.go", "powershell_build_test.go"} {
 		file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -523,7 +524,7 @@ rm "$log"
 			}
 		}
 	}
-	if controls[0] != "" || controls[1] != "" {
+	if slices.ContainsFunc(controls, func(control string) bool { return control != "" }) {
 		t.Fatalf("native selector names missing actual Go test declarations: %q", controls)
 	}
 	check := func(input []byte) error {
@@ -679,14 +680,15 @@ rm "$log"
 		{controlStep, controlStep + "        shell: bash -e {0}\n"},
 		{"        os: [windows-latest]", "        os: [ubuntu-latest]"},
 		{
-			`go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
-			`go test -count=1 -v -timeout=0 -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+			`go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths|PowerShellBuildNativeFree)$' ./.github/scripts`,
+			`go test -count=1 -v -timeout=0 -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths|PowerShellBuildNativeFree)$' ./.github/scripts`,
 		},
 		{
-			`go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
-			`go test -count=1 -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts`,
+			`go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths|PowerShellBuildNativeFree)$' ./.github/scripts`,
+			`go test -count=1 -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths|PowerShellBuildNativeFree)$' ./.github/scripts`,
 		},
-		{"OrdinaryShellOverridesAndDisabledPaths)$", "MissingControl)$"},
+		{"OrdinaryShellOverridesAndDisabledPaths|PowerShellBuildNativeFree)$", "OrdinaryShellOverridesAndDisabledPaths)$"},
+		{" TestPowerShellBuildNativeFree; do", "; do"},
 		{`          if grep -q -- '--- SKIP:' "$log"; then`, "          if false; then"},
 		{`            grep -Fxq "=== RUN   $control" "$log"`, ":"},
 		{`            grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"`, ":"},
@@ -717,13 +719,15 @@ rm "$log"
 		status int
 		valid  bool
 	}{
-		{"complete", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 0, true},
-		{"complete-crlf", "=== RUN   TestCompletenessGoLintShellExecution\r\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\r\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\r\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\r\n", 0, true},
+		{"complete", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n=== RUN   TestPowerShellBuildNativeFree\n--- PASS: TestPowerShellBuildNativeFree (0.01s)\n", 0, true},
+		{"complete-crlf", "=== RUN   TestCompletenessGoLintShellExecution\r\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\r\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\r\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\r\n=== RUN   TestPowerShellBuildNativeFree\r\n--- PASS: TestPowerShellBuildNativeFree (0.01s)\r\n", 0, true},
 		{"empty", "testing: warning: no tests to run\nPASS\n", 0, false},
+		{"missing-powershell-build", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 0, false},
+		{"skipped-powershell-build", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n=== RUN   TestPowerShellBuildNativeFree\n--- SKIP: TestPowerShellBuildNativeFree (0.00s)\n", 0, false},
 		{"missing-family", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n", 0, false},
-		{"skipped", "=== RUN   TestCompletenessGoLintShellExecution\n--- SKIP: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 0, false},
-		{"skipped-subtest", "=== RUN   TestCompletenessGoLintShellExecution\n=== RUN   TestCompletenessGoLintShellExecution/required-native-case\n    --- SKIP: TestCompletenessGoLintShellExecution/required-native-case (0.01s)\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 0, false},
-		{"failed-command", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n", 27, false},
+		{"skipped", "=== RUN   TestCompletenessGoLintShellExecution\n--- SKIP: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n=== RUN   TestPowerShellBuildNativeFree\n--- PASS: TestPowerShellBuildNativeFree (0.01s)\n", 0, false},
+		{"skipped-subtest", "=== RUN   TestCompletenessGoLintShellExecution\n=== RUN   TestCompletenessGoLintShellExecution/required-native-case\n    --- SKIP: TestCompletenessGoLintShellExecution/required-native-case (0.01s)\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n=== RUN   TestPowerShellBuildNativeFree\n--- PASS: TestPowerShellBuildNativeFree (0.01s)\n", 0, false},
+		{"failed-command", "=== RUN   TestCompletenessGoLintShellExecution\n--- PASS: TestCompletenessGoLintShellExecution (0.01s)\n=== RUN   TestOrdinaryShellOverridesAndDisabledPaths\n--- PASS: TestOrdinaryShellOverridesAndDisabledPaths (0.01s)\n=== RUN   TestPowerShellBuildNativeFree\n--- PASS: TestPowerShellBuildNativeFree (0.01s)\n", 27, false},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			scratch := t.TempDir()
