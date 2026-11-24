@@ -119,7 +119,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 	}
 
 	// 1. Check if SKILL.md exists in the given directory
-	info, ok, err := inspectSkillDirectory(absDir, o.validateSymlinks)
+	info, ok, err := inspectSkillDirectory(absDir, o.validateSymlinks, false)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +143,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 		}
 		current = parent
 
-		info, ok, err := inspectSkillDirectory(current, o.validateSymlinks)
+		info, ok, err := inspectSkillDirectory(current, o.validateSymlinks, true)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +157,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 				validateSymlinks: o.validateSymlinks,
 			}, nil
 		}
-		if skills, err := scanDirectAPMSkills(current, o.validateSymlinks); err != nil {
+		if skills, err := scanDirectAPMSkills(current, o.validateSymlinks, true); err != nil {
 			return nil, fmt.Errorf("scanning APM skills directory %s: %w", filepath.Join(current, ".apm", "skills"), err)
 		} else if len(skills) > 0 {
 			return contextFromSkills(current, skills, o), nil
@@ -209,7 +209,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 		skills = mergeSkillsByName(skills, apmSkills)
 	}
 
-	rootAPMSkills, err := scanDirectAPMSkills(absDir, o.validateSymlinks)
+	rootAPMSkills, err := scanDirectAPMSkills(absDir, o.validateSymlinks, false)
 	if err != nil {
 		return nil, fmt.Errorf("scanning APM skills directory %s: %w", filepath.Join(absDir, ".apm", "skills"), err)
 	}
@@ -476,22 +476,108 @@ func validateSkippedSkillLink(path string, recursive bool) error {
 		}
 		return fmt.Errorf("checking skill discovery entry %q: %w", path, err)
 	}
-	if info.IsDir() {
-		if !recursive {
-			_, isSkill, err := inspectSkillDirectory(path, true)
-			if err != nil {
-				return err
-			}
-			if !isSkill {
-				return nil
-			}
-		}
+	if !info.IsDir() {
+		return nil
+	}
+	containsSkill, err := linkedDirectoryContainsSkill(path, recursive)
+	if err != nil {
+		return err
+	}
+	if containsSkill {
 		return fmt.Errorf("skill discovery entry %q is a symlinked directory; workspace discovery does not follow it", path)
 	}
 	return nil
 }
 
-func inspectSkillDirectory(dir string, validateSymlinks bool) (SkillInfo, bool, error) {
+func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
+	type scanKey struct {
+		path        string
+		includeRoot bool
+	}
+	visited := make(map[scanKey]bool)
+	var scan func(string, bool) (bool, error)
+	scan = func(dir string, includeRoot bool) (bool, error) {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			return false, fmt.Errorf("resolving skill discovery symlink %q: %w", dir, err)
+		}
+		clean := filepath.Clean(resolved)
+		if os.PathSeparator == '\\' {
+			clean = strings.ToLower(clean)
+		}
+		key := scanKey{path: clean, includeRoot: includeRoot}
+		if visited[key] {
+			return false, nil
+		}
+		visited[key] = true
+		if !recursive {
+			_, found, err := inspectSkillDirectory(resolved, true, false)
+			return found, err
+		}
+		if includeRoot {
+			apmRoot := filepath.Join(resolved, ".apm", "skills")
+			exists, err := skillScanRootExists(apmRoot, true)
+			if err != nil {
+				return false, err
+			}
+			if exists {
+				found, err := scan(apmRoot, false)
+				if err != nil || found {
+					return found, err
+				}
+			}
+		}
+
+		found := false
+		err = filepath.WalkDir(resolved, func(current string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return fmt.Errorf("checking linked skill discovery path %q: %w", current, walkErr)
+			}
+			if entry.IsDir() {
+				if current == resolved && !includeRoot {
+					return nil
+				}
+				if current != resolved && shouldSkipSkillScanDir(entry.Name()) {
+					return fs.SkipDir
+				}
+				_, isSkill, err := inspectSkillDirectory(current, true, false)
+				if err != nil {
+					return err
+				}
+				if isSkill {
+					found = true
+					return fs.SkipAll
+				}
+				return nil
+			}
+			if entry.Type()&os.ModeSymlink == 0 || shouldSkipSkillScanDir(entry.Name()) {
+				return nil
+			}
+			info, err := os.Stat(current)
+			if err != nil {
+				if pathErr := ValidateDiscoveryPath(current); pathErr != nil {
+					return pathErr
+				}
+				return fmt.Errorf("checking linked skill discovery entry %q: %w", current, err)
+			}
+			if info.IsDir() {
+				nested, err := scan(current, true)
+				if err != nil {
+					return err
+				}
+				if nested {
+					found = true
+					return fs.SkipAll
+				}
+			}
+			return nil
+		})
+		return found, err
+	}
+	return scan(path, true)
+}
+
+func inspectSkillDirectory(dir string, validateSymlinks, optionalAncestor bool) (SkillInfo, bool, error) {
 	if validateSymlinks {
 		skillPath := filepath.Join(dir, "SKILL.md")
 		if err := ValidateDiscoveryPath(skillPath); err != nil {
@@ -499,6 +585,10 @@ func inspectSkillDirectory(dir string, validateSymlinks bool) (SkillInfo, bool, 
 		}
 		if !isFile(skillPath) {
 			entries, err := os.ReadDir(dir)
+			if optionalAncestor && errors.Is(err, fs.ErrPermission) {
+				// Ancestors are optional ownership probes in native discovery.
+				return SkillInfo{}, false, nil
+			}
 			if err != nil {
 				return SkillInfo{}, false, fmt.Errorf("reading skill directory %q: %w", dir, err)
 			}
@@ -598,7 +688,7 @@ func scanForSkills(parentDir string, recursive, validateSymlinks bool) ([]SkillI
 			}
 			continue
 		}
-		info, ok, err := inspectSkillDirectory(childDir, validateSymlinks)
+		info, ok, err := inspectSkillDirectory(childDir, validateSymlinks, false)
 		if err != nil {
 			return nil, err
 		}
@@ -627,7 +717,7 @@ func scanForSkillsRecursive(parentDir string, validateSymlinks bool) ([]SkillInf
 		if shouldSkipSkillScanDir(d.Name()) {
 			return fs.SkipDir
 		}
-		info, ok, err := inspectSkillDirectory(path, validateSymlinks)
+		info, ok, err := inspectSkillDirectory(path, validateSymlinks, false)
 		if err != nil {
 			return err
 		}
@@ -643,10 +733,13 @@ func scanForSkillsRecursive(parentDir string, validateSymlinks bool) ([]SkillInf
 	return skills, nil
 }
 
-func scanDirectAPMSkills(dir string, validateSymlinks bool) ([]SkillInfo, error) {
+func scanDirectAPMSkills(dir string, validateSymlinks, optionalAncestor bool) ([]SkillInfo, error) {
 	apmSkillsDir := filepath.Join(dir, ".apm", "skills")
 	exists, err := skillScanRootExists(apmSkillsDir, validateSymlinks)
 	if err != nil {
+		if optionalAncestor && errors.Is(err, fs.ErrPermission) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	if !exists {
@@ -677,7 +770,7 @@ func scanForAPMSkillsUnder(parentDir string, validateSymlinks bool) ([]SkillInfo
 		if !entry.IsDir() || shouldSkipSkillScanDir(entry.Name()) {
 			continue
 		}
-		apmSkills, err := scanDirectAPMSkills(filepath.Join(parentDir, entry.Name()), validateSymlinks)
+		apmSkills, err := scanDirectAPMSkills(filepath.Join(parentDir, entry.Name()), validateSymlinks, false)
 		if err != nil {
 			return nil, err
 		}

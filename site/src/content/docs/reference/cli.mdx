@@ -84,7 +84,9 @@ and no eval-level skill directories are specified.
 Workspace preflight exits 2 for unavailable symlinks encountered in discovery.
 Native workspace detection does not follow symlinked skill-scan roots or skill
 directories; preflight reports those unsupported paths instead of an empty
-inventory. Resolvable eval symlinks remain supported.
+inventory. Resolvable resource links without discoverable skills and resolvable
+eval symlinks remain supported. On discovery failure, available reports are
+written to stdout in the selected format and the error to stderr.
 Ref-only eval graders with a missing pinned cache remain unresolved until
 their preset/fallback can supply the effective name. Explicit duplicate names
 remain invalid; task/checkpoint graders still require inline declarations.

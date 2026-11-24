@@ -36,6 +36,9 @@ root. It does not change the configuration used by a later run.
 Unavailable discovery symlinks are errors. Native workspace discovery does not
 follow symlinked skill-scan roots or skill directories; workspace preflight
 reports those unsupported paths instead of returning an empty inventory.
+Resolvable resource links are allowed when they contain no discoverable skills.
+If discovery fails, available evaluation reports are still printed; errors are
+written to stderr and the command exits 2.
 
 Never starts an agent, model, subprocess, mock server, live service, or update
 check. Verified means a static check, not a satisfied requirement, enforced
@@ -65,15 +68,12 @@ Existing run/check exit policies are unchanged.`,
 				if contextDir != "" {
 					return fmt.Errorf("--context-dir cannot be used with --workspace")
 				}
-				reports, err := inspectWorkspacePreflight(".", workspacePreflightOverrides{
+				reports, discoveryErr := inspectWorkspacePreflight(".", workspacePreflightOverrides{
 					skillsDir: skillsDir,
 					evalsDir:  evalsDir,
 					evalFile:  evalFile,
 				})
-				if err != nil {
-					return err
-				}
-				if len(reports) == 0 {
+				if len(reports) == 0 && discoveryErr == nil {
 					if format == "json" {
 						if err := json.NewEncoder(cmd.OutOrStdout()).Encode(reports); err != nil {
 							return fmt.Errorf("writing preflight JSON: %w", err)
@@ -84,6 +84,9 @@ Existing run/check exit policies are unchanged.`,
 					return nil
 				}
 				if format == "json" {
+					if reports == nil {
+						reports = []*preflight.Report{}
+					}
 					encoder := json.NewEncoder(cmd.OutOrStdout())
 					encoder.SetIndent("", "  ")
 					if err := encoder.Encode(reports); err != nil {
@@ -98,6 +101,9 @@ Existing run/check exit policies are unchanged.`,
 							return err
 						}
 					}
+				}
+				if discoveryErr != nil {
+					return discoveryErr
 				}
 				for _, report := range reports {
 					if report.Failed(strict) {
@@ -169,8 +175,10 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 
 	detectOptions := append(paths.options(), workspace.WithDiscoverySymlinkValidation())
 	wsCtx, err := workspace.DetectContext(absRoot, detectOptions...)
+	var discoveryErrors []error
 	if err != nil {
-		return nil, fmt.Errorf("discovering workspace skills: %w", err)
+		discoveryErrors = append(discoveryErrors, fmt.Errorf("discovering workspace skills: %w", err))
+		wsCtx = &workspace.WorkspaceContext{Root: absRoot, EvalsDir: paths.evalsDir, EvalFile: paths.evalFile}
 	}
 	// Explicit-path run treats a workspace discovery failure as no owning
 	// skill; use that same context for each inspected evaluation.
@@ -190,14 +198,16 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	for _, skill := range wsCtx.Skills {
 		evalPath, err := workspace.FindEval(wsCtx, skill.Name)
 		if err != nil {
-			return nil, fmt.Errorf("finding evaluation for skill %q: %w", skill.Name, err)
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("finding evaluation for skill %q: %w", skill.Name, err))
+			continue
 		}
 		if evalPath == "" {
 			continue
 		}
 		path, err := filepath.Abs(evalPath)
 		if err != nil {
-			return nil, fmt.Errorf("resolving evaluation for skill %q: %w", skill.Name, err)
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("resolving evaluation for skill %q: %w", skill.Name, err))
+			continue
 		}
 		path = filepath.Clean(path)
 		if _, ok := seen[path]; ok {
@@ -209,7 +219,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	// Target-free scenario evals use the separated layout without a matching skill.
 	extra, err := separatedWorkspaceEvals(wsCtx)
 	if err != nil {
-		return nil, err
+		discoveryErrors = append(discoveryErrors, err)
 	}
 	for _, path := range extra {
 		if _, ok := seen[path]; ok {
@@ -218,7 +228,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 		seen[path] = struct{}{}
 		reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
 	}
-	return reports, nil
+	return reports, errors.Join(discoveryErrors...)
 }
 
 // separatedWorkspaceEvals lists evaluation files directly under the evals root
@@ -265,32 +275,41 @@ func separatedWorkspaceEvals(wsCtx *workspace.WorkspaceContext) ([]string, error
 		return nil, fmt.Errorf("listing evaluations in %q: %w", evalsDir, err)
 	}
 	var paths []string
-	if path, err := firstEval(evalsDir); err != nil {
-		return nil, err
-	} else if path != "" {
-		paths = append(paths, path)
+	var discoveryErrors []error
+	rootEval, err := firstEval(evalsDir)
+	if err != nil {
+		discoveryErrors = append(discoveryErrors, err)
+	} else if rootEval != "" {
+		paths = append(paths, rootEval)
 	}
 	for _, entry := range entries {
 		dir := filepath.Join(evalsDir, entry.Name())
 		info, err := os.Stat(dir)
 		if err != nil {
-			if pathErr := workspace.ValidateDiscoveryPath(dir); pathErr != nil {
-				return nil, pathErr
+			if len(names) > 1 && rootEval == filepath.Clean(filepath.Join(evalsDir, names[0])) &&
+				filepath.Clean(dir) == filepath.Clean(filepath.Join(evalsDir, names[1])) {
+				continue
 			}
-			return nil, fmt.Errorf("checking evaluation entry %q: %w", dir, err)
+			if pathErr := workspace.ValidateDiscoveryPath(dir); pathErr != nil {
+				discoveryErrors = append(discoveryErrors, pathErr)
+			} else {
+				discoveryErrors = append(discoveryErrors, fmt.Errorf("checking evaluation entry %q: %w", dir, err))
+			}
+			continue
 		}
 		if !info.IsDir() {
 			continue
 		}
 		path, err := firstEval(dir)
 		if err != nil {
-			return nil, err
+			discoveryErrors = append(discoveryErrors, err)
+			continue
 		}
 		if path != "" {
 			paths = append(paths, path)
 		}
 	}
-	return paths, nil
+	return paths, errors.Join(discoveryErrors...)
 }
 
 func renderPreflightHuman(w io.Writer, r *preflight.Report) error {

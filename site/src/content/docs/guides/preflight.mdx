@@ -185,8 +185,11 @@ discovery does not inspect or inject ambient project skills.
 Workspace preflight exits 2 when a discovery symlink is unavailable. Native
 workspace detection does not follow symlinked skill-scan roots or skill
 directories; preflight reports those unsupported paths rather than returning an
-empty inventory. Resolvable eval symlinks remain supported. An unrelated
-unavailable link inside a fixture is not itself a discovery failure.
+empty inventory. Resolvable resource links without discoverable skills and
+resolvable eval symlinks remain supported. An unrelated unavailable link inside
+a fixture is not itself a discovery failure. When discovery fails, available
+reports are still written to stdout in the selected format; the error is written
+to stderr and the command exits 2.
 
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
 nonempty `scenario`. Existing v1 suites retain their version/default/discovery

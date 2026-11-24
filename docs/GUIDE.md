@@ -393,7 +393,9 @@ disabled skill discovery retain precedence.
 Workspace preflight exits 2 for unavailable symlinks encountered during
 discovery. Native workspace detection does not follow symlinked skill-scan
 roots or skill directories; preflight reports those unsupported paths instead
-of reporting an empty inventory. Resolvable eval symlinks remain supported.
+of reporting an empty inventory. Resolvable resource links without discoverable
+skills and resolvable eval symlinks remain supported. Discovery errors go to
+stderr; available reports remain on stdout in the selected format.
 Valid unmatched task globs are optional when other patterns discover tasks.
 CSV paths must be lexically within the eval directory and remain within it
 after resolving symlinks;

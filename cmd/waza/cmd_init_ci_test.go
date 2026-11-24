@@ -15,6 +15,7 @@ import (
 
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/preflight"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/stretchr/testify/require"
@@ -865,6 +866,226 @@ func TestInitCI_RelocatedEvalSymlinks(t *testing.T) {
 			require.NotContains(t, out, "No evaluation files found")
 			require.NoFileExists(t, filepath.Join(checkout, "runtime-invoked"))
 		})
+	}
+}
+
+func TestInitCI_SkillResourceSymlinks(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		layout      string
+		wantBlocked bool
+	}{
+		{name: "unrelated resource", layout: "resource"},
+		{name: "nested resource", layout: "nested resource"},
+		{name: "resource cycle", layout: "cycle"},
+		{name: "ignored vendor skill", layout: "vendor"},
+		{name: "linked direct skill", layout: "direct skill", wantBlocked: true},
+		{name: "linked nested skill", layout: "nested skill", wantBlocked: true},
+		{name: "linked APM skill", layout: "apm skill", wantBlocked: true},
+		{name: "linked agent", layout: "agent", wantBlocked: true},
+		{name: "indirect linked skill", layout: "indirect skill", wantBlocked: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, workflow := initCIFixture(t)
+			initCIWriteEval(t, dir, "")
+			docs := filepath.Join(dir, "docs")
+			require.NoError(t, os.MkdirAll(docs, 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(docs, "README.md"), []byte("unrelated resource\n"), 0o600))
+			switch tc.layout {
+			case "nested resource":
+				require.NoError(t, os.MkdirAll(filepath.Join(docs, "guide"), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(docs, "guide", "notes.md"), []byte("notes\n"), 0o600))
+			case "cycle":
+				if err := os.Symlink(".", filepath.Join(docs, "loop")); err != nil {
+					t.Skipf("directory symlink unavailable: %v", err)
+				}
+			case "vendor", "direct skill", "nested skill", "apm skill", "agent":
+				skillDir := docs
+				switch tc.layout {
+				case "vendor":
+					skillDir = filepath.Join(docs, "vendor", "hidden")
+				case "nested skill":
+					skillDir = filepath.Join(docs, "nested")
+				case "apm skill":
+					skillDir = filepath.Join(docs, ".apm", "skills", "hidden")
+				}
+				require.NoError(t, os.MkdirAll(skillDir, 0o700))
+				skillFile := "SKILL.md"
+				if tc.layout == "agent" {
+					skillFile = "hidden.agent.md"
+				}
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, skillFile), []byte("# hidden\n"), 0o600))
+			case "indirect skill":
+				hidden := filepath.Join(dir, "hidden")
+				require.NoError(t, os.MkdirAll(hidden, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(hidden, "SKILL.md"), []byte("# hidden\n"), 0o600))
+				if err := os.Symlink("../hidden", filepath.Join(docs, "indirect")); err != nil {
+					t.Skipf("directory symlink unavailable: %v", err)
+				}
+			}
+			if err := os.Symlink("../docs", filepath.Join(dir, "skills", "a-docs")); err != nil {
+				t.Skipf("directory symlink unavailable: %v", err)
+			}
+
+			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+			step.Env["WAZA_INIT_CI_MODE"] = "reject"
+			out, err := initCIShell(t, dir, step.Run, step.Env)
+			if tc.wantBlocked {
+				require.Error(t, err, out)
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				require.Equal(t, ExitError, exitErr.ExitCode(), out)
+				require.Contains(t, out, "a-docs")
+				require.Contains(t, out, "symlink")
+			} else {
+				require.NoError(t, err, out)
+				require.Equal(t, 1, strings.Count(out, "Offline preflight:"), out)
+				require.Contains(t, out, "Offline preflight: "+filepath.Join(dir, "evals", "reviewed", "eval.yaml"))
+			}
+			require.NotContains(t, out, "No evaluation files found")
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+		})
+	}
+}
+
+func TestInitCI_EvalFilenamePrecedenceWithSymlinks(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		layout     string
+		wantError  bool
+		wantSource []string
+	}{
+		{name: "lower priority dangling", layout: "lower dangling", wantSource: []string{"suite.yml"}},
+		{name: "fallback valid", layout: "fallback", wantSource: []string{"eval.yaml"}},
+		{name: "child lower priority dangling", layout: "child lower dangling", wantSource: []string{filepath.Join("reviewed", "suite.yml")}},
+		{name: "fallback filename is a directory", layout: "fallback directory", wantSource: []string{"suite.yml", filepath.Join("eval.yaml", "suite.yml")}},
+		{name: "selected filename dangling", layout: "selected dangling", wantError: true},
+		{name: "unrelated candidate dangling", layout: "unrelated dangling", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, workflow := initCIFixture(t)
+			evals := filepath.Join(dir, "evals")
+			link := ""
+			switch tc.layout {
+			case "lower dangling", "unrelated dangling":
+				initCIWriteEvalAt(t, evals, "suite.yml", "")
+				link = filepath.Join(evals, "eval.yaml")
+				if tc.layout == "unrelated dangling" {
+					link = filepath.Join(evals, "z")
+				}
+			case "fallback":
+				initCIWriteEvalAt(t, evals, "eval.yaml", "")
+			case "child lower dangling":
+				initCIAddSkill(t, dir, "reviewed")
+				child := filepath.Join(evals, "reviewed")
+				initCIWriteEvalAt(t, child, "suite.yml", "")
+				link = filepath.Join(child, "eval.yaml")
+			case "fallback directory":
+				initCIWriteEvalAt(t, evals, "suite.yml", "")
+				initCIWriteEvalAt(t, filepath.Join(evals, "eval.yaml"), "suite.yml", "")
+			case "selected dangling":
+				initCIWriteEvalAt(t, evals, "eval.yaml", "")
+				link = filepath.Join(evals, "suite.yml")
+			}
+			if link != "" {
+				if err := os.Symlink("missing", link); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+			}
+
+			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+			step.Env["EVAL_FILE"] = "suite.yml"
+			step.Env["WAZA_INIT_CI_MODE"] = "reject"
+			out, err := initCIShell(t, dir, step.Run, step.Env)
+			if tc.wantError {
+				require.Error(t, err, out)
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				require.Equal(t, ExitError, exitErr.ExitCode(), out)
+				require.Contains(t, out, filepath.Base(link))
+				require.Contains(t, out, "symlink")
+			} else {
+				require.NoError(t, err, out)
+				require.Equal(t, len(tc.wantSource), strings.Count(out, "Offline preflight:"), out)
+				for _, source := range tc.wantSource {
+					require.Contains(t, out, "Offline preflight: "+filepath.Join(evals, source))
+				}
+			}
+			require.NotContains(t, out, "No evaluation files found")
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+		})
+	}
+}
+
+func TestInitCI_WorkspaceRetainsDiagnosticsOnDiscoveryErrors(t *testing.T) {
+	for _, failure := range []string{"none", "eval entries", "skill discovery"} {
+		for _, format := range []string{"human", "json"} {
+			t.Run(failure+"_"+format, func(t *testing.T) {
+				dir, _ := initCIFixture(t)
+				evals := filepath.Join(dir, "evals")
+				invalid := filepath.Join(evals, "a", "eval.yaml")
+				require.NoError(t, os.MkdirAll(filepath.Dir(invalid), 0o700))
+				require.NoError(t, os.WriteFile(invalid, []byte("config: [invalid]\n"), 0o600))
+				valid := filepath.Join(evals, "c", "eval.yaml")
+				initCIWriteEvalAt(t, filepath.Dir(valid), "eval.yaml", "")
+				switch failure {
+				case "eval entries":
+					for _, name := range []string{"b", "z"} {
+						if err := os.Symlink("missing", filepath.Join(evals, name)); err != nil {
+							t.Skipf("symlink unavailable: %v", err)
+						}
+					}
+				case "skill discovery":
+					if err := os.Symlink("missing", filepath.Join(dir, "skills", "broken")); err != nil {
+						t.Skipf("symlink unavailable: %v", err)
+					}
+				}
+
+				outputPath := filepath.Join(dir, "preflight-output")
+				errorPath := filepath.Join(dir, "preflight-error")
+				out, err := initCIShell(t, dir, `waza preflight --workspace --format "$FORMAT" >"$OUTPUT" 2>"$ERRORS"`, map[string]string{
+					"FORMAT": format, "OUTPUT": filepath.ToSlash(outputPath), "ERRORS": filepath.ToSlash(errorPath),
+					"WAZA_INIT_CI_MODE": "reject",
+				})
+				require.Error(t, err, out)
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				wantExit := 1
+				if failure != "none" {
+					wantExit = ExitError
+				}
+				require.Equal(t, wantExit, exitErr.ExitCode(), out)
+				output, err := os.ReadFile(outputPath)
+				require.NoError(t, err)
+				diagnostics, err := os.ReadFile(errorPath)
+				require.NoError(t, err)
+				if format == "human" {
+					require.Contains(t, string(output), "Offline preflight: "+invalid)
+					require.Contains(t, string(output), "Offline preflight: "+valid)
+					require.Contains(t, string(output), "invalid eval.schema")
+				} else {
+					var reports []*preflight.Report
+					require.NoError(t, json.Unmarshal(output, &reports), string(output))
+					require.Len(t, reports, 2)
+					require.Equal(t, invalid, reports[0].Source)
+					require.True(t, reports[0].Failed(false), "%+v", reports[0].Diagnostics)
+					require.Equal(t, valid, reports[1].Source)
+					require.False(t, reports[1].Failed(false), "%+v", reports[1].Diagnostics)
+				}
+				switch failure {
+				case "eval entries":
+					require.Contains(t, string(diagnostics), filepath.Join(evals, "b"))
+					require.Contains(t, string(diagnostics), filepath.Join(evals, "z"))
+					require.Contains(t, string(diagnostics), "symlink")
+				case "skill discovery":
+					require.Contains(t, string(diagnostics), filepath.Join(dir, "skills", "broken"))
+					require.Contains(t, string(diagnostics), "symlink")
+				default:
+					require.Contains(t, string(diagnostics), "preflight prerequisites failed")
+				}
+				require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+			})
+		}
 	}
 }
 
