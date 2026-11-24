@@ -8,15 +8,15 @@ import (
 // modelJSON is the `waza models --json` element. It keeps the field set
 // emitted before the SDK v2 migration: capabilities.supports and
 // capabilities.limits are always objects, the two support flags are always
-// present, and policy.terms is a string. Billing is forwarded as the
-// runtime catalog reports it.
+// present, policy.terms is a string, and billing carries only multiplier
+// and tokenPrices.
 type modelJSON struct {
 	ID                        string                `json:"id"`
 	Name                      string                `json:"name"`
 	Provider                  *rpc.ModelProviderRef `json:"provider,omitempty"`
 	Capabilities              modelCapabilitiesJSON `json:"capabilities"`
 	Policy                    *modelPolicyJSON      `json:"policy,omitempty"`
-	Billing                   *rpc.ModelBilling     `json:"billing,omitempty"`
+	Billing                   *modelBillingJSON     `json:"billing,omitempty"`
 	Metadata                  map[string]any        `json:"metadata,omitempty"`
 	SupportedReasoningEfforts []string              `json:"supportedReasoningEfforts,omitempty"`
 	DefaultReasoningEffort    string                `json:"defaultReasoningEffort,omitempty"`
@@ -39,6 +39,11 @@ type modelLimitsJSON struct {
 	Vision                 *rpc.ModelCapabilitiesLimitsVision `json:"vision,omitempty"`
 }
 
+type modelBillingJSON struct {
+	Multiplier  *float64                     `json:"multiplier,omitempty"`
+	TokenPrices *rpc.ModelBillingTokenPrices `json:"tokenPrices,omitempty"`
+}
+
 type modelPolicyJSON struct {
 	State string `json:"state"`
 	Terms string `json:"terms"`
@@ -51,9 +56,11 @@ func modelsJSON(models []copilot.Model) []modelJSON {
 			ID:                        m.ID,
 			Name:                      m.Name,
 			Provider:                  m.Provider,
-			Billing:                   m.Billing,
 			Metadata:                  m.Metadata,
 			SupportedReasoningEfforts: m.SupportedReasoningEfforts,
+		}
+		if b := m.Billing; b != nil {
+			item.Billing = &modelBillingJSON{Multiplier: b.Multiplier, TokenPrices: b.TokenPrices}
 		}
 		if m.DefaultReasoningEffort != nil {
 			item.DefaultReasoningEffort = *m.DefaultReasoningEffort

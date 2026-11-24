@@ -78,7 +78,12 @@ func TestModelsCommand_JSONOutput(t *testing.T) {
 		IsAuthenticated: true,
 	}, nil)
 	client.EXPECT().ListModels(gomock.Any()).Return([]copilot.Model{
-		{ID: "gpt-4o", Name: "GPT-4o"},
+		{ID: "gpt-4o", Name: "GPT-4o", Billing: &rpc.ModelBilling{
+			Multiplier:      copilot.Float64(1.5),
+			DiscountPercent: new(int32(10)),
+			Promo:           &rpc.ModelBillingPromo{},
+			TokenPrices:     &rpc.ModelBillingTokenPrices{BatchSize: int64Ptr(1000)},
+		}},
 	}, nil)
 	client.EXPECT().Stop().Return(nil)
 
@@ -111,6 +116,10 @@ func TestModelsCommand_JSONOutput(t *testing.T) {
 	limits, ok := capabilities["limits"].(map[string]any)
 	require.True(t, ok, "capabilities.limits must be an object")
 	require.Empty(t, limits)
+	require.Equal(t, map[string]any{
+		"multiplier":  1.5,
+		"tokenPrices": map[string]any{"batchSize": float64(1000)},
+	}, decoded[0]["billing"], "billing keeps the pre-v2 multiplier/tokenPrices shape")
 }
 
 func int64Ptr(v int64) *int64 { return &v }
