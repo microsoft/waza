@@ -408,7 +408,7 @@ files:
 
 func TestPreflightWorkspaceInspectsTargetFreeAndChildEvals(t *testing.T) {
 	dir := t.TempDir()
-	validateCLIIsolation(dir)
+	require.NoError(t, validateCLIIsolation(dir))
 	t.Chdir(dir)
 	scaffold := newRootCommand()
 	scaffold.SetOut(&bytes.Buffer{})

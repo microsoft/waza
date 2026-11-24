@@ -602,6 +602,37 @@ func TestInitCI_RejectsActionsExpressionsInLiteralPaths(t *testing.T) {
 		require.NoFileExists(t, filepath.Join(dir, "reviewed", ".github", "workflows", "eval.yml"))
 		require.NoFileExists(t, filepath.Join(dir, "reviewed", "SKILL.md"))
 	})
+	t.Run("standalone repair preserves malformed skill", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, validateCLIIsolation(dir))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("files:\n  evalFile: '${{ github.token }}.yml'\n"), 0o600))
+		root := filepath.Join(dir, "reviewed")
+		require.NoError(t, os.MkdirAll(root, 0o700))
+		skillPath := filepath.Join(root, "SKILL.md")
+		original := []byte("User-owned content without frontmatter.\r\nKeep these original bytes.\n")
+		require.NoError(t, os.WriteFile(skillPath, original, 0o600))
+		cmd := newNewSkillCommand()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetIn(strings.NewReader(""))
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{"reviewed", "--output-dir", dir})
+		require.ErrorContains(t, cmd.Execute(), "GitHub Actions would evaluate")
+		require.Contains(t, out.String(), "empty or malformed")
+		preserved, err := os.ReadFile(skillPath)
+		require.NoError(t, err, "rejected configuration must not delete the original skill")
+		require.Equal(t, original, preserved)
+		require.NoDirExists(t, filepath.Join(root, "evals"))
+		require.NoDirExists(t, filepath.Join(root, ".github"))
+
+		require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("files:\n  evalFile: suite.yml\n"), 0o600))
+		require.NoError(t, cmd.Execute())
+		repaired, err := os.ReadFile(skillPath)
+		require.NoError(t, err)
+		require.Contains(t, string(repaired), "name: reviewed")
+		require.FileExists(t, filepath.Join(root, "evals", "suite.yml"))
+		require.FileExists(t, filepath.Join(root, ".github", "workflows", "eval.yml"))
+	})
 }
 
 func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) {

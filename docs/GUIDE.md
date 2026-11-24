@@ -591,6 +591,8 @@ An explicit output directory bounds workspace discovery for the scaffold.
 Without `--output-dir`, existing ancestor workspace discovery is unchanged.
 Standalone scaffolds share `init`'s pinned, offline-default CI policy. The
 manual agent gate rejects mock results and missing or unknown executor identity.
+Standalone repair validates generated CI paths before replacing a malformed
+`SKILL.md`, preserving its original contents when that configuration is rejected.
 
 **Modes:**
 

@@ -309,6 +309,11 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	fixturesDir := filepath.Join(evalsDir, "fixtures")
 	workflowDir := filepath.Join(rootDir, ".github", "workflows")
 
+	workflow, err := ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
+	if err != nil {
+		return err
+	}
+
 	// Create directories
 	for _, d := range []string{tasksDir, fixturesDir, workflowDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -323,10 +328,6 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 		}
 	}
 
-	workflow, err := ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
-	if err != nil {
-		return err
-	}
 	entries := []scaffold.FileEntry{
 		{Path: filepath.Join(rootDir, "SKILL.md"), Label: "Skill definition", Content: skillMD},
 		{Path: filepath.Join(evalsDir, files.EvalFile), Label: "Eval configuration", Content: scaffold.EvalYAMLWithTaskGlob(skillName, engine, model, files.TaskGlob)},
