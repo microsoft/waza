@@ -58,14 +58,17 @@ The SDK migration in [PR #1118](https://github.com/microsoft/waza/pull/1118)
 is open and may change before merge. As proposed, Waza keeps launching the
 bundled Copilot CLI as a separate process rather than adopting the v2 SDK's
 in-process default, and it still refuses to fall back to a CLI found on `PATH`.
-Compatibility of a custom Copilot CLI supplied through `COPILOT_CLI_PATH` has
-not been verified yet and remains an open candidate limitation.
+A custom Copilot CLI supplied through `COPILOT_CLI_PATH` must speak protocol 4.
+In the proposal, protocol-3 runtimes, including CLI 1.0.85, fail at startup
+before a session is created. Use the bundled runtime or a protocol-4 CLI.
 
 `waza models --json` is not fully unchanged: the formerly optional, deprecated
-`billing.tokenPrices.cachePrice` and `contextMax` fields, including their
-long-context variants, are absent from the v2 SDK. Scripts that read them must
-adapt: the v1 SDK points consumers to `cacheReadPrice` and `maxPromptTokens`,
-respectively, when available. Those fields are optional too.
+`billing.tokenPrices.cachePrice`, `billing.tokenPrices.contextMax`,
+`billing.tokenPrices.longContext.cachePrice` and
+`billing.tokenPrices.longContext.contextMax` fields are absent from the v2 SDK.
+Scripts that read them must adapt: the v1 SDK points consumers to
+`cacheReadPrice` and `maxPromptTokens`, respectively, when available. Those
+fields are optional too.
 
 At proposed migration head `2a2d29c7465ef6c9c7d1d50649abbc248064f23b`, the
 evidence includes guarded Go and compatibility suites, lint,
