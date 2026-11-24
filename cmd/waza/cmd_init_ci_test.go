@@ -71,6 +71,7 @@ func initCIFixture(t *testing.T) (string, initCIWorkflowSpec) {
 	require.Contains(t, string(readme), "Fixture\nisolation is not sandboxing")
 	require.Contains(t, string(readme), "unresolved runtime")
 	require.Contains(t, string(readme), "WAZA_COPILOT_TOKEN")
+	require.Contains(t, string(readme), "Commit the evaluation root's `.gitkeep`")
 	cfg, err := projectconfig.Load(dir)
 	require.NoError(t, err)
 	require.Equal(t, projectconfig.DefaultEngine, cfg.Defaults.Engine)
@@ -315,6 +316,108 @@ func TestInitCI_EmptyEvaluationRootSurvivesCheckout(t *testing.T) {
 	require.Contains(t, out, "Evaluation directory is missing")
 }
 
+func TestInitCI_EvaluationRootSurvivesGitCheckout(t *testing.T) {
+	tests := []struct {
+		name        string
+		evalsDir    string
+		file        string
+		ignored     bool
+		tracked     bool
+		stageMarker bool
+	}{
+		{name: "ignored file", evalsDir: "evals", file: "tool.exe", ignored: true, stageMarker: true},
+		{name: "untracked file", evalsDir: filepath.Join("suites", "evals"), file: "notes.txt", stageMarker: true},
+		{name: "tracked file", evalsDir: "evals", file: "tracked.txt", tracked: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			runGit := func(dir string, args ...string) string {
+				t.Helper()
+				args = append([]string{"-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + filepath.Join(dir, "no-hooks")}, args...)
+				command := exec.CommandContext(t.Context(), "git", args...)
+				command.Dir = dir
+				command.Env = append(os.Environ(),
+					"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0",
+					"GIT_AUTHOR_NAME=Waza test", "GIT_AUTHOR_EMAIL=waza-test@example.invalid",
+					"GIT_COMMITTER_NAME=Waza test", "GIT_COMMITTER_EMAIL=waza-test@example.invalid")
+				out, err := command.CombinedOutput()
+				require.NoError(t, err, "git %v: %s", args, out)
+				return string(out)
+			}
+			runGit(dir, "init", "-q", "-b", "main")
+			require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.exe\n"), 0o600))
+			evalsDir := filepath.Join(dir, tt.evalsDir)
+			require.NoError(t, os.MkdirAll(evalsDir, 0o755))
+			file := filepath.Join(evalsDir, tt.file)
+			original := []byte("existing evaluation-root file\n")
+			require.NoError(t, os.WriteFile(file, original, 0o600))
+			relativeFile := filepath.ToSlash(filepath.Join(tt.evalsDir, tt.file))
+			if tt.ignored {
+				require.Equal(t, relativeFile, strings.TrimSpace(runGit(dir, "check-ignore", "--", relativeFile)))
+			}
+			if tt.tracked {
+				runGit(dir, "add", "--", ".gitignore", relativeFile)
+				runGit(dir, "commit", "-qm", "track evaluation file")
+				require.NoError(t, os.WriteFile(filepath.Join(evalsDir, ".gitkeep"), []byte("existing marker\n"), 0o600))
+			}
+
+			cmd := newInitCommand()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", tt.evalsDir})
+			require.NoError(t, cmd.Execute())
+			preserved, err := os.ReadFile(file)
+			require.NoError(t, err)
+			require.Equal(t, original, preserved)
+
+			runGit(dir, "add", "--", ".gitignore", ".waza.yaml", ".github/workflows/eval.yml", "README.md")
+			marker := filepath.Join(evalsDir, ".gitkeep")
+			if tt.tracked {
+				markerContent, err := os.ReadFile(marker)
+				require.NoError(t, err)
+				require.Equal(t, "existing marker\n", string(markerContent))
+			}
+			if tt.stageMarker {
+				_, err := os.Stat(marker)
+				if err == nil {
+					runGit(dir, "add", "--", filepath.ToSlash(filepath.Join(tt.evalsDir, ".gitkeep")))
+				} else {
+					require.ErrorIs(t, err, os.ErrNotExist)
+				}
+			}
+			staged := runGit(dir, "ls-files", "--", filepath.ToSlash(tt.evalsDir))
+			if tt.tracked {
+				require.Contains(t, staged, relativeFile)
+				require.NotContains(t, staged, ".gitkeep", "the tracked-file control must not rely on the marker")
+			} else {
+				require.NotContains(t, staged, relativeFile, "the fixture file must not survive the checkout")
+			}
+			runGit(dir, "commit", "-qm", "add generated workflow")
+
+			checkout := t.TempDir()
+			runGit(dir, "clone", "-q", "--no-local", dir, checkout)
+			data, err := os.ReadFile(filepath.Join(checkout, ".github", "workflows", "eval.yml"))
+			require.NoError(t, err)
+			var workflow initCIWorkflowSpec
+			require.NoError(t, yaml.Unmarshal(data, &workflow))
+			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+			out, err := initCIShell(t, checkout, step.Run, step.Env)
+			require.NoError(t, err, out)
+			require.Contains(t, out, "No evaluation files found")
+			require.DirExists(t, filepath.Join(checkout, tt.evalsDir))
+			if tt.tracked {
+				content, err := os.ReadFile(filepath.Join(checkout, tt.evalsDir, tt.file))
+				require.NoError(t, err)
+				require.Equal(t, original, content)
+			} else {
+				require.NoFileExists(t, filepath.Join(checkout, tt.evalsDir, tt.file))
+				require.FileExists(t, filepath.Join(checkout, tt.evalsDir, ".gitkeep"))
+			}
+		})
+	}
+}
+
 func TestInitCI_EmptySymlinkedEvaluationRootIsKept(t *testing.T) {
 	dir, _ := initCIFixture(t)
 	evalsDir := filepath.Join(dir, "evals")
@@ -394,7 +497,10 @@ func TestInitCI_EvaluationRootUnderSymlink(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			inside := filepath.Join(dir, "shared")
-			require.NoError(t, os.MkdirAll(inside, 0o755))
+			nested := filepath.Join(inside, "nested")
+			require.NoError(t, os.MkdirAll(nested, 0o755))
+			sentinel := filepath.Join(nested, "existing.txt")
+			require.NoError(t, os.WriteFile(sentinel, []byte("inside sentinel\n"), 0o600))
 			target := "shared"
 			if absolute {
 				target = inside
@@ -406,7 +512,10 @@ func TestInitCI_EvaluationRootUnderSymlink(t *testing.T) {
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", filepath.Join("alias", "nested")})
 			require.NoError(t, cmd.Execute())
-			require.FileExists(t, filepath.Join(inside, "nested", ".gitkeep"))
+			require.FileExists(t, filepath.Join(nested, ".gitkeep"))
+			preserved, err := os.ReadFile(sentinel)
+			require.NoError(t, err)
+			require.Equal(t, "inside sentinel\n", string(preserved))
 		})
 	}
 }

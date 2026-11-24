@@ -570,35 +570,14 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		{Path: filepath.Join(absDir, "README.md"), Label: "Getting started guide", Content: initReadme(projectName)},
 	}
 	evalsRoot := filepath.Join(absDir, evalsPath)
-	evalsHaveFiles := false
-	// WalkDir does not follow a symlinked root, so inspect its target. A
-	// target outside the project cannot be kept by this repository's Git.
-	walkRoot := evalsRoot
-	if resolved, err := filepath.EvalSymlinks(evalsRoot); err == nil && resolved != evalsRoot {
-		walkRoot = resolved
-		if !pathWithinResolvedDir(absDir, resolved) {
-			evalsHaveFiles = true
-		}
+	resolvedEvals, resolveErr := filepath.EvalSymlinks(evalsRoot)
+	if resolveErr != nil && !errors.Is(resolveErr, fs.ErrNotExist) {
+		return fmt.Errorf("resolving evaluation directory %s: %w", evalsRoot, resolveErr)
 	}
-	if !evalsHaveFiles {
-		walkErr := filepath.WalkDir(walkRoot, func(_ string, entry fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !entry.IsDir() {
-				evalsHaveFiles = true
-				return fs.SkipAll
-			}
-			return nil
-		})
-		if walkErr != nil && !errors.Is(walkErr, fs.ErrNotExist) {
-			return fmt.Errorf("checking evaluation directory %s: %w", evalsRoot, walkErr)
-		}
-	}
-	if !evalsHaveFiles {
+	if resolveErr != nil || pathWithinResolvedDir(absDir, resolvedEvals) {
 		entries = append(entries, scaffold.FileEntry{
 			Path:    filepath.Join(evalsRoot, ".gitkeep"),
-			Label:   "Keep empty evaluation directory in Git",
+			Label:   "Keep evaluation directory in Git",
 			Content: "# Preserve this directory for generated CI.\n",
 		})
 	}
@@ -919,7 +898,9 @@ func initReadme(projectName string) string {
    model, or grader subprocess. Invalid configuration fails; unresolved runtime
    prerequisites warn and are not verified readiness. No eval files means an
    explicit not-run notice, not a successful evaluation. No result artifact is
-   produced by the offline job.
+   produced by the offline job. Commit the evaluation root's `+"`"+`.gitkeep`+"`"+`
+   if no other tracked file preserves the directory; unignore or force-add it
+   if needed.
 
 ## Intentional agent-backed CI
 

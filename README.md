@@ -702,7 +702,9 @@ When generating a workflow, existing `.waza.yaml` skill and eval paths take
 precedence over discovery. On Windows, macOS, and Linux, project and missing-eval
 scaffold writes use a rooted handle to reject symlink escapes; filesystem mounts
 and the separate `new skill` flow are not constrained by this. A failed scaffold
-can leave partial output.
+can leave partial output. In-project eval roots get a `.gitkeep` even when
+populated; commit it (unignore or force-add it if necessary) unless another
+tracked file preserves the directory.
 
 | Flag | Description |
 |------|-------------|
