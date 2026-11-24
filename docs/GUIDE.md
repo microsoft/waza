@@ -390,6 +390,10 @@ workspace-mode path and filename flags override those settings. `--skills-dir`
 also selects the root used to inspect required skills; it does not change the
 configuration used by a later `waza run`. Explicit eval-level directories and
 disabled skill discovery retain precedence.
+Workspace preflight exits 2 for unavailable symlinks encountered during
+discovery. Native workspace detection does not follow symlinked skill-scan
+roots or skill directories; preflight reports those unsupported paths instead
+of reporting an empty inventory. Resolvable eval symlinks remain supported.
 Valid unmatched task globs are optional when other patterns discover tasks.
 CSV paths must be lexically within the eval directory and remain within it
 after resolving symlinks;
@@ -550,13 +554,15 @@ Initialize a waza project with directory structure.
 
 When generating a workflow, configured skill and eval paths take precedence over
 auto-detected paths; symlinks in those paths must be relative and stay inside
-the project so they can work in a relocated checkout. Existing workflows are
-preserved. On Windows, macOS, and Linux, project and missing-eval
-scaffold writes use a rooted handle to reject symlink escapes. Filesystem mounts
-and the separate `new skill` flow are not constrained by this. Existing files
-are preserved, but a failed scaffold can leave partial output. In-project eval
-roots get a `.gitkeep` even when populated; commit it (unignore or force-add it
-if necessary) unless another tracked file preserves the directory.
+the project so they can work in a relocated checkout. Workspace preflight reports
+symlinked skill-scan roots as unsupported because native discovery does not
+follow them. Existing workflows are preserved. On Windows, macOS, and Linux,
+project and missing-eval scaffold writes use a rooted handle to reject symlink
+escapes. Filesystem mounts and the separate `new skill` flow are not constrained
+by this. Existing files are preserved, but a failed scaffold can leave partial
+output. In-project eval roots get a `.gitkeep` even when populated; commit it
+(unignore or force-add it if necessary) unless another tracked file preserves
+the directory.
 
 **What it creates:**
 - `skills/` — Skill definitions directory

@@ -182,6 +182,12 @@ the selected root for required-skill discovery; this does not change a later
 `waza run`. Explicit eval directories take precedence. Disabled scenario
 discovery does not inspect or inject ambient project skills.
 
+Workspace preflight exits 2 when a discovery symlink is unavailable. Native
+workspace detection does not follow symlinked skill-scan roots or skill
+directories; preflight reports those unsupported paths rather than returning an
+empty inventory. Resolvable eval symlinks remain supported. An unrelated
+unavailable link inside a fixture is not itself a discovery failure.
+
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
 nonempty `scenario`. Existing v1 suites retain their version/default/discovery
 semantics. The approved scenario loader determines requested skill discovery:

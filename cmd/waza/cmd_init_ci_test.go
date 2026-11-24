@@ -16,6 +16,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/projectconfig"
+	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -89,6 +90,14 @@ func initCIStepByName(t *testing.T, job initCIJob, name string) initCIStep {
 	return initCIStep{}
 }
 
+func initCIRunMain(t *testing.T, diagnostics *bytes.Buffer, args []string) int {
+	t.Helper()
+	for _, name := range []string{usagetelemetry.OptOutEnv, usagetelemetry.NestedEnv, usagetelemetry.CIEnv} {
+		t.Setenv(name, os.Getenv(name))
+	}
+	return runMain(diagnostics, args)
+}
+
 func initCIShell(t *testing.T, dir, script string, env map[string]string) (string, error) {
 	t.Helper()
 	binary, err := os.Executable()
@@ -150,6 +159,36 @@ func initCIWriteEvalAt(t *testing.T, evalDir, evalFile, grader string) string {
 	spec := "schemaVersion: '1.4'\nname: reviewed\nskill: reviewed\nversion: '1.0'\nconfig: {executor: copilot-sdk, model: never-call, trials_per_task: 1, timeout_seconds: 5}\nmetrics: [{name: accuracy, weight: 1, threshold: 0.8}]\ntasks: [task.yaml]\n" + grader
 	require.NoError(t, os.WriteFile(path, []byte(spec), 0o600))
 	return filepath.ToSlash(path)
+}
+
+func TestInitCI_EntryPointRestoresTelemetryEnvironment(t *testing.T) {
+	for _, present := range []bool{false, true} {
+		t.Run(fmt.Sprintf("initially_present_%t", present), func(t *testing.T) {
+			t.Setenv("CI", "true")
+			names := []string{usagetelemetry.OptOutEnv, usagetelemetry.NestedEnv, usagetelemetry.CIEnv}
+			for _, name := range names {
+				t.Setenv(name, "")
+				if !present {
+					require.NoError(t, os.Unsetenv(name))
+				}
+			}
+			t.Run("init", func(t *testing.T) {
+				t.Setenv("WAZA_NO_UPDATE_CHECK", "1")
+				dir := t.TempDir()
+				require.NoError(t, validateCLIIsolation(dir))
+				var diagnostics bytes.Buffer
+				code := initCIRunMain(t, &diagnostics, []string{"--no-telemetry", "init", dir, "--no-skill"})
+				require.Equal(t, ExitSuccess, code, diagnostics.String())
+				require.Equal(t, "1", os.Getenv(usagetelemetry.OptOutEnv))
+				require.Equal(t, "1", os.Getenv(usagetelemetry.CIEnv))
+			})
+			for _, name := range names {
+				value, exists := os.LookupEnv(name)
+				require.Equal(t, present, exists, name)
+				require.Empty(t, value, name)
+			}
+		})
+	}
 }
 
 func TestInitCI_NestedNativeJQ(t *testing.T) {
@@ -575,7 +614,7 @@ func TestInitCI_RejectsNonportableWorkflowSymlinks(t *testing.T) {
 			}
 
 			var diagnostics bytes.Buffer
-			code := runMain(&diagnostics, []string{"--no-telemetry", "init", dir, "--no-skill", flag, path})
+			code := initCIRunMain(t, &diagnostics, []string{"--no-telemetry", "init", dir, "--no-skill", flag, path})
 			require.Equal(t, ExitError, code, diagnostics.String())
 			require.Contains(t, diagnostics.String(), "cannot generate CI")
 			require.Contains(t, diagnostics.String(), "symlink")
@@ -635,6 +674,198 @@ func TestInitCI_RelativeEvaluationSymlinkSurvivesGitCheckout(t *testing.T) {
 	require.NoError(t, err, out)
 	require.Contains(t, out, "No evaluation files found")
 	require.NoFileExists(t, filepath.Join(checkout, "runtime-invoked"))
+}
+
+func TestInitCI_RelocatedEvalSymlinks(t *testing.T) {
+	for _, tc := range []struct {
+		name, layout    string
+		absolute        bool
+		untrackedTarget bool
+		wantBroken      bool
+		unrelatedLink   bool
+		unrelatedDir    bool
+		unsupported     bool
+	}{
+		{name: "absolute suite", layout: "suite", absolute: true, wantBroken: true},
+		{name: "absolute manifest", layout: "manifest", absolute: true, wantBroken: true},
+		{name: "untracked relative suite target", layout: "suite", untrackedTarget: true, wantBroken: true},
+		{name: "absolute nested eval directory", layout: "nested", absolute: true, wantBroken: true},
+		{name: "absolute colocated manifest", layout: "colocated", absolute: true, wantBroken: true},
+		{name: "absolute skill definition", layout: "definition", absolute: true, wantBroken: true},
+		{name: "absolute skills root", layout: "skills root", absolute: true, wantBroken: true, unsupported: true},
+		{name: "absolute skill directory", layout: "skill child", absolute: true, wantBroken: true, unsupported: true},
+		{name: "relative skill directory", layout: "skill child", unsupported: true},
+		{name: "relative top-level skill directory", layout: "root child", unsupported: true},
+		{name: "relative suite", layout: "suite"},
+		{name: "relative manifest", layout: "manifest"},
+		{name: "relative nested eval directory", layout: "nested"},
+		{name: "relative skills root", layout: "skills root", unsupported: true},
+		{name: "unrelated dangling fixture", layout: "suite", unrelatedLink: true},
+		{name: "unrelated top-level directory link", layout: "suite", unrelatedDir: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			var output bytes.Buffer
+			require.Equal(t, ExitSuccess, initCIRunMain(t, &output, []string{"--no-telemetry", "init", dir, "--no-skill"}), output.String())
+			workflowPath := filepath.Join(dir, ".github", "workflows", "eval.yml")
+			data, err := os.ReadFile(workflowPath)
+			require.NoError(t, err)
+			var workflow initCIWorkflowSpec
+			require.NoError(t, yaml.Unmarshal(data, &workflow))
+			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+			step.Env["WAZA_INIT_CI_MODE"] = "reject"
+
+			shared := filepath.Join(dir, "shared")
+			if tc.layout == "root child" {
+				shared = filepath.Join(dir, ".storage")
+			}
+			if tc.layout != "skills root" && tc.layout != "skill child" && tc.layout != "root child" {
+				initCIWriteEvalAt(t, shared, "eval.yaml", "")
+			}
+			skillDir := filepath.Join(dir, "skills", "reviewed")
+			var link, target, evalPath string
+			switch tc.layout {
+			case "suite":
+				link, target = filepath.Join(dir, "evals", "reviewed"), shared
+				evalPath = filepath.Join(link, "eval.yaml")
+			case "manifest":
+				evalDir := filepath.Join(dir, "evals", "reviewed")
+				require.NoError(t, os.MkdirAll(filepath.Join(evalDir, "fixtures"), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(evalDir, "task.yaml"), []byte("id: task\nname: Task\ninputs: {prompt: ready}\n"), 0o600))
+				link, target = filepath.Join(evalDir, "eval.yaml"), filepath.Join(shared, "eval.yaml")
+				evalPath = link
+			case "nested":
+				initCIAddSkill(t, dir, "reviewed")
+				link, target = filepath.Join(skillDir, "evals"), shared
+				evalPath = filepath.Join(link, "eval.yaml")
+			case "colocated":
+				initCIAddSkill(t, dir, "reviewed")
+				require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "fixtures"), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, "task.yaml"), []byte("id: task\nname: Task\ninputs: {prompt: ready}\n"), 0o600))
+				link, target = filepath.Join(skillDir, "eval.yaml"), filepath.Join(shared, "eval.yaml")
+				evalPath = link
+			case "definition":
+				initCIWriteEvalAt(t, skillDir, "eval.yaml", "")
+				require.NoError(t, os.MkdirAll(filepath.Join(shared, "definitions"), 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(shared, "definitions", "SKILL.md"), []byte("# reviewed\n"), 0o600))
+				link, target = filepath.Join(skillDir, "SKILL.md"), filepath.Join(shared, "definitions", "SKILL.md")
+				evalPath = filepath.Join(skillDir, "eval.yaml")
+			case "skills root":
+				initCIAddSkill(t, dir, "reviewed")
+				initCIWriteEvalAt(t, skillDir, "eval.yaml", "")
+				require.NoError(t, os.Rename(filepath.Join(dir, "skills"), shared))
+				link, target = filepath.Join(dir, "skills"), shared
+				evalPath = filepath.Join(skillDir, "eval.yaml")
+			case "skill child", "root child":
+				target = filepath.Join(shared, "reviewed")
+				initCIWriteEvalAt(t, target, "eval.yaml", "")
+				require.NoError(t, os.WriteFile(filepath.Join(target, "SKILL.md"), []byte("# reviewed\n"), 0o600))
+				link = skillDir
+				if tc.layout == "root child" {
+					link = filepath.Join(dir, "reviewed")
+				}
+				evalPath = filepath.Join(link, "eval.yaml")
+			}
+			linkTarget := target
+			if !tc.absolute {
+				linkTarget, err = filepath.Rel(filepath.Dir(link), target)
+				require.NoError(t, err)
+				linkTarget = filepath.ToSlash(linkTarget)
+			}
+			if err := os.Symlink(linkTarget, link); err != nil {
+				t.Skipf("symlink unavailable: %v", err)
+			}
+			if tc.unrelatedLink {
+				require.NoError(t, os.Symlink("missing.txt", filepath.Join(shared, "fixtures", "unrelated.txt")))
+			}
+			if tc.unrelatedDir {
+				require.NoError(t, os.WriteFile(filepath.Join(shared, "fixtures", "anchor.txt"), []byte("tracked fixture\n"), 0o600))
+				require.NoError(t, os.Symlink("shared/fixtures", filepath.Join(dir, "docs-link")))
+			}
+			out, err := initCIShell(t, dir, step.Run, step.Env)
+			if tc.unsupported {
+				require.Error(t, err, "the current workspace detector cannot scan a symlinked skill directory")
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				require.Equal(t, ExitError, exitErr.ExitCode(), out)
+				require.Contains(t, out, "symlink")
+				require.Contains(t, out, "skill")
+				require.Contains(t, out, filepath.Base(link))
+			} else {
+				require.NoError(t, err, out)
+				require.Equal(t, 1, strings.Count(out, "Offline preflight:"), out)
+				require.Contains(t, out, "Offline preflight: "+evalPath)
+			}
+			require.NotContains(t, out, "No evaluation files found")
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+
+			initCIRunGit(t, dir, "init", "-q", "-b", "main")
+			initCIRunGit(t, dir, "add", "--", ".waza.yaml", ".github/workflows/eval.yml", "evals")
+			if tc.layout != "suite" && tc.layout != "manifest" && tc.layout != "root child" {
+				initCIRunGit(t, dir, "add", "--", "skills")
+			}
+			if tc.layout == "root child" {
+				initCIRunGit(t, dir, "add", "--", "reviewed")
+			}
+			if tc.unrelatedDir {
+				initCIRunGit(t, dir, "add", "--", "docs-link")
+			}
+			if !tc.untrackedTarget {
+				sharedRel, err := filepath.Rel(dir, shared)
+				require.NoError(t, err)
+				initCIRunGit(t, dir, "add", "--", filepath.ToSlash(sharedRel))
+			}
+			linkRel, err := filepath.Rel(dir, link)
+			require.NoError(t, err)
+			require.Contains(t, initCIRunGit(t, dir, "ls-files", "-s", "--", filepath.ToSlash(linkRel)), "120000 ")
+			initCIRunGit(t, dir, "commit", "-qm", "add linked evaluation")
+			checkout := t.TempDir()
+			initCIRunGit(t, dir, "-c", "core.symlinks=true", "clone", "-q", "--no-local", dir, checkout)
+			require.NoError(t, os.Rename(shared, filepath.Join(dir, "original-unavailable")))
+			checkoutLink := filepath.Join(checkout, linkRel)
+			info, err := os.Lstat(checkoutLink)
+			require.NoError(t, err)
+			require.NotZero(t, info.Mode()&os.ModeSymlink, "checkout must preserve the link")
+			_, err = os.Stat(checkoutLink)
+			if tc.wantBroken {
+				require.ErrorIs(t, err, os.ErrNotExist, "the checkout link must be dangling")
+			} else {
+				require.NoError(t, err, "the checkout link must resolve without the original target")
+			}
+
+			out, err = initCIShell(t, checkout, step.Run, step.Env)
+			if tc.wantBroken || tc.unsupported {
+				require.Error(t, err, "an unavailable or unsupported discovery link must not become a successful inventory: %s", out)
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				require.Equal(t, ExitError, exitErr.ExitCode(), out)
+				require.Contains(t, out, "symlink")
+				require.Contains(t, out, filepath.Base(checkoutLink))
+			} else {
+				require.NoError(t, err, out)
+				evalRel, err := filepath.Rel(dir, evalPath)
+				require.NoError(t, err)
+				require.Equal(t, 1, strings.Count(out, "Offline preflight:"), out)
+				require.Contains(t, out, "Offline preflight: "+filepath.Join(checkout, evalRel))
+			}
+			if tc.unrelatedLink {
+				unrelated := filepath.Join(checkout, "shared", "fixtures", "unrelated.txt")
+				info, err := os.Lstat(unrelated)
+				require.NoError(t, err)
+				require.NotZero(t, info.Mode()&os.ModeSymlink)
+				_, err = os.Stat(unrelated)
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+			if tc.unrelatedDir {
+				info, err := os.Stat(filepath.Join(checkout, "docs-link"))
+				require.NoError(t, err)
+				require.True(t, info.IsDir())
+			}
+			require.NotContains(t, out, "No evaluation files found")
+			require.NoFileExists(t, filepath.Join(checkout, "runtime-invoked"))
+		})
+	}
 }
 
 func TestInitCI_MissingEvalPreservesExistingTask(t *testing.T) {
@@ -1028,7 +1259,7 @@ func TestInitCI_ExistingWorkflowAllowsLiteralExpressions(t *testing.T) {
 
 				var diagnostics bytes.Buffer
 				args := append([]string{"--no-telemetry", "init", dir, "--no-skill"}, tc.args...)
-				code := runMain(&diagnostics, args)
+				code := initCIRunMain(t, &diagnostics, args)
 				if existing {
 					require.Equal(t, ExitSuccess, code, diagnostics.String())
 					preserved, err := os.ReadFile(workflowPath)
@@ -1067,7 +1298,7 @@ func TestInitCI_DanglingExistingWorkflowDoesNotSucceed(t *testing.T) {
 	}
 
 	var diagnostics bytes.Buffer
-	code := runMain(&diagnostics, []string{"--no-telemetry", "init", dir, "--no-skill"})
+	code := initCIRunMain(t, &diagnostics, []string{"--no-telemetry", "init", dir, "--no-skill"})
 	require.Equal(t, ExitError, code, diagnostics.String())
 	require.NoFileExists(t, target)
 	info, err := os.Lstat(workflowPath)
@@ -1385,12 +1616,7 @@ func TestInitCIHelperProcess(t *testing.T) {
 			cmd := newRootCommand()
 			cmd.SetArgs(os.Args[i+1:])
 			if err := cmd.Execute(); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				var exitErr *ExitCodeError
-				if errors.As(err, &exitErr) {
-					os.Exit(exitErr.Code)
-				}
-				os.Exit(1)
+				os.Exit(reportExit(os.Stderr, err))
 			}
 			os.Exit(0)
 		}

@@ -33,6 +33,9 @@ Workspace mode also accepts --skills-dir, --evals-dir, and --eval-file to
 override those settings. When skill discovery is enabled and no eval-level
 directories are specified, --skills-dir also selects the required-skill discovery
 root. It does not change the configuration used by a later run.
+Unavailable discovery symlinks are errors. Native workspace discovery does not
+follow symlinked skill-scan roots or skill directories; workspace preflight
+reports those unsupported paths instead of returning an empty inventory.
 
 Never starts an agent, model, subprocess, mock server, live service, or update
 check. Verified means a static check, not a satisfied requirement, enforced
@@ -164,7 +167,8 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 		paths.evalFile = overrides.evalFile
 	}
 
-	wsCtx, err := workspace.DetectContext(absRoot, paths.options()...)
+	detectOptions := append(paths.options(), workspace.WithDiscoverySymlinkValidation())
+	wsCtx, err := workspace.DetectContext(absRoot, detectOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("discovering workspace skills: %w", err)
 	}
@@ -236,6 +240,9 @@ func separatedWorkspaceEvals(wsCtx *workspace.WorkspaceContext) ([]string, error
 			path := filepath.Join(dir, name)
 			info, err := os.Stat(path)
 			if errors.Is(err, fs.ErrNotExist) {
+				if err := workspace.ValidateDiscoveryPath(path); err != nil {
+					return "", err
+				}
 				continue
 			}
 			if err != nil {
@@ -249,6 +256,9 @@ func separatedWorkspaceEvals(wsCtx *workspace.WorkspaceContext) ([]string, error
 	}
 	entries, err := os.ReadDir(evalsDir)
 	if errors.Is(err, fs.ErrNotExist) {
+		if err := workspace.ValidateDiscoveryPath(evalsDir); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	if err != nil {
@@ -262,7 +272,14 @@ func separatedWorkspaceEvals(wsCtx *workspace.WorkspaceContext) ([]string, error
 	}
 	for _, entry := range entries {
 		dir := filepath.Join(evalsDir, entry.Name())
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		info, err := os.Stat(dir)
+		if err != nil {
+			if pathErr := workspace.ValidateDiscoveryPath(dir); pathErr != nil {
+				return nil, pathErr
+			}
+			return nil, fmt.Errorf("checking evaluation entry %q: %w", dir, err)
+		}
+		if !info.IsDir() {
 			continue
 		}
 		path, err := firstEval(dir)

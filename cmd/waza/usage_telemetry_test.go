@@ -57,7 +57,7 @@ func isolateUsageTelemetry(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	for _, name := range []string{usagetelemetry.OptOutEnv, usagetelemetry.NestedEnv, "DO_NOT_TRACK",
+	for _, name := range []string{usagetelemetry.OptOutEnv, usagetelemetry.NestedEnv, usagetelemetry.CIEnv, "DO_NOT_TRACK",
 		"AZURE_DEV_COLLECT_TELEMETRY", "AZD_SERVER", "CI", "GITHUB_ACTIONS", "TF_BUILD", "JENKINS_URL",
 		"CODEBUILD_BUILD_ID", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "TEAMCITY_VERSION", "BITBUCKET_BUILD_NUMBER"} {
 		t.Setenv(name, "")
@@ -94,6 +94,24 @@ func invokeCLI(t *testing.T, args ...string) invocation {
 	os.Stdout = stdout
 	require.NoError(t, writer.Close())
 	return invocation{code: code, stdout: <-captured, stderr: stderr.String()}
+}
+
+// An earlier in-process CLI invocation under CI propagates the internal CI
+// marker; isolation must clear it so later tests observe events regardless of
+// test order.
+func TestUsageTelemetry_IsolationClearsPropagatedCIMarker(t *testing.T) {
+	t.Setenv("CI", "true")
+	t.Setenv(usagetelemetry.CIEnv, "")
+	t.Setenv(usagetelemetry.OptOutEnv, "")
+	t.Setenv(usagetelemetry.NestedEnv, "")
+	invokeCLI(t, "--no-update-check", "--no-telemetry", "definitely-not-a-command")
+	require.Equal(t, "1", os.Getenv(usagetelemetry.CIEnv), "setup must propagate the CI marker")
+
+	isolateUsageTelemetry(t)
+	collector := newUsageCollector(t)
+	t.Cleanup(usagetelemetry.OverrideActivationForTesting(collector.server.URL, collector.server.Client(), true, false))
+	invokeCLI(t, "--no-update-check", "definitely-not-a-command")
+	require.Len(t, collector.take(), 1)
 }
 
 func TestUsageTelemetry_OutputAndExitUnchanged(t *testing.T) {

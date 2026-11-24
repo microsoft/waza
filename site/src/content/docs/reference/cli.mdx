@@ -81,6 +81,10 @@ workspace-mode path and filename flags override those settings. These flags affe
 preflight only; they do not change the configuration used by a later `waza run`.
 The skills override applies to required-skill discovery when discovery is enabled
 and no eval-level skill directories are specified.
+Workspace preflight exits 2 for unavailable symlinks encountered in discovery.
+Native workspace detection does not follow symlinked skill-scan roots or skill
+directories; preflight reports those unsupported paths instead of an empty
+inventory. Resolvable eval symlinks remain supported.
 Ref-only eval graders with a missing pinned cache remain unresolved until
 their preset/fallback can supply the effective name. Explicit duplicate names
 remain invalid; task/checkpoint graders still require inline declarations.
@@ -260,7 +264,9 @@ its skill and eval paths take precedence over auto-detection. `--skills-dir`
 and `--evals-dir` must match those configured paths so CI validates the same
 roots that runs use. When generating a workflow, symlinks in the skill and eval
 directory paths must be relative and stay inside the project; commit the links
-and their targets. Existing workflows are preserved.
+and their targets. Workspace preflight reports symlinked skill-scan roots as
+unsupported because native skill discovery does not follow them. Existing
+workflows are preserved.
 
 ### Creates
 
