@@ -25,9 +25,9 @@ func (c *Client) Engine() *execution.CopilotEngine {
 	}).Build()
 }
 
-func (c *Client) Start(context.Context) error                             { return nil }
-func (c *Client) Stop() error                                             { return nil }
-func (c *Client) DeleteSession(context.Context, string) error             { return nil }
+func (c *Client) Start(context.Context) error                         { return nil }
+func (c *Client) Stop() error                                         { return nil }
+func (c *Client) DeleteSession(context.Context, string) error         { return nil }
 func (c *Client) ListModels(context.Context) ([]copilot.Model, error) { return nil, nil }
 func (c *Client) GetAuthStatus(context.Context) (*copilot.GetAuthStatusResponse, error) {
 	return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
