@@ -62,6 +62,11 @@ A custom Copilot CLI supplied through `COPILOT_CLI_PATH` must speak protocol 4.
 In the proposal, protocol-3 runtimes, including CLI 1.0.85, fail at startup
 before a session is created. Use the bundled runtime or a protocol-4 CLI.
 
+For prompt graders with `evidence_context`, an override must identify the pinned
+embedded executable. Owned native execution rejects any nonempty
+`COPILOT_CLI_PATH` override; clear the variable to use the embedded runtime in
+either case.
+
 `waza models --json` is not fully unchanged: the formerly optional, deprecated
 `billing.tokenPrices.cachePrice`, `billing.tokenPrices.contextMax`,
 `billing.tokenPrices.longContext.cachePrice` and
@@ -70,13 +75,17 @@ Scripts that read them must adapt: the v1 SDK points consumers to
 `cacheReadPrice` and `maxPromptTokens`, respectively, when available. Those
 fields are optional too.
 
-At proposed migration head `2a2d29c7465ef6c9c7d1d50649abbc248064f23b`, the
-evidence includes guarded Go and compatibility suites, lint,
-cross-compilation, and a preliminary synthetic evaluation on Windows. That
-evaluation passed with one model request, one attempt, exact expected output
-and no tool calls. Before the migration can ship, it still needs live evidence
-on the final integrated source and from the distributed packages, plus full
-platform validation of the current head.
+The [migration PR](https://github.com/microsoft/waza/pull/1118) reports local
+guarded Go and compatibility tests, lint and cross-compilation checks on
+earlier revisions. At an earlier PR head
+`2a2d29c7465ef6c9c7d1d50649abbc248064f23b`, the
+[Windows Go CI job](https://github.com/microsoft/waza/actions/runs/45300281018/job/138130813320)
+ran guarded tests on a merge of the proposal and its base; the
+[Ubuntu evaluation](https://github.com/microsoft/waza/actions/runs/45300280939/job/138130812629)
+used a mock engine. Neither establishes an authenticated Windows model
+evaluation at that head; a source-bound record for that specific evaluation has
+not been verified. Live evidence and full platform validation on the final
+integrated source, plus checks of the distributed packages, remain pending.
 
 ## What verification establishes
 

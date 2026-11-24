@@ -31,6 +31,10 @@ const releaseInputs = [
   'version.txt', 'extension.yaml', 'registry.json', 'go.mod', 'CHANGELOG.md',
   'internal/models/schema_version.go', ...embeddedFiles, ...embeddedAssets,
 ];
+const hotfixCandidateNotes = [
+  'docs/blog/v0.42.1-hotfix.md',
+  'site/src/content/docs/releases/v0-42-1.mdx',
+];
 function publishedReleaseVersion(changelog, reference) {
   const published = reference.match(/^## Current published standalone release: v(\d+\.\d+\.\d+)\s*$/m)?.[1];
   assert.ok(published, 'the download reference must explicitly identify the published release');
@@ -323,7 +327,7 @@ function assertSiteDiscovery(workflow, inputs) {
 
 test('every catalog, release, Docker and dashboard media input enables PR site checks and the main push workflow', () => {
   assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
-    [...Object.values(catalogInputs).flat(), ...releaseInputs, ...dashboardMediaInputs,
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, ...hotfixCandidateNotes, ...dashboardMediaInputs,
       '.github/workflows/docker-ci.yml', serveCommandInput]);
 });
 
@@ -618,6 +622,33 @@ test('the unpublished hotfix article stays out of shared release navigation', ()
   assert.doesNotMatch(read('site/astro.config.mjs'), /Waza v0\.42\.1.*releases\/v0-42-1/);
   assert.doesNotMatch(read('site/src/content/docs/reference/releases.mdx'), /v0\.42\.1: close the dogfood loop/);
 });
+
+for (const path of hotfixCandidateNotes) {
+  test(`candidate SDK v2 evidence remains qualified in ${path}`, () => {
+    const notes = read(path).replace(/\s+/g, ' ');
+    const unsupportedWindowsPass = /synthetic (?:evaluation on Windows|Windows (?:model )?evaluation)(?: also|\. That evaluation)? (?:passed|succeeded)/i;
+    assert.match(notes, /\b(?:not merged|is open and may change before merge)\b/i);
+    assert.match(notes, /prompt graders with `evidence_context`, an override must identify the pinned embedded executable/i);
+    assert.match(notes, /owned native execution rejects any nonempty `COPILOT_CLI_PATH` override; clear the variable/i);
+    assert.match(notes, /an earlier PR head `2a2d29c7465ef6c9c7d1d50649abbc248064f23b`/i);
+    assert.match(notes, /Windows Go CI job\]\(https:\/\/github\.com\/microsoft\/waza\/actions\/runs\/45300281018\/job\/138130813320\).*?guarded tests.*?merge.*?base/i);
+    assert.match(notes, /Ubuntu evaluation\]\(https:\/\/github\.com\/microsoft\/waza\/actions\/runs\/45300280939\/job\/138130812629\).*?mock engine/i);
+    assert.match(notes, /Neither establishes an authenticated Windows model evaluation at that head/i);
+    assert.match(notes, /source-bound record for that specific evaluation has not been verified/i);
+    assert.doesNotMatch(notes, unsupportedWindowsPass);
+    for (const claim of [
+      'A preliminary synthetic evaluation on Windows also passed.',
+      'A preliminary synthetic evaluation on Windows.\nThat evaluation passed.',
+      'A preliminary synthetic Windows evaluation passed.',
+    ]) {
+      assert.throws(
+        () => assert.doesNotMatch(`${notes} ${claim}`.replace(/\s+/g, ' '), unsupportedWindowsPass),
+        assert.AssertionError,
+      );
+    }
+    assert.match(notes, /live evidence.*?platform validation.*?final integrated source.*?distributed packages.*?pending/i);
+  });
+}
 
 test('v0.41.0 article is a published release record with its limits', () => {
   const article = read('site/src/content/docs/releases/v0-41-0.mdx');

@@ -82,6 +82,35 @@ test('all built internal page routes, fragments and image assets resolve under t
   expect(failures).toEqual([]);
 });
 
+test('candidate release article distinguishes offline checks from unverified SDK evidence', async ({ page }) => {
+  const response = await page.goto('/waza/releases/v0-42-1/');
+  expect(response?.status()).toBe(200);
+  const article = page.locator('main');
+  await expect(article).toContainText('Release candidate, November 23, 2026.');
+  await expect(article.getByRole('heading', { name: 'Proposed Copilot SDK v2 migration', exact: true })).toBeVisible();
+  await expect(article).toContainText('is open and may change before merge.');
+  await expect(article).toContainText('For prompt graders with evidence_context, an override must identify the pinned embedded executable.');
+  await expect(article).toContainText('Owned native execution rejects any nonempty COPILOT_CLI_PATH override');
+  await expect(article).toContainText('At an earlier PR head 2a2d29c7465ef6c9c7d1d50649abbc248064f23b');
+  await expect(article).toContainText('ran guarded tests on a merge of the proposal and its base');
+  await expect(article).toContainText('used a mock engine');
+  await expect(article).toContainText('Neither establishes an authenticated Windows model evaluation at that head');
+  await expect(article).toContainText('source-bound record for that specific evaluation has not been verified');
+  await expect(article).toContainText('Live evidence and full platform validation on the final integrated source');
+  const articleText = (await article.innerText()).replace(/\s+/g, ' ').toLowerCase();
+  for (const claim of [
+    'synthetic evaluation on windows also passed',
+    'synthetic evaluation on windows. that evaluation passed',
+    'synthetic windows evaluation passed',
+  ]) {
+    expect(articleText).not.toContain(claim);
+  }
+  await expect(article.getByRole('link', { name: 'Windows Go CI job', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/actions/runs/45300281018/job/138130813320');
+  await expect(article.getByRole('link', { name: 'Ubuntu evaluation', exact: true }))
+    .toHaveAttribute('href', 'https://github.com/microsoft/waza/actions/runs/45300280939/job/138130812629');
+});
+
 test('v0.42.0 downloads retain navigation to the published release article', async ({ page }) => {
   await page.goto('/waza/reference/releases/');
   const main = page.locator('main');
