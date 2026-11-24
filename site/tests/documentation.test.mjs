@@ -1284,7 +1284,8 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
   const makefile = read('Makefile');
   assert.match(makefile, /^VERSION\?=0\.0\.0-dev$/m);
   assert.match(makefile, /^LDFLAGS=-ldflags "-X main\.version=\$\(VERSION\)"$/m);
-  assert.match(makefile, /go build \$\(LDFLAGS\) -o \$\(BUILD_DIR\)\/\$\(BINARY_NAME\) \.\/cmd\/waza/);
+  assert.match(makefile, /^GO_BUILD_TAGS=-tags copilot_no_inprocess$/m);
+  assert.match(makefile, /go build \$\(GO_BUILD_TAGS\) \$\(LDFLAGS\) -o \$\(BUILD_DIR\)\/\$\(BINARY_NAME\) \.\/cmd\/waza/);
   const release = read('.github/workflows/release-qualification.yml');
   assert.match(release, /version="\$\{EVENT_REF#refs\/tags\/v\}"/);
   assert.match(release, /test "\$VERSION_INPUT" = "\$version"/);

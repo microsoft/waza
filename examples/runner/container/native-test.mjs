@@ -171,17 +171,29 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
           if (entry.method === 'session.send') assert.equal(entry.params.prompt, 'hello');
           if (entry.method === 'session.create') {
             assert.equal(entry.params.model, 'synthetic-no-provider');
-            assert.equal(entry.params.enableSkills, false);
-            assert.deepEqual(entry.params.availableTools, []);
-            for (const field of [
-              'enableConfigDiscovery', 'enableFileHooks', 'enableOnDemandInstructionDiscovery',
-              'enableSessionStore', 'enableHostGitOperations',
-            ]) assert.equal(entry.params[field], false, `${field} must explicitly disable runtime defaults`);
-            assert.equal(entry.params.skipCustomInstructions, true);
-            assert.equal(entry.params.skipEmbeddingRetrieval, true);
-            assert.deepEqual(entry.params.memory, { enabled: false });
+            // SDK v2 (protocol v4) groups session options; flat v3 fields must not reappear.
+            const { params } = entry;
+            assert.equal(params.skills?.enabled, false);
+            assert.deepEqual(params.tools?.availableTools, []);
+            for (const [field, value] of [
+              ['enableConfigDiscovery', params.enableConfigDiscovery],
+              ['hooks.enableRepositoryHooks', params.hooks?.enableRepositoryHooks],
+              ['instructions.onDemandDiscovery', params.instructions?.onDemandDiscovery],
+              ['state.enableCrossSessionStore', params.state?.enableCrossSessionStore],
+              ['git.enableHostGitOperations', params.git?.enableHostGitOperations],
+            ]) assert.equal(value, false, `${field} must explicitly disable runtime defaults`);
+            assert.equal(params.instructions?.skipCustomInstructions, true);
+            assert.equal(params.state?.skipEmbeddingRetrieval, true);
+            assert.deepEqual(params.state?.memory, { enabled: false });
+            for (const legacy of [
+              'enableSkills', 'availableTools', 'enableFileHooks', 'enableOnDemandInstructionDiscovery',
+              'enableSessionStore', 'enableHostGitOperations', 'skipCustomInstructions',
+              'skipEmbeddingRetrieval', 'memory',
+            ]) assert.equal(Object.hasOwn(params, legacy), false, `legacy flat field ${legacy}`);
           }
-          if (entry.method === 'session.options.update') assert.equal(entry.params.skipCustomInstructions, true);
+          if (entry.method === 'session.options.update') {
+            assert.equal(entry.params.instructions?.skipCustomInstructions, true);
+          }
         }
         if (mode === 'options-failure') {
           assert.ok(terminal.diagnostics.some(item => item.message.includes('execute/create_failed')));
