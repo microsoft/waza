@@ -180,7 +180,10 @@ func TestRunnerNativeProductionProcess(t *testing.T) {
 						require.NotContains(t, entry.Params, legacy, "v1 flat field %s must not reach the v2 runtime", legacy)
 					}
 				case "session.options.update":
-					require.Equal(t, true, entry.Params["skipCustomInstructions"])
+					instructions, ok := entry.Params["instructions"].(map[string]any)
+					require.True(t, ok, "session.options.update must carry the instructions group")
+					require.Equal(t, true, instructions["skipCustomInstructions"])
+					require.NotContains(t, entry.Params, "skipCustomInstructions", "v1 flat field must not reach the v2 runtime")
 				case "session.send":
 					require.Equal(t, "hello", entry.Params["prompt"])
 				}
