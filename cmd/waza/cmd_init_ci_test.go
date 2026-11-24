@@ -615,11 +615,8 @@ func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) 
 func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 	for _, evalFile := range []string{"eval.yaml", "suite.yml"} {
 		t.Run(evalFile, func(t *testing.T) {
-			dir, err := os.MkdirTemp(".", ".standalone-ci-")
-			require.NoError(t, err)
-			dir, err = filepath.Abs(dir)
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir), "standalone fixture must not inherit repository configuration")
 			require.NoError(t, os.WriteFile(filepath.Join(dir, ".waza.yaml"), []byte("files:\n  evalFile: "+evalFile+"\n"), 0o600))
 			cmd := newNewSkillCommand()
 			cmd.SetOut(&bytes.Buffer{})
@@ -641,13 +638,48 @@ func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 			require.NoError(t, err)
 			require.Contains(t, string(readme), "checksum-verified standalone Waza "+workflow.Env["WAZA_VERSION"])
 			require.NoError(t, os.Remove(filepath.Join(dir, ".waza.yaml")), "standalone checkout must not inherit parent configuration")
+			require.NoError(t, validateCLIIsolation(root))
 			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
 			step.Env["WAZA_INIT_CI_MODE"] = "reject"
 			out, err := initCIShell(t, root, step.Run, step.Env)
 			require.NoError(t, err, out)
+			require.Contains(t, out, "Offline preflight: "+filepath.Join(root, "evals", evalFile))
 			require.NotContains(t, out, "No evaluation files found")
 			require.NoFileExists(t, filepath.Join(root, "runtime-invoked"))
 			require.NoFileExists(t, filepath.Join(root, "results.json"))
+
+			// The trusted job must load the skill under test without a .waza.yaml.
+			run := initCIStepByName(t, workflow.Jobs["agent"], "waza run")
+			output := filepath.Join(root, "github-output")
+			require.NoError(t, os.WriteFile(output, nil, 0o600))
+			out, err = initCIShell(t, root, run.Run, map[string]string{
+				"EVAL_PATH": filepath.ToSlash(filepath.Join("evals", evalFile)), "COPILOT_GITHUB_TOKEN": "synthetic-offline-token",
+				"GITHUB_OUTPUT": filepath.ToSlash(output), "WAZA_INIT_CI_MODE": "record-skills",
+			})
+			require.NoError(t, err, out)
+			require.FileExists(t, filepath.Join(root, "results.json"), out)
+			sessions, err := os.ReadFile(filepath.Join(root, "session-skill-paths"))
+			require.NoError(t, err, out)
+			wantRoot, err := filepath.EvalSymlinks(root)
+			require.NoError(t, err)
+			lines := strings.Split(strings.TrimSuffix(strings.ReplaceAll(string(sessions), "\r\n", "\n"), "\n"), "\n")
+			require.Len(t, lines, 3, "each scaffolded task must start one recorded session")
+			for _, line := range lines {
+				var resolved []string
+				for _, p := range strings.Split(line, "\x1f") {
+					if p == "" {
+						continue
+					}
+					r, err := filepath.EvalSymlinks(p)
+					require.NoError(t, err)
+					resolved = append(resolved, r)
+				}
+				require.Equal(t, []string{wantRoot}, resolved, "session must receive exactly the standalone skill root")
+			}
+			for _, name := range []string{"results.json", "runtime-invoked", "session-skill-paths"} {
+				require.NoError(t, os.Remove(filepath.Join(root, name)))
+			}
+
 			require.NoError(t, os.WriteFile(filepath.Join(root, "evals", evalFile), []byte("config: [invalid]\n"), 0o600))
 			out, err = initCIShell(t, root, step.Run, step.Env)
 			require.Error(t, err, out)
@@ -664,6 +696,24 @@ func TestInitCI_StandaloneGeneratedPaths(t *testing.T) {
 }
 
 type initCIEngine struct{ preflightEngineSpy }
+
+// initCISkillRecorder records the skill directories each session receives.
+type initCISkillRecorder struct{ execution.AgentEngine }
+
+func (e *initCISkillRecorder) Execute(ctx context.Context, req *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
+	f, err := os.OpenFile("session-skill-paths", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fmt.Fprintln(f, strings.Join(req.SkillPaths, "\x1f")); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	return e.AgentEngine.Execute(ctx, req)
+}
 
 func (*initCIEngine) Execute(context.Context, *execution.ExecutionRequest) (*execution.ExecutionResponse, error) {
 	return nil, errors.New("synthetic task runtime error")
@@ -682,6 +732,9 @@ func TestInitCIHelperProcess(t *testing.T) {
 		}
 		if os.Getenv("WAZA_INIT_CI_MODE") == "task-error" {
 			return &initCIEngine{}, nil
+		}
+		if os.Getenv("WAZA_INIT_CI_MODE") == "record-skills" {
+			return &initCISkillRecorder{execution.NewMockEngine("never-call")}, nil
 		}
 		return execution.NewMockEngine("never-call"), nil
 	}
