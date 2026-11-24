@@ -658,6 +658,8 @@ func TestReleaseVersionAdmissionParity(t *testing.T) {
 		writeReleaseFile(t, filepath.Join(dir, "version.txt"), []byte(version+"\n"))
 		publicationGit(t, dir, "init", "-q", "-b", "main")
 		publicationGit(t, dir, "config", "core.autocrlf", "false")
+		// Windows: 128-byte tag refs exceed MAX_PATH under the temp directory.
+		publicationGit(t, dir, "config", "core.longpaths", "true")
 		publicationGit(t, dir, "add", ".github", "version.txt")
 		publicationGit(t, dir, "-c", "user.name=Release test", "-c", "user.email=release@example.invalid", "commit", "-qm", "version fixture")
 		sha := publicationGit(t, dir, "rev-parse", "HEAD")
@@ -711,7 +713,11 @@ func TestReleaseVersionAdmissionParity(t *testing.T) {
 	}
 	for path, step := range steps {
 		for _, version := range versions {
-			t.Run(paths[path]+"/"+version.value, func(t *testing.T) {
+			name := version.value
+			if len(name) > 32 {
+				name = fmt.Sprintf("length-%d", len(name))
+			}
+			t.Run(paths[path]+"/"+name, func(t *testing.T) {
 				if err := run(t, path, version.value, version.valid, step.Run, string(check)); err != nil {
 					t.Fatal(err)
 				}
