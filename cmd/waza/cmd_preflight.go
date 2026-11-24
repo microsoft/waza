@@ -175,6 +175,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 
 	detectOptions := append(paths.options(), workspace.WithDiscoverySymlinkValidation())
 	wsCtx, err := workspace.DetectContext(absRoot, detectOptions...)
+	partialContext := err != nil && wsCtx != nil
 	var discoveryErrors []error
 	if err != nil {
 		discoveryErrors = append(discoveryErrors, fmt.Errorf("discovering workspace skills: %w", err))
@@ -219,16 +220,25 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 		reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
 	}
 	// Target-free scenario evals use the separated layout without a matching skill.
-	extra, err := separatedWorkspaceEvals(wsCtx)
-	if err != nil {
-		discoveryErrors = append(discoveryErrors, err)
+	evalContexts := []*workspace.WorkspaceContext{wsCtx}
+	// A partial ancestor context must not hide independent evals in the requested workspace.
+	if partialContext && !filepath.IsAbs(wsCtx.EvalsDir) && filepath.Clean(wsCtx.Root) != absRoot {
+		requested := *wsCtx
+		requested.Root = absRoot
+		evalContexts = append(evalContexts, &requested)
 	}
-	for _, path := range extra {
-		if _, ok := seen[path]; ok {
-			continue
+	for _, evalCtx := range evalContexts {
+		extra, err := separatedWorkspaceEvals(evalCtx)
+		if err != nil {
+			discoveryErrors = append(discoveryErrors, err)
 		}
-		seen[path] = struct{}{}
-		reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
+		for _, path := range extra {
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
+		}
 	}
 	return reports, errors.Join(discoveryErrors...)
 }

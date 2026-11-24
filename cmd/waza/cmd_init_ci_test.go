@@ -1240,6 +1240,123 @@ func TestInitCI_WorkspaceRetainsOtherSkillLayoutsOnDiscoveryErrors(t *testing.T)
 	}
 }
 
+func TestInitCI_WorkspaceRetainsRequestedEvalsWithPartialAncestor(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		withLink         bool
+		override         bool
+		absoluteOverride bool
+	}{
+		{name: "healthy ancestor"},
+		{name: "partial ancestor", withLink: true},
+		{name: "partial ancestor with relative eval override", withLink: true, override: true},
+		{name: "partial ancestor with absolute eval override", withLink: true, override: true, absoluteOverride: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := t.TempDir()
+			dir := filepath.Join(parent, "workspace")
+			require.NoError(t, os.MkdirAll(dir, 0o700))
+			require.NoError(t, validateCLIIsolation(dir))
+			cfg, err := projectconfig.Load(dir)
+			require.NoError(t, err)
+			require.Empty(t, cfg.Dir, "fixture must use the default paths without a config")
+
+			skillDir := filepath.Join(parent, ".apm", "skills", "reviewed")
+			require.NoError(t, os.MkdirAll(skillDir, 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# reviewed\n"), 0o600))
+			skillEval := filepath.Join(skillDir, "eval.yaml")
+			initCIWriteEvalAt(t, skillDir, "eval.yaml", "")
+			parentEval := filepath.Join(parent, "evals", "ancestor-extra", "eval.yaml")
+			initCIWriteEvalAt(t, filepath.Dir(parentEval), "eval.yaml", "")
+			requestedEval := filepath.Join(dir, "evals", "workspace-extra", "eval.yaml")
+			require.NoError(t, os.MkdirAll(filepath.Dir(requestedEval), 0o700))
+			require.NoError(t, os.WriteFile(requestedEval, []byte("config: [invalid]\n"), 0o600))
+			overrideEval := filepath.Join(dir, "chosen", "eval.yaml")
+			initCIWriteEvalAt(t, filepath.Dir(overrideEval), "eval.yaml", "")
+			if tc.withLink {
+				if err := os.Symlink("missing", filepath.Join(parent, ".apm", "skills", "broken")); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+			}
+
+			outputPath := filepath.Join(dir, "preflight-output")
+			errorPath := filepath.Join(dir, "preflight-error")
+			script := `waza preflight --workspace --format json >"$OUTPUT" 2>"$ERRORS"`
+			if tc.override {
+				script = `waza preflight --workspace --format json --evals-dir "$OVERRIDE" >"$OUTPUT" 2>"$ERRORS"`
+			}
+			override := "chosen"
+			if tc.absoluteOverride {
+				override = filepath.ToSlash(filepath.Join(dir, override))
+			}
+			out, err := initCIShell(t, dir, script, map[string]string{
+				"OUTPUT": filepath.ToSlash(outputPath), "ERRORS": filepath.ToSlash(errorPath), "OVERRIDE": override, "WAZA_INIT_CI_MODE": "reject",
+			})
+			if tc.withLink {
+				require.Error(t, err, out)
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				require.Equal(t, ExitError, exitErr.ExitCode(), out)
+			} else {
+				require.NoError(t, err, out)
+			}
+			output, err := os.ReadFile(outputPath)
+			require.NoError(t, err)
+			var reports []*preflight.Report
+			require.NoError(t, json.Unmarshal(output, &reports), string(output))
+			sources := make(map[string]bool)
+			for _, report := range reports {
+				require.NotContains(t, sources, report.Source, "each evaluation must be reported once")
+				sources[report.Source] = report.Failed(false)
+			}
+			t.Logf("observed reports: %+v", sources)
+			require.Contains(t, sources, skillEval)
+			require.False(t, sources[skillEval])
+			if tc.override {
+				require.Contains(t, sources, overrideEval)
+				require.False(t, sources[overrideEval])
+				require.NotContains(t, sources, parentEval)
+				require.NotContains(t, sources, requestedEval)
+			} else {
+				require.Contains(t, sources, parentEval)
+				require.False(t, sources[parentEval])
+			}
+			if tc.withLink && !tc.override {
+				require.Contains(t, sources, requestedEval)
+				require.True(t, sources[requestedEval])
+				require.Len(t, reports, 3)
+				var diagnosticFound bool
+				for _, report := range reports {
+					if report.Source == requestedEval {
+						for _, diagnostic := range report.Diagnostics {
+							diagnosticFound = diagnosticFound || diagnostic.Code == "eval.configuration" && diagnostic.State == preflight.Invalid
+						}
+					}
+				}
+				require.True(t, diagnosticFound, "requested eval must retain its invalid configuration diagnostic")
+				human, humanErr := initCIShell(t, dir, `waza preflight --workspace`, map[string]string{"WAZA_INIT_CI_MODE": "reject"})
+				require.Error(t, humanErr, human)
+				var humanExit *exec.ExitError
+				require.ErrorAs(t, humanErr, &humanExit)
+				require.Equal(t, ExitError, humanExit.ExitCode(), human)
+				require.Contains(t, human, "Offline preflight: "+skillEval)
+				require.Contains(t, human, "Offline preflight: "+parentEval)
+				require.Contains(t, human, "invalid eval.configuration [error] "+requestedEval)
+				require.Contains(t, human, filepath.Join(parent, ".apm", "skills", "broken"))
+			} else {
+				require.NotContains(t, sources, requestedEval, "successful ancestor discovery and explicit overrides keep their existing roots")
+				require.Len(t, reports, 2)
+			}
+			if tc.withLink {
+				diagnostics, err := os.ReadFile(errorPath)
+				require.NoError(t, err)
+				require.Contains(t, string(diagnostics), filepath.Join(parent, ".apm", "skills", "broken"))
+			}
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+		})
+	}
+}
+
 func TestInitCI_MissingEvalPreservesExistingTask(t *testing.T) {
 	dir := t.TempDir()
 	initCIAddSkill(t, dir, "reviewed")
