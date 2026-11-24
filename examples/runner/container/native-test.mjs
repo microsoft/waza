@@ -224,7 +224,7 @@ test('real CLI/container boundary with synthetic SDK peer and distinct bundled-r
       '--entrypoint', '/embedded.test', '-e', 'WAZA_EMBEDDED_TEST=install',
     ]);
     assert.equal(smoke.result.status, 0, smoke.result.stdout + smoke.result.stderr);
-    assert.match(smoke.result.stdout, /bundled CLI 1\.0\.112: native ping\/status\/session\.create\/session\.getMessages\/session\.detach\/session\.delete passed/);
+    assert.match(smoke.result.stdout, /bundled CLI 1\.0\.114: native ping\/status\/session\.create\/session\.getMessages\/session\.detach\/session\.delete passed/);
     assert.match(smoke.result.stdout, /provider requests=0/);
     console.log('Alpine smoke: actual bundled runtime protocol/session lifecycle only; no Send/inference/provider requests');
   } finally {
