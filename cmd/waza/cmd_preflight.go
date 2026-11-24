@@ -37,8 +37,8 @@ Unavailable discovery symlinks are errors. Native workspace discovery does not
 follow symlinked skill-scan roots or skill directories; workspace preflight
 reports those unsupported paths instead of returning an empty inventory.
 Resolvable resource links are allowed when they contain no discoverable skills.
-If discovery fails, available evaluation reports are still printed; errors are
-written to stderr and the command exits 2.
+If discovery fails, reports for independently discovered evaluations are still
+printed; errors are written to stderr and the command exits 2.
 
 Never starts an agent, model, subprocess, mock server, live service, or update
 check. Verified means a static check, not a satisfied requirement, enforced
@@ -178,7 +178,9 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	var discoveryErrors []error
 	if err != nil {
 		discoveryErrors = append(discoveryErrors, fmt.Errorf("discovering workspace skills: %w", err))
-		wsCtx = &workspace.WorkspaceContext{Root: absRoot, EvalsDir: paths.evalsDir, EvalFile: paths.evalFile}
+		if wsCtx == nil {
+			wsCtx = &workspace.WorkspaceContext{Root: absRoot, EvalsDir: paths.evalsDir, EvalFile: paths.evalFile}
+		}
 	}
 	// Explicit-path run treats a workspace discovery failure as no owning
 	// skill; use that same context for each inspected evaluation.
@@ -286,7 +288,7 @@ func separatedWorkspaceEvals(wsCtx *workspace.WorkspaceContext) ([]string, error
 		dir := filepath.Join(evalsDir, entry.Name())
 		info, err := os.Stat(dir)
 		if err != nil {
-			if len(names) > 1 && rootEval == filepath.Clean(filepath.Join(evalsDir, names[0])) &&
+			if errors.Is(err, fs.ErrNotExist) && len(names) > 1 && rootEval == filepath.Clean(filepath.Join(evalsDir, names[0])) &&
 				filepath.Clean(dir) == filepath.Clean(filepath.Join(evalsDir, names[1])) {
 				continue
 			}

@@ -1089,6 +1089,157 @@ func TestInitCI_WorkspaceRetainsDiagnosticsOnDiscoveryErrors(t *testing.T) {
 	}
 }
 
+func TestInitCI_WorkspaceRetainsColocatedEvalsOnSkillDiscoveryErrors(t *testing.T) {
+	for _, withLinks := range []bool{false, true} {
+		for _, format := range []string{"human", "json"} {
+			t.Run(fmt.Sprintf("links_%t_%s", withLinks, format), func(t *testing.T) {
+				dir, _ := initCIFixture(t)
+				initCIAddSkill(t, dir, "a")
+				initCIAddSkill(t, dir, "c")
+				invalid := filepath.Join(dir, "skills", "a", "eval.yaml")
+				require.NoError(t, os.WriteFile(invalid, []byte("config: [invalid]\n"), 0o600))
+				valid := filepath.Join(dir, "skills", "c", "evals", "eval.yaml")
+				initCIWriteEvalAt(t, filepath.Dir(valid), "eval.yaml", "")
+				sources := []string{invalid, valid}
+				for _, item := range []struct {
+					root string
+					name string
+				}{
+					{root: filepath.Join(dir, ".github", "skills"), name: "d"},
+					{root: filepath.Join(dir, ".github", "skills"), name: "f"},
+					{root: filepath.Join(dir, ".apm", "skills"), name: "g"},
+					{root: filepath.Join(dir, ".apm", "skills"), name: "i"},
+				} {
+					skillDir := filepath.Join(item.root, item.name)
+					require.NoError(t, os.MkdirAll(skillDir, 0o700))
+					require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+item.name+"\n"), 0o600))
+					sources = append(sources, filepath.Join(skillDir, "eval.yaml"))
+					initCIWriteEvalAt(t, skillDir, "eval.yaml", "")
+				}
+				broken := []string{
+					filepath.Join(dir, "skills", "b"),
+					filepath.Join(dir, "skills", "z"),
+					filepath.Join(dir, ".github", "skills", "e"),
+					filepath.Join(dir, ".apm", "skills", "h"),
+				}
+				if withLinks {
+					for _, path := range broken {
+						if err := os.Symlink("missing", path); err != nil {
+							t.Skipf("symlink unavailable: %v", err)
+						}
+					}
+				}
+
+				outputPath := filepath.Join(dir, "preflight-output")
+				errorPath := filepath.Join(dir, "preflight-error")
+				out, err := initCIShell(t, dir, `waza preflight --workspace --format "$FORMAT" >"$OUTPUT" 2>"$ERRORS"`, map[string]string{
+					"FORMAT": format, "OUTPUT": filepath.ToSlash(outputPath), "ERRORS": filepath.ToSlash(errorPath),
+					"WAZA_INIT_CI_MODE": "reject",
+				})
+				require.Error(t, err, out)
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				wantExit := 1
+				if withLinks {
+					wantExit = ExitError
+				}
+				require.Equal(t, wantExit, exitErr.ExitCode(), out)
+				output, err := os.ReadFile(outputPath)
+				require.NoError(t, err)
+				diagnostics, err := os.ReadFile(errorPath)
+				require.NoError(t, err)
+				if format == "human" {
+					for _, source := range sources {
+						require.Contains(t, string(output), "Offline preflight: "+source)
+					}
+					require.Contains(t, string(output), "invalid eval.schema")
+				} else {
+					var reports []*preflight.Report
+					require.NoError(t, json.Unmarshal(output, &reports), string(output))
+					require.Len(t, reports, len(sources))
+					for i, source := range sources {
+						require.Equal(t, source, reports[i].Source)
+						require.Equal(t, i == 0, reports[i].Failed(false), "%+v", reports[i].Diagnostics)
+					}
+				}
+				if withLinks {
+					for _, path := range broken {
+						require.Contains(t, string(diagnostics), path)
+					}
+					require.Contains(t, string(diagnostics), "symlink")
+				} else {
+					require.Contains(t, string(diagnostics), "preflight prerequisites failed")
+				}
+				require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+			})
+		}
+	}
+}
+
+func TestInitCI_WorkspaceRetainsOtherSkillLayoutsOnDiscoveryErrors(t *testing.T) {
+	for _, layout := range []string{"ancestor APM", "workspace children"} {
+		for _, withLinks := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s_links_%t", layout, withLinks), func(t *testing.T) {
+				dir, _ := initCIFixture(t)
+				skillRoot := dir
+				if layout == "ancestor APM" {
+					skillRoot = filepath.Join(filepath.Dir(dir), ".apm", "skills")
+				}
+				var sources []string
+				for _, name := range []string{"a", "c"} {
+					skillDir := filepath.Join(skillRoot, name)
+					require.NoError(t, os.MkdirAll(skillDir, 0o700))
+					require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+name+"\n"), 0o600))
+					eval := filepath.Join(skillDir, "eval.yaml")
+					sources = append(sources, eval)
+					if name == "a" {
+						require.NoError(t, os.WriteFile(eval, []byte("config: [invalid]\n"), 0o600))
+					} else {
+						initCIWriteEvalAt(t, skillDir, "eval.yaml", "")
+					}
+				}
+				if withLinks {
+					for _, name := range []string{"b", "z"} {
+						if err := os.Symlink("missing", filepath.Join(skillRoot, name)); err != nil {
+							t.Skipf("symlink unavailable: %v", err)
+						}
+					}
+				}
+
+				outputPath := filepath.Join(dir, "preflight-output")
+				errorPath := filepath.Join(dir, "preflight-error")
+				out, err := initCIShell(t, dir, `waza preflight --workspace --format json >"$OUTPUT" 2>"$ERRORS"`, map[string]string{
+					"OUTPUT": filepath.ToSlash(outputPath), "ERRORS": filepath.ToSlash(errorPath), "WAZA_INIT_CI_MODE": "reject",
+				})
+				require.Error(t, err, out)
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, err, &exitErr)
+				wantExit := 1
+				if withLinks {
+					wantExit = ExitError
+				}
+				require.Equal(t, wantExit, exitErr.ExitCode(), out)
+				output, err := os.ReadFile(outputPath)
+				require.NoError(t, err)
+				var reports []*preflight.Report
+				require.NoError(t, json.Unmarshal(output, &reports), string(output))
+				require.Len(t, reports, len(sources))
+				for i, source := range sources {
+					require.Equal(t, source, reports[i].Source)
+					require.Equal(t, i == 0, reports[i].Failed(false), "%+v", reports[i].Diagnostics)
+				}
+				diagnostics, err := os.ReadFile(errorPath)
+				require.NoError(t, err)
+				if withLinks {
+					require.Contains(t, string(diagnostics), filepath.Join(skillRoot, "b"))
+					require.Contains(t, string(diagnostics), filepath.Join(skillRoot, "z"))
+				}
+				require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+			})
+		}
+	}
+}
+
 func TestInitCI_MissingEvalPreservesExistingTask(t *testing.T) {
 	dir := t.TempDir()
 	initCIAddSkill(t, dir, "reviewed")

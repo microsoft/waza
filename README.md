@@ -646,7 +646,8 @@ discovery rather than reporting an empty inventory. Native workspace discovery
 does not follow symlinked skill-scan roots or skill directories; preflight
 reports those unsupported paths. Resolvable resource links without discoverable
 skills and resolvable eval symlinks remain supported. On a discovery error,
-available reports still appear on stdout; the error appears on stderr.
+reports for independently discovered evaluations still appear on stdout; the
+error appears on stderr.
 Eager schema matchers are guarded before decoding; external schema prerequisites
 remain unresolved and leave the affected inventory incomplete.
 This also covers grader schema files and MCP tool input schemas encountered

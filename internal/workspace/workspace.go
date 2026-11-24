@@ -107,6 +107,8 @@ type WorkspaceContext struct {
 // 3. Check known compiled skill output directories such as .apm/skills/
 // 4. Check for skills/ directory with SKILL.md descendants → multi-skill
 // 5. Scan CWD for child dirs containing SKILL.md → multi-skill
+// With discovery symlink validation, it may return a partial context and an
+// error so callers can inspect independent skills without ignoring failures.
 func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) {
 	o := defaultDetectOptions()
 	for _, fn := range opts {
@@ -117,13 +119,22 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 	if err != nil {
 		return nil, fmt.Errorf("resolving absolute path: %w", err)
 	}
+	var discoveryErrors []error
+	recordError := func(err error) bool {
+		if !o.validateSymlinks {
+			return true
+		}
+		discoveryErrors = append(discoveryErrors, err)
+		return false
+	}
 
 	// 1. Check if SKILL.md exists in the given directory
 	info, ok, err := inspectSkillDirectory(absDir, o.validateSymlinks, false)
 	if err != nil {
-		return nil, err
-	}
-	if ok {
+		if recordError(err) {
+			return nil, err
+		}
+	} else if ok {
 		return &WorkspaceContext{
 			Type:             ContextSingleSkill,
 			Root:             absDir,
@@ -131,7 +142,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 			EvalsDir:         o.evalsDir,
 			EvalFile:         o.evalFile,
 			validateSymlinks: o.validateSymlinks,
-		}, nil
+		}, errors.Join(discoveryErrors...)
 	}
 
 	// 2. Walk up parent directories looking for SKILL.md or known compiled outputs
@@ -145,9 +156,10 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 
 		info, ok, err := inspectSkillDirectory(current, o.validateSymlinks, true)
 		if err != nil {
-			return nil, err
-		}
-		if ok {
+			if recordError(err) {
+				return nil, err
+			}
+		} else if ok {
 			return &WorkspaceContext{
 				Type:             ContextSingleSkill,
 				Root:             current,
@@ -155,12 +167,18 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 				EvalsDir:         o.evalsDir,
 				EvalFile:         o.evalFile,
 				validateSymlinks: o.validateSymlinks,
-			}, nil
+			}, errors.Join(discoveryErrors...)
 		}
 		if skills, err := scanDirectAPMSkills(current, o.validateSymlinks, true); err != nil {
-			return nil, fmt.Errorf("scanning APM skills directory %s: %w", filepath.Join(current, ".apm", "skills"), err)
+			err = fmt.Errorf("scanning APM skills directory %s: %w", filepath.Join(current, ".apm", "skills"), err)
+			if recordError(err) {
+				return nil, err
+			}
+			if len(skills) > 0 {
+				return contextFromSkills(current, skills, o), errors.Join(discoveryErrors...)
+			}
 		} else if len(skills) > 0 {
-			return contextFromSkills(current, skills, o), nil
+			return contextFromSkills(current, skills, o), errors.Join(discoveryErrors...)
 		}
 	}
 
@@ -178,12 +196,17 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 	var skills []SkillInfo
 	hasSkillsDir, err := skillScanRootExists(skillsDir, o.validateSymlinks)
 	if err != nil {
-		return nil, err
+		if recordError(err) {
+			return nil, err
+		}
 	}
 	if hasSkillsDir {
 		skills, err = scanForSkills(skillsDir, true, o.validateSymlinks)
 		if err != nil {
-			return nil, fmt.Errorf("scanning skills directory %s: %w", skillsDir, err)
+			err = fmt.Errorf("scanning skills directory %s: %w", skillsDir, err)
+			if recordError(err) {
+				return nil, err
+			}
 		}
 	}
 
@@ -191,12 +214,17 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 	githubSkillsDir := filepath.Join(absDir, ".github", "skills")
 	hasGithubSkillsDir, err := skillScanRootExists(githubSkillsDir, o.validateSymlinks)
 	if err != nil {
-		return nil, err
+		if recordError(err) {
+			return nil, err
+		}
 	}
 	if hasGithubSkillsDir && !samePath(skillsDir, githubSkillsDir) {
 		githubSkills, err := scanForSkills(githubSkillsDir, true, o.validateSymlinks)
 		if err != nil {
-			return nil, fmt.Errorf("scanning GitHub skills directory %s: %w", githubSkillsDir, err)
+			err = fmt.Errorf("scanning GitHub skills directory %s: %w", githubSkillsDir, err)
+			if recordError(err) {
+				return nil, err
+			}
 		}
 		skills = mergeSkillsByName(skills, githubSkills)
 	}
@@ -204,14 +232,20 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 	if hasSkillsDir {
 		apmSkills, err := scanForAPMSkillsUnder(skillsDir, o.validateSymlinks)
 		if err != nil {
-			return nil, fmt.Errorf("scanning APM skills under %s: %w", skillsDir, err)
+			err = fmt.Errorf("scanning APM skills under %s: %w", skillsDir, err)
+			if recordError(err) {
+				return nil, err
+			}
 		}
 		skills = mergeSkillsByName(skills, apmSkills)
 	}
 
 	rootAPMSkills, err := scanDirectAPMSkills(absDir, o.validateSymlinks, false)
 	if err != nil {
-		return nil, fmt.Errorf("scanning APM skills directory %s: %w", filepath.Join(absDir, ".apm", "skills"), err)
+		err = fmt.Errorf("scanning APM skills directory %s: %w", filepath.Join(absDir, ".apm", "skills"), err)
+		if recordError(err) {
+			return nil, err
+		}
 	}
 	skills = mergeSkillsByName(skills, rootAPMSkills)
 
@@ -223,13 +257,16 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 			EvalsDir:         o.evalsDir,
 			EvalFile:         o.evalFile,
 			validateSymlinks: o.validateSymlinks,
-		}, nil
+		}, errors.Join(discoveryErrors...)
 	}
 
 	// 4. Scan immediate children of dir for SKILL.md
 	skills, err = scanForSkills(absDir, false, o.validateSymlinks)
 	if err != nil {
-		return nil, fmt.Errorf("scanning directory %s: %w", absDir, err)
+		err = fmt.Errorf("scanning directory %s: %w", absDir, err)
+		if recordError(err) {
+			return nil, err
+		}
 	}
 	if len(skills) > 0 {
 		return &WorkspaceContext{
@@ -239,7 +276,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 			EvalsDir:         o.evalsDir,
 			EvalFile:         o.evalFile,
 			validateSymlinks: o.validateSymlinks,
-		}, nil
+		}, errors.Join(discoveryErrors...)
 	}
 
 	// Nothing found
@@ -250,7 +287,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 		EvalsDir:         o.evalsDir,
 		EvalFile:         o.evalFile,
 		validateSymlinks: o.validateSymlinks,
-	}, nil
+	}, errors.Join(discoveryErrors...)
 }
 
 // FindSkill locates a named skill in the workspace.
@@ -675,6 +712,7 @@ func scanForSkills(parentDir string, recursive, validateSymlinks bool) ([]SkillI
 	}
 
 	var skills []SkillInfo
+	var discoveryErrors []error
 	for _, entry := range entries {
 		if shouldSkipSkillScanDir(entry.Name()) {
 			continue
@@ -683,31 +721,45 @@ func scanForSkills(parentDir string, recursive, validateSymlinks bool) ([]SkillI
 		if !entry.IsDir() {
 			if validateSymlinks && entry.Type()&os.ModeSymlink != 0 {
 				if err := validateSkippedSkillLink(childDir, false); err != nil {
-					return nil, err
+					discoveryErrors = append(discoveryErrors, err)
 				}
 			}
 			continue
 		}
 		info, ok, err := inspectSkillDirectory(childDir, validateSymlinks, false)
 		if err != nil {
-			return nil, err
+			if !validateSymlinks {
+				return nil, err
+			}
+			discoveryErrors = append(discoveryErrors, err)
+			continue
 		}
 		if ok {
 			skills = append(skills, info)
 		}
 	}
-	return skills, nil
+	return skills, errors.Join(discoveryErrors...)
 }
 
 func scanForSkillsRecursive(parentDir string, validateSymlinks bool) ([]SkillInfo, error) {
 	var skills []SkillInfo
+	var discoveryErrors []error
+	recordError := func(err error) error {
+		if !validateSymlinks {
+			return err
+		}
+		discoveryErrors = append(discoveryErrors, err)
+		return nil
+	}
 	err := filepath.WalkDir(parentDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return fmt.Errorf("error walking %s: %w", path, err)
+			return recordError(fmt.Errorf("error walking %s: %w", path, err))
 		}
 		if !d.IsDir() {
 			if validateSymlinks && d.Type()&os.ModeSymlink != 0 && !shouldSkipSkillScanDir(d.Name()) {
-				return validateSkippedSkillLink(path, true)
+				if err := validateSkippedSkillLink(path, true); err != nil {
+					return recordError(err)
+				}
 			}
 			return nil
 		}
@@ -719,7 +771,7 @@ func scanForSkillsRecursive(parentDir string, validateSymlinks bool) ([]SkillInf
 		}
 		info, ok, err := inspectSkillDirectory(path, validateSymlinks, false)
 		if err != nil {
-			return err
+			return recordError(err)
 		}
 		if ok {
 			skills = append(skills, info)
@@ -730,7 +782,7 @@ func scanForSkillsRecursive(parentDir string, validateSymlinks bool) ([]SkillInf
 	if err != nil {
 		return nil, err
 	}
-	return skills, nil
+	return skills, errors.Join(discoveryErrors...)
 }
 
 func scanDirectAPMSkills(dir string, validateSymlinks, optionalAncestor bool) ([]SkillInfo, error) {
@@ -746,13 +798,10 @@ func scanDirectAPMSkills(dir string, validateSymlinks, optionalAncestor bool) ([
 		return nil, nil
 	}
 	skills, err := scanForSkills(apmSkillsDir, true, validateSymlinks)
-	if err != nil {
-		return nil, err
-	}
 	for i := range skills {
 		skills[i].SourceDir = dir
 	}
-	return skills, nil
+	return skills, err
 }
 
 // scanForAPMSkillsUnder looks for APM-compiled skills one level down from
@@ -766,17 +815,21 @@ func scanForAPMSkillsUnder(parentDir string, validateSymlinks bool) ([]SkillInfo
 		return nil, fmt.Errorf("reading %s: %w", parentDir, err)
 	}
 	var skills []SkillInfo
+	var discoveryErrors []error
 	for _, entry := range entries {
 		if !entry.IsDir() || shouldSkipSkillScanDir(entry.Name()) {
 			continue
 		}
 		apmSkills, err := scanDirectAPMSkills(filepath.Join(parentDir, entry.Name()), validateSymlinks, false)
 		if err != nil {
-			return nil, err
+			if !validateSymlinks {
+				return nil, err
+			}
+			discoveryErrors = append(discoveryErrors, err)
 		}
 		skills = append(skills, apmSkills...)
 	}
-	return skills, nil
+	return skills, errors.Join(discoveryErrors...)
 }
 
 func shouldSkipSkillScanDir(name string) bool {
