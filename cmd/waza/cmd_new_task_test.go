@@ -234,6 +234,70 @@ func TestNewTaskFromPromptCommand_DiscoveredSkillsPassedToCopilotSession(t *test
 	assert.Contains(t, err.Error(), "failed to create session")
 }
 
+func TestNewTaskFromPromptCommand_RootUsesRealWorkspaceDiscovery(t *testing.T) {
+	for _, configured := range []bool{false, true} {
+		name := "defaults-relative-to-root"
+		if configured {
+			name = "paths-relative-to-config"
+		}
+		t.Run(name, func(t *testing.T) {
+			callerDir := t.TempDir()
+			rootDir := t.TempDir()
+			writeWorkspace := func(dir, skills, evals, skill, evalFile string) string {
+				skillDir := filepath.Join(dir, skills, skill)
+				evalDir := filepath.Join(dir, evals, skill)
+				require.NoError(t, os.MkdirAll(skillDir, 0o755))
+				require.NoError(t, os.MkdirAll(evalDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+					[]byte("---\nname: "+skill+"\ndescription: Test skill\n---\n# Body\n"), 0o644))
+				require.NoError(t, os.WriteFile(filepath.Join(evalDir, evalFile), []byte("name: test\n"), 0o644))
+				return skillDir
+			}
+			decoyDir := writeWorkspace(callerDir, "skills", "evals", "decoy", "eval.yaml")
+			wantSkillDir := writeWorkspace(rootDir, "skills", "evals", "selected", "eval.yaml")
+			wantEvalPath := filepath.Join(rootDir, "evals", "selected", "eval.yaml")
+			if configured {
+				wantSkillDir = writeWorkspace(callerDir, "custom-skills", "custom-evals", "selected", "suite.yml")
+				wantEvalPath = filepath.Join(callerDir, "custom-evals", "selected", "suite.yml")
+				require.NoError(t, os.WriteFile(filepath.Join(callerDir, ".waza.yaml"),
+					[]byte("paths:\n  skills: custom-skills\n  evals: custom-evals\nfiles:\n  evalFile: suite.yml\n"), 0o644))
+				callerDir = filepath.Join(callerDir, "nested")
+				require.NoError(t, os.MkdirAll(callerDir, 0o755))
+			}
+			t.Chdir(callerDir)
+
+			ctrl := gomock.NewController(t)
+			client := newClientMock(ctrl)
+			sessionErr := errors.New("stop after inspecting session configuration")
+			client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
+					assert.Equal(t, []string{callerDir, wantSkillDir}, cfg.SkillDirectories)
+					assert.NotContains(t, cfg.SkillDirectories, decoyDir)
+					return nil, sessionErr
+				})
+
+			cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
+				NewTaskList:      func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
+				NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
+				DetectContext: func(dir string, opts ...workspace.DetectOption) (*workspace.WorkspaceContext, error) {
+					wsCtx, err := workspace.DetectContext(dir, opts...)
+					require.NoError(t, err)
+					require.Len(t, wsCtx.Skills, 1)
+					assert.Equal(t, wantSkillDir, wsCtx.Skills[0].Dir)
+					evalPath, err := workspace.FindEval(wsCtx, wsCtx.Skills[0].Name)
+					require.NoError(t, err)
+					assert.Equal(t, wantEvalPath, evalPath)
+					return wsCtx, nil
+				},
+			})
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs([]string{"--root", rootDir, "use the selected skill", filepath.Join(rootDir, "task.yaml")})
+			require.ErrorIs(t, cmd.Execute(), sessionErr)
+		})
+	}
+}
+
 func TestNewTaskFromPromptCommand_EndToEndCreatesTaskFileWithoutSessionLog(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	client := newClientMock(ctrl)

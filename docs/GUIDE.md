@@ -638,6 +638,10 @@ The generated task includes inferred validators based on:
 - `--overwrite` — Replace output file if it already exists
 - `--root` — Root directory used for skill discovery
 
+Without `.waza.yaml`, default skill paths resolve from `--root`, not the caller's
+working directory. When configuration is found, configured paths remain relative
+to that configuration file's directory.
+
 **Examples:**
 ```bash
 # Create a task from one recorded prompt run

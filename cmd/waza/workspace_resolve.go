@@ -25,15 +25,12 @@ func loadProjectWorkspaceDetectPaths(root string) (projectWorkspaceDetectPaths, 
 		return projectWorkspaceDetectPaths{}, fmt.Errorf("loading workspace configuration: %w", err)
 	}
 
-	pathBase := absRoot
-	if cfg.Dir != "" {
-		pathBase = cfg.Dir
-	}
 	resolveDir := func(dir string) string {
 		if filepath.IsAbs(dir) {
 			return filepath.Clean(dir)
 		}
-		return filepath.Join(pathBase, dir)
+		// Without a config file, let the detector anchor defaults to its own root.
+		return filepath.Join(cfg.Dir, dir)
 	}
 
 	return projectWorkspaceDetectPaths{
