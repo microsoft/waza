@@ -15,6 +15,7 @@ import (
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
+	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/microsoft/waza/internal/workspace"
 	"github.com/stretchr/testify/assert"
@@ -266,6 +267,14 @@ func TestNewTaskFromPromptCommand_RootUsesRealWorkspaceDiscovery(t *testing.T) {
 			}
 			t.Chdir(callerDir)
 
+			cfg, err := projectconfig.Load(callerDir)
+			require.NoError(t, err)
+			if configured {
+				require.Equal(t, filepath.Dir(callerDir), cfg.Dir)
+			} else {
+				require.Empty(t, cfg.Dir, "fixture must not inherit project configuration")
+			}
+
 			ctrl := gomock.NewController(t)
 			client := newClientMock(ctrl)
 			sessionErr := errors.New("stop after inspecting session configuration")
@@ -297,6 +306,63 @@ func TestNewTaskFromPromptCommand_RootUsesRealWorkspaceDiscovery(t *testing.T) {
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
 			cmd.SetArgs([]string{"--root", rootDir, "use the selected skill", filepath.Join(rootDir, "task.yaml")})
+			require.ErrorIs(t, cmd.Execute(), sessionErr)
+		})
+	}
+}
+
+func TestNewTaskFromPromptCommand_DefaultAndRelativeRoots(t *testing.T) {
+	for _, rootArg := range []string{"", "selected-root"} {
+		name := "default"
+		if rootArg != "" {
+			name = "relative"
+		}
+		t.Run(name, func(t *testing.T) {
+			callerDir := t.TempDir()
+			rootDir := callerDir
+			if rootArg != "" {
+				rootDir = filepath.Join(callerDir, rootArg)
+				decoyDir := filepath.Join(callerDir, "skills", "decoy")
+				require.NoError(t, os.MkdirAll(decoyDir, 0o755))
+				require.NoError(t, os.WriteFile(filepath.Join(decoyDir, "SKILL.md"),
+					[]byte("---\nname: decoy\ndescription: Decoy\n---\n"), 0o644))
+			}
+			skillDir := filepath.Join(rootDir, "skills", "selected")
+			require.NoError(t, os.MkdirAll(skillDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"),
+				[]byte("---\nname: selected\ndescription: Selected\n---\n"), 0o644))
+			t.Chdir(callerDir)
+			project, err := projectconfig.Load(callerDir)
+			require.NoError(t, err)
+			require.Empty(t, project.Dir, "fixture must not inherit project configuration")
+
+			client := newClientMock(gomock.NewController(t))
+			sessionErr := errors.New("stop after inspecting session configuration")
+			client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, cfg *copilot.SessionConfig) (execution.CopilotSession, error) {
+					require.Equal(t, []string{rootDir, skillDir}, cfg.SkillDirectories)
+					require.NotEqual(t, rootDir, cfg.WorkingDirectory)
+					entries, err := os.ReadDir(cfg.WorkingDirectory)
+					require.NoError(t, err)
+					require.Empty(t, entries, "source directory must not be copied as fixtures")
+					require.Nil(t, cfg.EnableSkills)
+					require.Nil(t, cfg.EnableConfigDiscovery)
+					require.Empty(t, cfg.AvailableTools)
+					require.NotNil(t, cfg.OnPermissionRequest)
+					return nil, sessionErr
+				})
+
+			cmd := newTaskFromPromptCmd(&newTaskFromPromptCmdOptions{
+				NewTaskList:      func(*ux.TaskListOptions) taskList { return &fakeTaskList{runAll: true} },
+				NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return client },
+			})
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			args := []string{"use the selected skill", filepath.Join(callerDir, "task.yaml")}
+			if rootArg != "" {
+				args = append([]string{"--root", rootArg}, args...)
+			}
+			cmd.SetArgs(args)
 			require.ErrorIs(t, cmd.Execute(), sessionErr)
 		})
 	}

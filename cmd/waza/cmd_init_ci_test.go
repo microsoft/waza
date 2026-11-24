@@ -53,11 +53,8 @@ type initCIWorkflowSpec struct {
 
 func initCIFixture(t *testing.T) (string, initCIWorkflowSpec) {
 	t.Helper()
-	dir, err := os.MkdirTemp(".", ".init-ci-")
-	require.NoError(t, err)
-	dir, err = filepath.Abs(dir)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, os.RemoveAll(dir)) })
+	dir := t.TempDir()
+	require.NoError(t, validateCLIIsolation(dir))
 	cmd := newInitCommand()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetArgs([]string{dir, "--no-skill"})
