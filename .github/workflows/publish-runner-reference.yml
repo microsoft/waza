@@ -63,8 +63,9 @@ jobs:
           test "$EVENT_NAME" = push
           test "$REPOSITORY" = microsoft/waza
           test "$RELEASE_STAGE" = released
-          [[ "$REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+([-.+][A-Za-z0-9.-]+)?$ ]]
+          [[ "$REF" == refs/tags/v* ]]
           version="${REF#refs/tags/v}"
+          bash .github/scripts/release_version_check.sh "$version"
           test "$VERSION_INPUT" = "$version"
           test "$(git rev-parse HEAD)" = "$EVENT_SHA"
           test "$SOURCE_SHA" = "$EVENT_SHA"
