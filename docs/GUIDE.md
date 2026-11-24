@@ -639,8 +639,13 @@ The generated task includes inferred validators based on:
 - `--root` — Root directory used for skill discovery
 
 Without `.waza.yaml`, default skill paths resolve from `--root`, not the caller's
-working directory. When configuration is found, configured paths remain relative
-to that configuration file's directory.
+working directory. `.waza.yaml` is located from the current working directory
+(walking up its parents), not from `--root`; a configuration file under `--root`
+is consulted only when it is also found from the working directory. When
+configuration is found, its configured or default skill paths remain relative to
+that configuration file's directory and may therefore be outside `--root`.
+`--root` selects discovery inputs and the SDK source directory; it is not an
+isolation boundary for skills the SDK can load.
 
 **Examples:**
 ```bash

@@ -477,7 +477,7 @@ waza new task from-prompt <prompt> <task-path>
 | `--tags` | string[] | | Tags to add to generated task |
 | `--timeout` | duration | `5m0s` | Max time to allow prompt completion |
 | `--overwrite` | bool | `false` | Overwrite output file if it already exists |
-| `--root` | string | `.` | Directory used to discover skills |
+| `--root` | string | `.` | Directory used to discover skills. `.waza.yaml` is still located from the working directory, and its configured skill paths stay relative to that file. |
 
 ### Examples
 

@@ -851,7 +851,7 @@ Run a prompt through Copilot and generate a task YAML with inferred validators b
 | `--tags <a,b,...>` | Comma-separated tags to attach to the generated task |
 | `--timeout <duration>` | Max time for prompt execution (default: `5m`) |
 | `--overwrite` | Overwrite the output task file if it already exists |
-| `--root <dir>` | Root directory used for skill discovery (default: `.`) |
+| `--root <dir>` | Root directory used for skill discovery (default: `.`). `.waza.yaml` is still located from the working directory, and its configured skill paths stay relative to that file. |
 
 **Example:**
 ```bash
