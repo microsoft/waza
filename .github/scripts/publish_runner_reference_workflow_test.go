@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -647,6 +648,29 @@ func TestReleaseVersionAdmissionParity(t *testing.T) {
 		{"1.2.3-rc_1", false},
 		{"1.2.3-α", false},
 	}
+	parserBoundaries := []struct {
+		value string
+		valid bool
+	}{
+		{"1.2.3-rc.0", true},
+		{"1.2.3-rc.00", false},
+		{"1.2.3-rc.01", false},
+		{"1.2.3-rc.01a", true},
+		{"1.2.3-18446744073709551616", true},
+		{"18446744073709551615.2.3", true},
+		{"18446744073709551616.2.3", false},
+		{"1.18446744073709551615.3", true},
+		{"1.18446744073709551616.3", false},
+		{"1.2.18446744073709551615", true},
+		{"1.2.18446744073709551616", false},
+	}
+	for _, boundary := range parserBoundaries {
+		_, parseErr := semver.NewVersion(boundary.value)
+		if (parseErr == nil) != boundary.valid {
+			t.Fatalf("Waza version parser: %q accepted = %t, want %t: %v", boundary.value, parseErr == nil, boundary.valid, parseErr)
+		}
+	}
+	versions = append(versions, parserBoundaries...)
 	run := func(t *testing.T, path int, version string, valid bool, body, validator string) error {
 		t.Helper()
 		dir := t.TempDir()

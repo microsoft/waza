@@ -448,6 +448,108 @@ func TestPreflightWorkspaceInspectsTargetFreeAndChildEvals(t *testing.T) {
 	require.True(t, sources[childEval].Failed(false))
 }
 
+func TestPreflightWorkspaceRequiredSkillsMatchExplicitRun(t *testing.T) {
+	const skill = "---\nname: parent\ndescription: Parent skill\n---\n# parent\n"
+	const eval = `schemaVersion: "1.4"
+name: inventory
+skill: parent
+version: "1.0"
+config:
+  executor: mock
+  model: harness
+  trials_per_task: 1
+  timeout_seconds: 10
+  required_skills: [parent]
+metrics: [{name: accuracy, weight: 1, threshold: 0.8}]
+tasks: [task.yaml]
+`
+	const task = "id: task\nname: Task\ninputs: {prompt: ready}\n"
+
+	for _, layout := range []string{"standalone extra eval", "github skill outside configured root"} {
+		t.Run(layout, func(t *testing.T) {
+			dir, workflow := initCIFixture(t)
+			t.Chdir(dir)
+			evalDir := filepath.Join(dir, "evals", "inventory")
+			if layout == "standalone extra eval" {
+				require.NoError(t, os.Remove(filepath.Join(dir, ".waza.yaml")))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skill), 0o600))
+			} else {
+				skillDir := filepath.Join(dir, ".github", "skills", "parent")
+				require.NoError(t, os.MkdirAll(skillDir, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skill), 0o600))
+				evalDir = filepath.Join(dir, "evals", "parent")
+			}
+			require.NoError(t, os.MkdirAll(filepath.Join(evalDir, "fixtures"), 0o700))
+			evalPath := filepath.Join(evalDir, "eval.yaml")
+			require.NoError(t, os.WriteFile(evalPath, []byte(eval), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(evalDir, "task.yaml"), []byte(task), 0o600))
+
+			check := func(t *testing.T, wantValid bool, wantSkill string) {
+				t.Helper()
+				single := newPreflightCommand()
+				var output bytes.Buffer
+				single.SetOut(&output)
+				single.SilenceUsage = true
+				single.SetArgs([]string{evalPath, "--format", "json"})
+				singleErr := single.Execute()
+				require.Equal(t, wantValid, singleErr == nil, output.String())
+				var report preflight.Report
+				require.NoError(t, json.Unmarshal(output.Bytes(), &report))
+				require.Equal(t, evalPath, report.Source)
+				require.Len(t, report.Tasks, 1)
+				var requiredInvalid bool
+				for _, d := range report.Diagnostics {
+					if d.Code == "skill.required" && d.State == preflight.Invalid {
+						requiredInvalid = true
+					}
+				}
+				require.Equal(t, !wantValid, requiredInvalid, "explicit preflight must check the required skill")
+
+				step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+				step.Env["WAZA_INIT_CI_MODE"] = "reject"
+				workspaceOut, workspaceErr := initCIShell(t, dir, step.Run, step.Env)
+				require.Equal(t, wantValid, workspaceErr == nil, workspaceOut)
+				require.Contains(t, workspaceOut, "Offline preflight: "+evalPath)
+				require.Equal(t, !wantValid, strings.Contains(workspaceOut, "invalid skill.required"), workspaceOut)
+				require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"), "offline inventory must not construct an engine")
+
+				runOut, runErr := initCIShell(t, dir, `waza run "$EVAL_PATH" --output results.json`, map[string]string{
+					"EVAL_PATH": filepath.ToSlash(evalPath), "WAZA_INIT_CI_MODE": "record-skills",
+				})
+				require.Equal(t, wantValid, runErr == nil, runOut)
+				if wantValid {
+					require.FileExists(t, filepath.Join(dir, "results.json"))
+					paths, err := os.ReadFile(filepath.Join(dir, "session-skill-paths"))
+					require.NoError(t, err)
+					require.Contains(t, string(paths), wantSkill, "mock execution must receive the required skill path")
+					require.NoError(t, os.Remove(filepath.Join(dir, "results.json")))
+					require.NoError(t, os.Remove(filepath.Join(dir, "session-skill-paths")))
+				} else {
+					require.Contains(t, runOut, "required_skills")
+					require.NoFileExists(t, filepath.Join(dir, "results.json"))
+				}
+				if _, err := os.Stat(filepath.Join(dir, "runtime-invoked")); err == nil {
+					require.NoError(t, os.Remove(filepath.Join(dir, "runtime-invoked")))
+				} else {
+					require.ErrorIs(t, err, os.ErrNotExist)
+				}
+			}
+
+			if layout == "standalone extra eval" {
+				t.Run("owner exists", func(t *testing.T) { check(t, true, dir) })
+				require.NoError(t, os.Remove(filepath.Join(dir, "SKILL.md")))
+				t.Run("owner absent", func(t *testing.T) { check(t, false, "") })
+			} else {
+				t.Run("unconfigured owner", func(t *testing.T) { check(t, false, "") })
+				skillDir := filepath.Join(dir, "skills", "parent")
+				require.NoError(t, os.MkdirAll(skillDir, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skill), 0o600))
+				t.Run("configured owner", func(t *testing.T) { check(t, true, skillDir) })
+			}
+		})
+	}
+}
+
 type preflightFailWriter struct {
 	failAt, calls int
 }

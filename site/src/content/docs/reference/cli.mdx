@@ -255,7 +255,9 @@ waza init [directory]
 When `.waza.yaml` already exists and init generates `.github/workflows/eval.yml`,
 its skill and eval paths take precedence over auto-detection. `--skills-dir`
 and `--evals-dir` must match those configured paths so CI validates the same
-roots that runs use.
+roots that runs use. When generating a workflow, symlinks in the skill and eval
+directory paths must be relative and stay inside the project; commit the links
+and their targets. Existing workflows are preserved.
 
 ### Creates
 

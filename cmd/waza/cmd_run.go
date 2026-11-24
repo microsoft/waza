@@ -591,11 +591,19 @@ func resolveSpecPaths(args []string) ([]skillSpecPath, error) {
 // standaloneSkillSpecPath loads the owning skill for an explicit eval inside a
 // single-skill workspace, which has no configured skills folder to discover it.
 func standaloneSkillSpecPath(evalPath string) skillSpecPath {
-	sp := skillSpecPath{evalSpecPath: evalPath}
 	wsCtx, err := resolveWorkspace(nil)
-	if err != nil || wsCtx.Type != workspace.ContextSingleSkill || len(wsCtx.Skills) != 1 {
+	if err != nil {
+		return skillSpecPath{evalSpecPath: evalPath}
+	}
+	return standaloneSkillSpecPathInWorkspace(evalPath, wsCtx)
+}
+
+func standaloneSkillSpecPathInWorkspace(evalPath string, wsCtx *workspace.WorkspaceContext) skillSpecPath {
+	sp := skillSpecPath{evalSpecPath: evalPath}
+	if wsCtx == nil || wsCtx.Type != workspace.ContextSingleSkill || len(wsCtx.Skills) != 1 {
 		return sp
 	}
+
 	absEval, err := filepath.Abs(evalPath)
 	if err != nil {
 		return sp

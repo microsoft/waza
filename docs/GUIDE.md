@@ -546,7 +546,9 @@ Initialize a waza project with directory structure.
 - `--results-dir` — Set the results path recorded in newly created configuration
 
 When generating a workflow, configured skill and eval paths take precedence over
-auto-detected paths. On Windows, macOS, and Linux, project and missing-eval
+auto-detected paths; symlinks in those paths must be relative and stay inside
+the project so they can work in a relocated checkout. Existing workflows are
+preserved. On Windows, macOS, and Linux, project and missing-eval
 scaffold writes use a rooted handle to reject symlink escapes. Filesystem mounts
 and the separate `new skill` flow are not constrained by this. Existing files
 are preserved, but a failed scaffold can leave partial output. In-project eval

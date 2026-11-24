@@ -128,6 +128,20 @@ func initCIAddSkill(t *testing.T, dir, name string) {
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+name+"\n"), 0o600))
 }
 
+func initCIRunGit(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	args = append([]string{"-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + filepath.Join(dir, "no-hooks")}, args...)
+	command := exec.CommandContext(t.Context(), "git", args...)
+	command.Dir = dir
+	command.Env = append(os.Environ(),
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0",
+		"GIT_AUTHOR_NAME=Waza test", "GIT_AUTHOR_EMAIL=waza-test@example.invalid",
+		"GIT_COMMITTER_NAME=Waza test", "GIT_COMMITTER_EMAIL=waza-test@example.invalid")
+	out, err := command.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, out)
+	return string(out)
+}
+
 func initCIWriteEvalAt(t *testing.T, evalDir, evalFile, grader string) string {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Join(evalDir, "fixtures"), 0o755))
@@ -335,16 +349,7 @@ func TestInitCI_EvaluationRootSurvivesGitCheckout(t *testing.T) {
 			require.NoError(t, validateCLIIsolation(dir))
 			runGit := func(dir string, args ...string) string {
 				t.Helper()
-				args = append([]string{"-c", "core.autocrlf=false", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + filepath.Join(dir, "no-hooks")}, args...)
-				command := exec.CommandContext(t.Context(), "git", args...)
-				command.Dir = dir
-				command.Env = append(os.Environ(),
-					"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0",
-					"GIT_AUTHOR_NAME=Waza test", "GIT_AUTHOR_EMAIL=waza-test@example.invalid",
-					"GIT_COMMITTER_NAME=Waza test", "GIT_COMMITTER_EMAIL=waza-test@example.invalid")
-				out, err := command.CombinedOutput()
-				require.NoError(t, err, "git %v: %s", args, out)
-				return string(out)
+				return initCIRunGit(t, dir, args...)
 			}
 			runGit(dir, "init", "-q", "-b", "main")
 			require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.exe\n"), 0o600))
@@ -508,6 +513,11 @@ func TestInitCI_EvaluationRootUnderSymlink(t *testing.T) {
 			if err := os.Symlink(target, filepath.Join(dir, "alias")); err != nil {
 				t.Skipf("directory symlink unavailable: %v", err)
 			}
+			if absolute {
+				workflowPath := filepath.Join(dir, ".github", "workflows", "eval.yml")
+				require.NoError(t, os.MkdirAll(filepath.Dir(workflowPath), 0o755))
+				require.NoError(t, os.WriteFile(workflowPath, []byte("existing workflow\n"), 0o600))
+			}
 			cmd := newInitCommand()
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", filepath.Join("alias", "nested")})
@@ -518,6 +528,113 @@ func TestInitCI_EvaluationRootUnderSymlink(t *testing.T) {
 			require.Equal(t, "inside sentinel\n", string(preserved))
 		})
 	}
+}
+
+func TestInitCI_RejectsNonportableWorkflowSymlinks(t *testing.T) {
+	for _, mode := range []string{"absolute eval root", "absolute eval parent", "absolute skills root", "absolute link chain", "relative outside", "dangling absolute"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("WAZA_NO_UPDATE_CHECK", "1")
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			target := filepath.Join(dir, "shared")
+			if mode == "relative outside" {
+				target = t.TempDir()
+			}
+			require.NoError(t, os.MkdirAll(target, 0o700))
+			sentinel := filepath.Join(target, "sentinel.txt")
+			if mode != "dangling absolute" {
+				require.NoError(t, os.WriteFile(sentinel, []byte("existing sentinel\r\n"), 0o600))
+			}
+
+			link := filepath.Join(dir, "alias")
+			linkTarget := target
+			switch mode {
+			case "absolute link chain":
+				linkTarget = "indirect"
+				if err := os.Symlink(target, filepath.Join(dir, "indirect")); err != nil {
+					t.Skipf("directory symlink unavailable: %v", err)
+				}
+			case "relative outside":
+				var err error
+				linkTarget, err = filepath.Rel(dir, target)
+				require.NoError(t, err)
+			}
+			if err := os.Symlink(linkTarget, link); err != nil {
+				t.Skipf("directory symlink unavailable: %v", err)
+			}
+			if mode == "dangling absolute" {
+				require.NoError(t, os.Remove(target))
+			}
+			path := "alias"
+			if mode == "absolute eval parent" || mode == "dangling absolute" {
+				path = filepath.Join(path, "nested")
+			}
+			flag := "--evals-dir"
+			if mode == "absolute skills root" {
+				flag = "--skills-dir"
+			}
+
+			var diagnostics bytes.Buffer
+			code := runMain(&diagnostics, []string{"--no-telemetry", "init", dir, "--no-skill", flag, path})
+			require.Equal(t, ExitError, code, diagnostics.String())
+			require.Contains(t, diagnostics.String(), "cannot generate CI")
+			require.Contains(t, diagnostics.String(), "symlink")
+			require.NoFileExists(t, filepath.Join(dir, ".github", "workflows", "eval.yml"))
+			require.NoFileExists(t, filepath.Join(dir, ".waza.yaml"))
+			require.NoDirExists(t, filepath.Join(dir, "skills"))
+			require.NoDirExists(t, filepath.Join(target, "nested"))
+			if mode == "dangling absolute" {
+				require.NoDirExists(t, target, "rejected dangling link must not create its target")
+			} else {
+				preserved, err := os.ReadFile(sentinel)
+				require.NoError(t, err)
+				require.Equal(t, "existing sentinel\r\n", string(preserved))
+				require.NoFileExists(t, filepath.Join(target, ".gitkeep"))
+			}
+		})
+	}
+}
+
+func TestInitCI_RelativeEvaluationSymlinkSurvivesGitCheckout(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, validateCLIIsolation(dir))
+	target := filepath.Join(dir, "shared-evals")
+	require.NoError(t, os.MkdirAll(target, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(target, "sentinel.txt"), []byte("tracked sentinel\n"), 0o600))
+	if err := os.Symlink("shared-evals", filepath.Join(dir, "evals")); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	cmd := newInitCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{dir, "--no-skill", "--evals-dir", "evals"})
+	require.NoError(t, cmd.Execute())
+	require.FileExists(t, filepath.Join(target, ".gitkeep"))
+
+	initCIRunGit(t, dir, "init", "-q", "-b", "main")
+	initCIRunGit(t, dir, "add", "--", "evals", "shared-evals", ".waza.yaml", ".github/workflows/eval.yml", ".gitignore", "README.md")
+	require.Contains(t, initCIRunGit(t, dir, "ls-files", "-s", "--", "evals"), "120000 ")
+	initCIRunGit(t, dir, "commit", "-qm", "portable evaluation link")
+	checkout := t.TempDir()
+	initCIRunGit(t, dir, "-c", "core.symlinks=true", "clone", "-q", "--no-local", dir, checkout)
+	require.NoError(t, os.Rename(target, filepath.Join(dir, "unavailable-original")))
+	require.NoDirExists(t, target, "the original link target must be unavailable")
+	info, err := os.Lstat(filepath.Join(checkout, "evals"))
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink, "checkout must contain a real symlink")
+	content, err := os.ReadFile(filepath.Join(checkout, "evals", "sentinel.txt"))
+	require.NoError(t, err)
+	require.Equal(t, "tracked sentinel\n", string(content))
+
+	data, err := os.ReadFile(filepath.Join(checkout, ".github", "workflows", "eval.yml"))
+	require.NoError(t, err)
+	var workflow initCIWorkflowSpec
+	require.NoError(t, yaml.Unmarshal(data, &workflow))
+	step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")
+	step.Env["WAZA_INIT_CI_MODE"] = "reject"
+	out, err := initCIShell(t, checkout, step.Run, step.Env)
+	require.NoError(t, err, out)
+	require.Contains(t, out, "No evaluation files found")
+	require.NoFileExists(t, filepath.Join(checkout, "runtime-invoked"))
 }
 
 func TestInitCI_MissingEvalPreservesExistingTask(t *testing.T) {
@@ -858,6 +975,104 @@ func TestInitCI_ExistingWorkflowRetainsDetection(t *testing.T) {
 	preserved, err := os.ReadFile(workflowPath)
 	require.NoError(t, err)
 	require.Equal(t, original, preserved)
+}
+
+func TestInitCI_ExistingWorkflowAllowsLiteralExpressions(t *testing.T) {
+	const expression = "${{ 1 }}"
+	for _, tc := range []struct {
+		name        string
+		config      string
+		args        []string
+		createdPath string
+	}{
+		{
+			name:        "configured skills directory",
+			config:      "paths:\n  skills: 'skills-" + expression + "'\n",
+			createdPath: "skills-" + expression,
+		},
+		{
+			name:        "configured eval directory",
+			config:      "paths:\n  evals: 'suites-" + expression + "'\n",
+			createdPath: filepath.Join("suites-"+expression, ".gitkeep"),
+		},
+		{
+			name:        "configured eval filename",
+			config:      "files:\n  evalFile: '" + expression + ".yml'\n",
+			createdPath: filepath.Join("evals", ".gitkeep"),
+		},
+		{
+			name:        "eval directory flag",
+			args:        []string{"--evals-dir", "suites-" + expression},
+			createdPath: filepath.Join("suites-"+expression, ".gitkeep"),
+		},
+	} {
+		for _, existing := range []bool{true, false} {
+			name := tc.name + "/missing workflow"
+			if existing {
+				name = tc.name + "/existing workflow"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Setenv("WAZA_NO_UPDATE_CHECK", "1")
+				dir := t.TempDir()
+				require.NoError(t, validateCLIIsolation(dir))
+				configPath := filepath.Join(dir, ".waza.yaml")
+				if tc.config != "" {
+					require.NoError(t, os.WriteFile(configPath, []byte(tc.config), 0o600))
+				}
+				workflowPath := filepath.Join(dir, ".github", "workflows", "eval.yml")
+				original := []byte("existing workflow sentinel\r\n")
+				if existing {
+					require.NoError(t, os.MkdirAll(filepath.Dir(workflowPath), 0o755))
+					require.NoError(t, os.WriteFile(workflowPath, original, 0o600))
+				}
+
+				var diagnostics bytes.Buffer
+				args := append([]string{"--no-telemetry", "init", dir, "--no-skill"}, tc.args...)
+				code := runMain(&diagnostics, args)
+				if existing {
+					require.Equal(t, ExitSuccess, code, diagnostics.String())
+					preserved, err := os.ReadFile(workflowPath)
+					require.NoError(t, err)
+					require.Equal(t, original, preserved)
+					require.FileExists(t, filepath.Join(dir, "README.md"))
+					_, err = os.Stat(filepath.Join(dir, tc.createdPath))
+					require.NoError(t, err, "init must repair the project using the literal path")
+				} else {
+					require.Equal(t, ExitError, code, diagnostics.String())
+					require.Contains(t, diagnostics.String(), "GitHub Actions would evaluate")
+					require.NoFileExists(t, workflowPath)
+					require.NoDirExists(t, filepath.Join(dir, "skills"))
+					require.NoDirExists(t, filepath.Join(dir, "evals"))
+					require.NoFileExists(t, filepath.Join(dir, "README.md"))
+				}
+				if tc.config != "" {
+					preserved, err := os.ReadFile(configPath)
+					require.NoError(t, err)
+					require.Equal(t, tc.config, string(preserved))
+				}
+			})
+		}
+	}
+}
+
+func TestInitCI_DanglingExistingWorkflowDoesNotSucceed(t *testing.T) {
+	t.Setenv("WAZA_NO_UPDATE_CHECK", "1")
+	dir := t.TempDir()
+	require.NoError(t, validateCLIIsolation(dir))
+	workflowPath := filepath.Join(dir, ".github", "workflows", "eval.yml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(workflowPath), 0o755))
+	target := filepath.Join(dir, "missing-workflow.yml")
+	if err := os.Symlink(target, workflowPath); err != nil {
+		t.Skipf("file symlink unavailable: %v", err)
+	}
+
+	var diagnostics bytes.Buffer
+	code := runMain(&diagnostics, []string{"--no-telemetry", "init", dir, "--no-skill"})
+	require.Equal(t, ExitError, code, diagnostics.String())
+	require.NoFileExists(t, target)
+	info, err := os.Lstat(workflowPath)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink)
 }
 
 func TestInitCI_RejectsActionsExpressionsInLiteralPaths(t *testing.T) {

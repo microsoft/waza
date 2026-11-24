@@ -65,8 +65,9 @@ Release assets, or public registry image.
 
 Candidate admission, tag admission and runner-image publication use the same
 version check (`.github/scripts/release_version_check.sh`). The supported
-profile is `major.minor.patch` (no leading zeroes) with an optional
-dot-separated alphanumeric prerelease such as `0.42.1-rc.1`. Build metadata
+profile is `major.minor.patch` (unsigned 64-bit components, no leading zeroes)
+with an optional dot-separated alphanumeric prerelease such as `0.42.1-rc.1`;
+numeric prerelease identifiers also cannot have leading zeroes. Build metadata
 (`+build.2`) and internal prerelease hyphens are not supported by this shared
 candidate/tag profile. Versions are limited to 127 ASCII bytes: the publisher
 uses the unchanged `v`-prefixed version as an OCI tag, which forbids `+` and is

@@ -348,9 +348,16 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			}
 		}
 		var err error
-		workflow, err = ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))
-		if err != nil {
-			return err
+		if needWorkflow {
+			for _, path := range []string{skillsPath, evalsPath} {
+				if err := validateWorkflowCheckoutPath(absDir, path); err != nil {
+					return err
+				}
+			}
+			workflow, err = ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))
+			if err != nil {
+				return err
+			}
 		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
@@ -586,6 +593,15 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	if err != nil {
 		return err
 	}
+	if !needWorkflow {
+		info, err := os.Stat(workflowPath)
+		if err != nil {
+			return fmt.Errorf("checking existing workflow %s: %w", workflowPath, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("path %s exists but is a directory", workflowPath)
+		}
+	}
 
 	fmt.Fprintf(out, "\nProject structure:\n\n") //nolint:errcheck
 	inv.Fprint(out)
@@ -688,6 +704,62 @@ func rejectConfiguredPathOverride(flag, key, override, configured string) error 
 		return nil
 	}
 	return fmt.Errorf("%s %q conflicts with .waza.yaml %s %q; generated CI must use the configured path. Update .waza.yaml or omit %s", flag, override, key, configured, flag)
+}
+
+// validateWorkflowCheckoutPath checks symlink components before generating CI;
+// Git preserves relative in-project links when the checkout moves.
+func validateWorkflowCheckoutPath(projectDir, path string) error {
+	const maxSymlinkExpansions = 255
+	split := func(value string) []string {
+		return strings.FieldsFunc(value, func(r rune) bool {
+			return r <= 127 && os.IsPathSeparator(uint8(r))
+		})
+	}
+	root := filepath.Clean(projectDir)
+	current := root
+	pending := split(filepath.Clean(path))
+	expansions := 0
+	for len(pending) > 0 {
+		part := pending[0]
+		pending = pending[1:]
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if current == root {
+				return fmt.Errorf("cannot generate CI: project path %q follows a symlink outside project directory %s", path, projectDir)
+			}
+			current = filepath.Dir(current)
+			continue
+		}
+
+		next := filepath.Join(current, part)
+		info, err := os.Lstat(next)
+		if errors.Is(err, fs.ErrNotExist) {
+			current = next
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("checking project path %q for generated CI: %w", path, err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			current = next
+			continue
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return fmt.Errorf("reading symlink %s for generated CI: %w", next, err)
+		}
+		if filepath.IsAbs(target) || filepath.VolumeName(target) != "" || (target != "" && os.IsPathSeparator(target[0])) {
+			return fmt.Errorf("cannot generate CI: project path %q has symlink %s with absolute target %q; use a relative target inside the project", path, next, target)
+		}
+		expansions++
+		if expansions > maxSymlinkExpansions {
+			return fmt.Errorf("cannot generate CI: project path %q has too many symlink expansions", path)
+		}
+		pending = append(split(target), pending...)
+	}
+	return nil
 }
 
 // pathWithinResolvedDir reports whether resolvedPath is dir or inside dir

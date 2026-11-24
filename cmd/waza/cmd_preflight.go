@@ -166,7 +166,15 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	if err != nil {
 		return nil, fmt.Errorf("discovering workspace skills: %w", err)
 	}
-
+	// Explicit-path run treats a workspace discovery failure as no owning
+	// skill; use that same context for each inspected evaluation.
+	runCtx, _ := resolveWorkspace(nil)
+	defaultsForEval := func(path string) []string {
+		if dir := standaloneSkillSpecPathInWorkspace(path, runCtx).skillDir; dir != "" {
+			return []string{dir}
+		}
+		return nil
+	}
 	reports := make([]*preflight.Report, 0, len(wsCtx.Skills))
 	seen := make(map[string]struct{}, len(wsCtx.Skills))
 	for _, skill := range wsCtx.Skills {
@@ -186,7 +194,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 			continue
 		}
 		seen[path] = struct{}{}
-		reports = append(reports, preflight.Inspect(path, preflight.Options{DefaultSkillPaths: []string{skill.Dir}}))
+		reports = append(reports, preflight.Inspect(path, preflight.Options{DefaultSkillPaths: defaultsForEval(path)}))
 	}
 	// Target-free scenario evals use the separated layout without a matching skill.
 	extra, err := separatedWorkspaceEvals(wsCtx)
@@ -198,7 +206,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 			continue
 		}
 		seen[path] = struct{}{}
-		reports = append(reports, preflight.Inspect(path, preflight.Options{}))
+		reports = append(reports, preflight.Inspect(path, preflight.Options{DefaultSkillPaths: defaultsForEval(path)}))
 	}
 	return reports, nil
 }
