@@ -234,6 +234,8 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	var skillsPath, evalsPath, resultsPath string
 	files := projectconfig.New().Files
 	var createSkill, scaffoldMissing bool
+	var configuredSkills, configuredEvals string
+	hasConfiguredPaths := false
 	engine = projectconfig.DefaultEngine
 	model = projectconfig.DefaultModel
 	skillsPath = projectconfig.DefaultSkillsDir
@@ -250,6 +252,8 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			evalsPath = cfg.Paths.Evals
 			resultsPath = cfg.Paths.Results
 			files = cfg.Files
+			configuredSkills, configuredEvals = cfg.Paths.Skills, cfg.Paths.Evals
+			hasConfiguredPaths = true
 		}
 	}
 
@@ -284,6 +288,17 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	}
 	if flagResultsDir != "" {
 		resultsPath = flagResultsDir
+	}
+	if hasConfiguredPaths {
+		workflowPath := filepath.Join(absDir, ".github", "workflows", "eval.yml")
+		if _, err := os.Lstat(workflowPath); errors.Is(err, fs.ErrNotExist) {
+			if err := rejectConfiguredPathOverride("--skills-dir", "paths.skills", flagSkillsDir, configuredSkills); err != nil {
+				return err
+			}
+			if err := rejectConfiguredPathOverride("--evals-dir", "paths.evals", flagEvalsDir, configuredEvals); err != nil {
+				return err
+			}
+		}
 	}
 
 	// Show detection results when paths were discovered
@@ -640,6 +655,15 @@ func absOrDefault(path string) string {
 }
 
 // --- Init template content ---
+
+// rejectConfiguredPathOverride prevents generated CI from validating a root
+// that ordinary runs, which read .waza.yaml, would not select.
+func rejectConfiguredPathOverride(flag, key, override, configured string) error {
+	if override == "" || filepath.Clean(override) == filepath.Clean(configured) {
+		return nil
+	}
+	return fmt.Errorf("%s %q conflicts with .waza.yaml %s %q; generated CI must use the configured path. Update .waza.yaml or omit %s", flag, override, key, configured, flag)
+}
 
 // pathWithinResolvedDir reports whether resolvedPath is dir or inside dir
 // after resolving dir's own symlinks.

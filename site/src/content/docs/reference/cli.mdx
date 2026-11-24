@@ -252,6 +252,8 @@ waza init [directory]
 | `--evals-dir` | Project-relative evals directory; overrides detection and defaults |
 | `--results-dir` | Project-relative results directory recorded in new configuration |
 
+When `.waza.yaml` already exists and init generates `.github/workflows/eval.yml`, `--skills-dir` and `--evals-dir` must match its `paths` values so CI validates the same roots that runs use.
+
 ### Creates
 
 ```

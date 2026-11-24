@@ -542,6 +542,7 @@ Initialize a waza project with directory structure.
 - `--no-skill` — Skip the first-skill creation prompt
 - `--skills-dir` — Override detection/defaults with a project-relative skills path
 - `--evals-dir` — Override detection/defaults with a project-relative evals path
+- With an existing `.waza.yaml`, generating `.github/workflows/eval.yml` rejects `--skills-dir` or `--evals-dir` values that differ from its `paths`, so CI validates the same roots that runs use
 - `--results-dir` — Set the results path recorded in newly created configuration
 
 **What it creates:**
