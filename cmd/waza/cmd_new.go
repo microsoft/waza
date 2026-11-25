@@ -318,11 +318,16 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	}
 	if workflowStatErr == nil {
 		// FileWriter follows links and rejects a directory, so fail before repair.
+		// A dangling link would otherwise be skipped as "existing" here and as
+		// "missing with no content" by FileWriter, leaving no usable workflow.
 		info, err := os.Stat(workflowPath)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("generated workflow %s is a dangling symlink; remove it or restore its target", workflowPath)
+		}
+		if err != nil {
 			return fmt.Errorf("checking generated workflow %s: %w", workflowPath, err)
 		}
-		if err == nil && info.IsDir() {
+		if info.IsDir() {
 			return fmt.Errorf("path %s exists but is a directory", workflowPath)
 		}
 	}

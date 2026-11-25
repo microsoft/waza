@@ -1933,6 +1933,34 @@ func TestInitCI_RejectsActionsExpressionsInLiteralPaths(t *testing.T) {
 		require.Equal(t, original, preserved)
 		require.NoDirExists(t, filepath.Join(root, "evals"))
 	})
+	t.Run("standalone repair rejects dangling workflow before mutation", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, validateCLIIsolation(dir))
+		root := filepath.Join(dir, "reviewed")
+		workflowPath := filepath.Join(root, ".github", "workflows", "eval.yml")
+		require.NoError(t, os.MkdirAll(filepath.Dir(workflowPath), 0o700))
+		target := filepath.Join(root, "missing-workflow.yml")
+		if err := os.Symlink(target, workflowPath); err != nil {
+			t.Skipf("file symlink unavailable: %v", err)
+		}
+		skillPath := filepath.Join(root, "SKILL.md")
+		original := []byte("User-owned content without frontmatter.\nKeep these original bytes.\n")
+		require.NoError(t, os.WriteFile(skillPath, original, 0o600))
+		cmd := newNewSkillCommand()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetIn(strings.NewReader(""))
+		cmd.SilenceUsage = true
+		cmd.SetArgs([]string{"reviewed", "--output-dir", dir})
+		require.ErrorContains(t, cmd.Execute(), "dangling symlink")
+		preserved, err := os.ReadFile(skillPath)
+		require.NoError(t, err)
+		require.Equal(t, original, preserved)
+		require.NoDirExists(t, filepath.Join(root, "evals"))
+		require.NoFileExists(t, target)
+		info, err := os.Lstat(workflowPath)
+		require.NoError(t, err)
+		require.NotZero(t, info.Mode()&os.ModeSymlink)
+	})
 }
 
 func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) {
