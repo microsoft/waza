@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 test('dashboard-explore images load', async ({ page }) => {
-  await page.goto('guides/dashboard-explore/');
+  const response = await page.goto('guides/dashboard-explore/');
+  expect(response?.status()).toBe(200);
   await page.waitForLoadState('networkidle');
 
   const brokenImages = await page.$$eval('main img', (images: HTMLImageElement[]) =>
@@ -10,5 +11,6 @@ test('dashboard-explore images load', async ({ page }) => {
       .map((img) => img.getAttribute('src') || '')
   );
 
+  expect(await page.locator('main img').count()).toBeGreaterThan(0);
   expect(brokenImages).toEqual([]);
 });

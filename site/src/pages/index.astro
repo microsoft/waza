@@ -1,0 +1,387 @@
+---
+import '../styles/home.css';
+import Search from 'virtual:starlight/components/Search';
+import ChatWidget from '../components/ChatWidget.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const docs = (slug: string) => `${base}/${slug}/`;
+const repository = 'https://github.com/microsoft/waza';
+
+const features = [
+  {
+    number: '01', tag: 'DEFINE THE SCENARIO', title: 'Real tasks, written down.', anchor: 'structured-yaml-benchmarks',
+    text: 'Describe the job in YAML: the prompt, the fixtures the agent works on, its skills and tools, and what a good outcome looks like.',
+    link: docs('guides/eval-yaml'), label: 'Write an eval spec',
+  },
+  {
+    number: '02', tag: 'GRADE THE WORK', title: 'Check outcomes, not vibes.', anchor: 'pluggable-validators',
+    text: 'Combine code assertions, text and file checks, JSON schemas, tool-call sequences and LLM judges. Weight them to match what matters.',
+    link: docs('guides/graders'), label: 'Explore graders',
+  },
+  {
+    number: '03', tag: 'DECIDE WITH EVIDENCE', title: 'Compare, then ship.', anchor: 'cicd-ready',
+    text: 'Run the same suite across models, measure the impact of a skill against a baseline and gate pull requests in CI.',
+    link: docs('guides/ci-cd'), label: 'Add it to CI',
+  },
+];
+
+const reading = [
+  { number: '01', title: 'Start with a working eval', text: 'Install, scaffold a suite and check an offline run.', link: docs('quick-start') },
+  { number: '02', title: 'Write eval specs', text: 'Tasks, fixtures, graders and weights in YAML.', link: docs('guides/eval-yaml') },
+  { number: '03', title: 'Read the results', text: 'Runs, comparisons, trends and trajectories in the dashboard.', link: docs('guides/dashboard') },
+  { number: '04', title: 'Look up a command', text: 'Every waza command, flag and exit code.', link: docs('reference/cli') },
+  { number: '05', title: 'Read the overview', text: 'Explore the workflow, graders and examples in more detail.', link: docs('overview') },
+];
+
+const capabilities = [
+  {
+    number: '01', title: 'Turn real tasks into evals.',
+    text: 'Scaffold a project and skill, write prompts and fixtures, or generate suggested evals from an existing SKILL.md.',
+    links: [
+      { label: 'Scaffold a suite', href: docs('getting-started') },
+      { label: 'Suggest evals', href: `${docs('reference/cli')}#waza-suggest` },
+    ],
+  },
+  {
+    number: '02', title: 'Test outcomes and behavior.',
+    text: 'Check output, files, schemas, tool calls, skill triggers and orchestration. Combine deterministic checks with LLM judges; configure MCP tools within agent evals.',
+    links: [
+      { label: 'Explore graders', href: docs('guides/graders') },
+      { label: 'Test skill triggers', href: `${docs('guides/graders')}#skill-trigger-accuracy` },
+      { label: 'Configure skills and tools', href: `${docs('guides/eval-yaml')}#config-section` },
+    ],
+  },
+  {
+    number: '03', title: 'Find what actually improves.', anchor: 'cross-model-comparison',
+    text: 'Compare models on the same tasks. Run with and without a skill to measure its impact on quality, tokens, turns and time.',
+    links: [
+      { label: 'Compare models', href: `${docs('guides/eval-yaml')}#multi-model-comparison` },
+      { label: 'Run a baseline', href: `${docs('reference/cli')}#waza-run` },
+    ],
+  },
+  {
+    number: '04', title: 'Refine before you release.',
+    text: 'Check skill readiness and spec compliance, get actionable feedback, and iterate with guided improvements.',
+    links: [
+      { label: 'Check readiness', href: `${docs('reference/cli')}#waza-check` },
+      { label: 'Improve a skill', href: `${docs('reference/cli')}#waza-dev` },
+    ],
+  },
+  {
+    number: '05', title: 'Make every token count.',
+    text: 'Count tokens in Markdown, profile skill structure, check budgets and find opportunities to trim instructions.',
+    links: [
+      { label: 'Manage token budgets', href: `${docs('reference/cli')}#waza-tokens` },
+      { label: 'Find optimizations', href: `${docs('reference/cli')}#waza-tokens-suggest` },
+    ],
+  },
+  {
+    number: '06', title: 'See the work behind the score.', anchor: 'web-dashboard',
+    text: 'Inspect runs, tool-call trajectories and trends in the dashboard. Record session logs and review eval timelines from the CLI.',
+    links: [
+      { label: 'Explore the dashboard', href: docs('guides/dashboard-explore') },
+      { label: 'Inspect session logs', href: `${docs('reference/cli')}#waza-session` },
+    ],
+  },
+  {
+    number: '07', title: 'Keep regressions out of CI.',
+    text: 'Automate suites with clear exit codes, GitHub-ready output and JUnit reports. Filter tasks, run in parallel and cache repeatable results.',
+    links: [
+      { label: 'Set up CI', href: docs('guides/ci-cd') },
+      { label: 'Tune evaluation runs', href: `${docs('reference/cli')}#waza-run` },
+    ],
+  },
+  {
+    number: '08', title: 'Bring the evidence to your team.',
+    text: 'Keep JSON results locally or share them through Azure Blob Storage. Browse saved runs and compare results across your team.',
+    links: [
+      { label: 'Share results', href: docs('guides/azure-storage') },
+      { label: 'Browse and compare runs', href: `${docs('reference/cli')}#waza-results` },
+    ],
+  },
+];
+
+const installCommand = 'curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash';
+const runCommands = `waza init workflow-lab --no-skill
+cd workflow-lab
+waza new eval inventory --scenario --template repository
+waza preflight evals/inventory/eval.yaml`;
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#121214" />
+    <title>waza — Test behavior. Ship confidence.</title>
+    <meta name="description" content="Evaluate skills, prompts and agent workflows against real tasks. Inspect tool use, compare models, refine instructions and ship with evidence." />
+    <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+    <meta property="og:title" content="waza — Test behavior. Ship confidence." />
+    <meta property="og:description" content="Evaluate skills, prompts and agent workflows. Compare models, optimize tokens and ship with evidence." />
+    <meta property="og:type" content="website" />
+    <script is:inline>
+      (() => {
+        let stored = null;
+        try {
+          stored = localStorage.getItem('starlight-theme');
+        } catch (error) {
+          console.warn('Theme preference could not be read.', error);
+        }
+        const theme = stored === 'light' || stored === 'dark'
+          ? stored
+          : (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body id="_top">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href={`${base}/`} aria-label="waza home">waza<span class="brand-dot">.</span></a>
+        <nav aria-label="Main navigation">
+          <a class="nav-optional" href="#capabilities">Capabilities</a>
+          <a href={docs('getting-started')}>Docs</a>
+          <Search />
+          <ChatWidget />
+          <button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch color theme">
+            <span data-theme-label>Light</span>
+          </button>
+          <a class="github-link" href={repository}>GitHub <span aria-hidden="true">↗</span></a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" data-pagefind-body>
+      <section class="hero-band" id="the-way-of-technique--measure-refine-master-" aria-labelledby="hero-title">
+        <div class="hero container">
+          <div class="hero-copy">
+            <p class="eyebrow"><span class="status-dot"></span> EVALUATION FOR AGENT BEHAVIOR</p>
+            <h1 id="hero-title">Test behavior.<br /><em>Ship confidence.</em></h1>
+            <p class="hero-description">Evaluate skills, prompts and agent workflows against real tasks. Inspect tool use, compare models, refine instructions and ship with evidence.</p>
+            <p class="release-note"><strong>New in v0.42.0:</strong> Provenance. Keyless signing: opt-in; trusted roots. Windows peak memory unsupported. No sandbox or deployment approval. <a href={docs('releases/v0-42-0')}>Release article</a></p>
+            <p class="hero-promise">Scenarios in. Evidence out.</p>
+            <div class="hero-actions">
+              <a class="button primary" href={docs('quick-start')}>Run your first eval <span aria-hidden="true">↗</span></a>
+              <a class="text-link" href="#capabilities">Explore what you can do <span aria-hidden="true">↓</span></a>
+            </div>
+            <p class="project-note">Open source <span aria-hidden="true">/</span> Go CLI <span aria-hidden="true">/</span> azd extension</p>
+          </div>
+
+          <figure class="hero-visual" aria-labelledby="run-caption">
+            <div class="run-panel">
+              <div class="panel-label">
+                <span>$ waza run code-explainer</span>
+                <span class="illustrative">ILLUSTRATIVE</span>
+              </div>
+              <ol class="run-flow">
+                <li>
+                  <span class="flow-step">01 / EVAL</span>
+                  <div>
+                    <p class="flow-title">3 tasks · 2 models</p>
+                    <p class="flow-meta">fixtures copied into isolated workspaces</p>
+                  </div>
+                </li>
+                <li>
+                  <span class="flow-step">02 / EVIDENCE</span>
+                  <ul class="grader-list">
+                    <li><span class="mark pass" aria-hidden="true">✓</span><code>explains_logic</code><span class="verdict">pass</span></li>
+                    <li><span class="mark pass" aria-hidden="true">✓</span><code>has_output</code><span class="verdict">pass</span></li>
+                    <li><span class="mark fail" aria-hidden="true">✕</span><code>cites_parameters</code><span class="verdict fail">fail</span></li>
+                  </ul>
+                </li>
+                <li>
+                  <span class="flow-step">03 / DECISION</span>
+                  <div>
+                    <p class="flow-title">Weighted score <strong>0.82</strong></p>
+                    <div class="score-bar" aria-hidden="true"><span style="width: 82%"></span></div>
+                    <p class="flow-meta">threshold 0.75 · <span class="decision">above eval threshold</span></p>
+                  </div>
+                </li>
+              </ol>
+            </div>
+            <figcaption id="run-caption" class="visual-caption">Illustrative example. Not a benchmark or live result.</figcaption>
+          </figure>
+        </div>
+
+        <div class="fact-strip">
+          <div class="container facts">
+            <p><span class="fact-label">SPEC FORMAT</span><strong>Plain YAML in your repo.</strong></p>
+            <p id="fixture-isolation"><span class="fact-label">ISOLATION</span><strong>Fresh workspace per task.</strong></p>
+            <p><span class="fact-label">OUTPUT</span><strong>JSON results and a dashboard.</strong></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="reading-band" id="features" aria-labelledby="what-can-waza-do">
+        <div class="container split-layout">
+          <div class="section-intro">
+            <p class="eyebrow">MEASURE / REFINE / MASTER</p>
+            <h2 id="what-can-waza-do">Evals that read like<br /><em>the real job.</em></h2>
+            <p>Test the whole workflow, not just the final answer. Give an agent a task, check its actions and outputs, and keep the receipts.</p>
+            <a class="text-link" href={docs('guides/eval-yaml')}>Understand eval specs <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="feature-list">
+            {features.map((feature) => (
+              <article class="feature-row" id={feature.anchor}>
+                <span class="row-number">{feature.number}</span>
+                <div>
+                  <p class="eyebrow">{feature.tag}</p>
+                  <h3>{feature.title}</h3>
+                  <p>{feature.text}</p>
+                  <a class="text-link" href={feature.link}>{feature.label} <span aria-hidden="true">↗</span></a>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section class="reading-band capability-section" id="capabilities" aria-labelledby="capabilities-title">
+        <div class="container">
+          <div class="section-intro capability-heading" id="key-features">
+            <p class="eyebrow">ONE TOOLKIT / THE FULL FEEDBACK LOOP</p>
+            <h2 id="capabilities-title">More than a score.<br /><em>A way to get better.</em></h2>
+            <p>From the first prompt to the release gate, choose the next step for your work.</p>
+          </div>
+          <div class="capability-grid">
+            {capabilities.map((capability) => (
+              <article class="feature-row" id={capability.anchor}>
+                <span class="row-number">{capability.number}</span>
+                <div>
+                  <h3>{capability.title}</h3>
+                  <p>{capability.text}</p>
+                  <div class="capability-links">
+                    {capability.links.map((link) => (
+                      <a class="text-link" href={link.href}>{link.label} <span aria-hidden="true">↗</span></a>
+                    ))}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section class="dark-band" id="how-it-works" aria-labelledby="workflow-title">
+        <div class="container workflow-section" id="quick-start">
+          <div class="workflow-heading">
+            <div><p class="eyebrow">FROM ZERO TO A WORKING SUITE</p><h2 id="workflow-title">Install. Scaffold. <em>Inspect.</em></h2></div>
+            <p>Start by installing v0.42.0 or building from source.<br />Preflight checks your configuration without model calls.</p>
+          </div>
+          <div class="workflow-grid">
+            <div class="code-panel">
+              <div class="panel-label"><span>01 / INSTALL</span><button type="button" data-copy="install-command" aria-label="Copy install command">Copy</button></div>
+              <pre><span aria-hidden="true" class="prompt">$ </span><code id="install-command">{installCommand}</code></pre>
+              <div class="panel-label"><span>02 / SCAFFOLD AND PREFLIGHT</span><button type="button" data-copy="run-commands" aria-label="Copy preflight commands">Copy</button></div>
+              <pre><code id="run-commands">{runCommands}</code></pre>
+              <div class="installation-links">
+                <a class="text-link" href={docs('quick-start')}>Continue the offline Quick Start <span aria-hidden="true">↗</span></a>
+                <a class="text-link" href={`${docs('getting-started')}#installation`}>CLI installation options <span aria-hidden="true">↗</span></a>
+                <a class="text-link" href={`${docs('getting-started')}#3-azure-developer-cli-extension`}>Install as an azd extension <span aria-hidden="true">↗</span></a>
+              </div>
+            </div>
+            <div class="workflow-steps">
+              <div><span>03</span><div><h3>Compare across models</h3><code>waza compare gpt.json sonnet.json</code><p>See which model handles your tasks better, task by task.</p></div></div>
+              <div><span>04</span><div><h3>Review the evidence</h3><code>waza serve</code><p>Open runs, trajectories and trends in the local dashboard.</p></div></div>
+            </div>
+          </div>
+          <div class="honesty-note">
+            <span class="eyebrow">CLEAR BOUNDARIES</span>
+            <p>A mock pass proves harness wiring, not agent quality. Read the authentication, permissions and possible-cost prerequisites before real agent runs. Fresh workspaces are not a sandbox or deployment approval. LLM judges add variance; pair them with deterministic checks.</p>
+            <a class="text-link" href={docs('guides/graders')}>Choose the right graders <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+      </section>
+
+      <section class="reading-band" aria-labelledby="docs-title">
+        <div class="container split-layout">
+          <div class="section-intro">
+            <p class="eyebrow">THE FIELD GUIDE</p>
+            <h2 id="docs-title">Every eval starts<br /><em>with the docs.</em></h2>
+            <p>Practical guides, copyable commands and the reference details that matter.</p>
+            <a class="button inverse" href={docs('getting-started')}>Open the documentation <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="reading-list">
+            {reading.map((guide) => (
+              <a class="reading-row" href={guide.link}>
+                <span class="row-number">{guide.number}</span>
+                <div><h3>{guide.title}</h3><p>{guide.text}</p></div>
+                <span class="reading-arrow" aria-hidden="true">↗</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section class="dark-band closing" aria-labelledby="closing-title">
+        <div class="container">
+          <p class="eyebrow">MEASURE. REFINE. MASTER.</p>
+          <h2 id="closing-title">Your next release starts<br />with <em>evidence.</em></h2>
+          <a class="button primary" href={docs('quick-start')}>Get started <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="dark-band">
+      <div class="container site-footer">
+        <a class="brand" href={`${base}/`} aria-label="waza home">waza<span class="brand-dot">.</span></a>
+        <p>Open source evaluation for skills, prompts and agent workflows.</p>
+        <nav aria-label="Footer navigation">
+          <a href={docs('getting-started')}>Documentation</a>
+          <a href={`${repository}/issues`}>Issues</a>
+          <a href={repository}>Source <span aria-hidden="true">↗</span></a>
+        </nav>
+      </div>
+    </footer>
+    <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
+
+    <script>
+      const root = document.documentElement;
+      const label = document.querySelector<HTMLElement>('[data-theme-label]');
+      const syncLabel = () => {
+        if (label) label.textContent = root.dataset.theme === 'dark' ? 'Light' : 'Dark';
+      };
+      syncLabel();
+      document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        try {
+          localStorage.setItem('starlight-theme', next);
+        } catch (error) {
+          console.warn('Theme preference could not be saved.', error);
+        }
+        syncLabel();
+      });
+      matchMedia('(prefers-color-scheme: light)').addEventListener('change', (event) => {
+        let stored = null;
+        try {
+          stored = localStorage.getItem('starlight-theme');
+        } catch (error) {
+          console.warn('Theme preference could not be read.', error);
+        }
+        if (stored !== 'light' && stored !== 'dark') {
+          root.dataset.theme = event.matches ? 'light' : 'dark';
+          syncLabel();
+        }
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('button[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const code = document.getElementById(button.dataset.copy ?? '');
+          const status = document.getElementById('copy-status');
+          if (!code || !status) return;
+          try {
+            await navigator.clipboard.writeText(code.textContent ?? '');
+            status.textContent = 'Command copied to clipboard.';
+            button.textContent = 'Copied';
+            window.setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+          } catch {
+            status.textContent = 'Clipboard unavailable. Select the command text and copy it manually.';
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

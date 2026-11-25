@@ -1,6 +1,6 @@
 # Waza
 
-A Go CLI for evaluating agent workflows, skills, and custom agents — author repository, CLI, and MCP scenarios, run graded trials, and inspect the evidence.
+A Go CLI for evaluating skills, prompts, agent workflows, and custom agents — author repository, CLI, and MCP scenarios, run graded trials, and inspect the evidence.
 
 📖 **[Getting Started / Docs](https://microsoft.github.io/waza/)**
 

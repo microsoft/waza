@@ -1,120 +1,113 @@
 /*
- * waza docs — light/dark theme with zinc + emerald palette
- * Palette: Tailwind zinc + emerald accents
+ * waza docs — Chalk / Onyx / Mint editorial theme
+ * Chalk White #F2F1EE · Onyx Black #121214 · Mint Rush #22E3A2
+ * Mint is used for fills and dark-surface accents; light surfaces use a
+ * darker derived green (#0A6E4C) so text links meet WCAG AA contrast.
  */
 
 /* ─── Light mode (default) ──────────────────────────────────────────── */
 :root {
   color-scheme: light;
 
-  --sl-color-white: #18181b;      /* zinc-900 — darkest (text / headings) */
-  --sl-color-gray-1: #3f3f46;     /* zinc-700 — secondary text */
-  --sl-color-gray-2: #52525b;     /* zinc-600 — muted text */
-  --sl-color-gray-3: #a1a1aa;     /* zinc-400 — dimmed text */
-  --sl-color-gray-4: #d4d4d8;     /* zinc-300 — subtle borders */
-  --sl-color-gray-5: #f4f4f5;     /* zinc-100 — elevated surfaces */
-  --sl-color-gray-6: #fafafa;     /* zinc-50  — main background */
-  --sl-color-gray-7: #ffffff;     /* white    — deepest wells */
-  --sl-color-black: #ffffff;      /* white    — lightest (background base) */
+  --sl-color-white: #121214;      /* onyx — headings */
+  --sl-color-gray-1: #2a2a2e;
+  --sl-color-gray-2: #45454a;
+  --sl-color-gray-3: #6b6b70;
+  --sl-color-gray-4: #b9b7b1;
+  --sl-color-gray-5: #e4e2dd;
+  --sl-color-gray-6: #ebeae6;
+  --sl-color-gray-7: #f2f1ee;
+  --sl-color-black: #f2f1ee;      /* chalk — background base */
 
-  /* Accent — emerald (darker for light bg contrast) */
-  --sl-color-accent-low: #d1fae5;  /* emerald-100 */
-  --sl-color-accent: #059669;      /* emerald-600 */
-  --sl-color-accent-high: #065f46; /* emerald-800 */
+  --sl-color-accent-low: #c9f6e6;
+  --sl-color-accent: #0a6e4c;
+  --sl-color-accent-high: #064a33;
 
-  /* Text */
-  --sl-color-text: #3f3f46;
-  --sl-color-text-accent: #059669;
+  --sl-color-text: #2a2a2e;
+  --sl-color-text-accent: #0a6e4c;
 
-  /* Backgrounds */
-  --sl-color-bg: #ffffff;
-  --sl-color-bg-nav: #fafafa;
-  --sl-color-bg-sidebar: #fafafa;
-  --sl-color-bg-inline-code: #f4f4f5;
+  --sl-color-bg: #f2f1ee;
+  --sl-color-bg-nav: #f2f1ee;
+  --sl-color-bg-sidebar: #f2f1ee;
+  --sl-color-bg-inline-code: #e4e2dd;
 
-  /* Borders */
-  --sl-color-hairline-light: #e4e4e7;
-  --sl-color-hairline-shade: #d4d4d8;
+  --sl-color-hairline-light: #d3d1cb;
+  --sl-color-hairline-shade: #b9b7b1;
 
-  /* Font */
-  --sl-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --sl-font: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --sl-font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 
-  /* Waza custom properties — themed element colors */
-  --waza-surface: #ffffff;
-  --waza-surface-raised: #f4f4f5;
-  --waza-border: #e4e4e7;
-  --waza-border-hover: #d4d4d8;
-  --waza-text: #3f3f46;
-  --waza-text-heading: #18181b;
-  --waza-text-muted: #71717a;
-  --waza-code-bg: #f4f4f5;
-  --waza-code-border: #e4e4e7;
-  --waza-code-text: #3f3f46;
-  --waza-pre-bg: #fafafa;
-  --waza-table-header-bg: #f4f4f5;
-  --waza-table-header-text: #71717a;
-  --waza-search-bg: #f4f4f5;
-  --waza-search-border: #e4e4e7;
-  --waza-banner-bg: #f4f4f5;
-  --waza-banner-border: #e4e4e7;
-  --waza-link: #059669;
-  --waza-link-hover: #10b981;
+  --waza-surface: #f2f1ee;
+  --waza-surface-raised: #ebeae6;
+  --waza-border: #d3d1cb;
+  --waza-border-hover: #b9b7b1;
+  --waza-text: #2a2a2e;
+  --waza-text-heading: #121214;
+  --waza-text-muted: #5c5c61;
+  --waza-code-bg: #e4e2dd;
+  --waza-code-border: #d3d1cb;
+  --waza-code-text: #2a2a2e;
+  --waza-pre-bg: #ebeae6;
+  --waza-table-header-bg: #e4e2dd;
+  --waza-table-header-text: #45454a;
+  --waza-search-bg: #ebeae6;
+  --waza-search-border: #d3d1cb;
+  --waza-banner-bg: #ebeae6;
+  --waza-banner-border: #d3d1cb;
+  --waza-link: #0a6e4c;
+  --waza-link-hover: #064a33;
+  --waza-focus: #0a6e4c;
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────────────── */
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --sl-color-white: #f4f4f5;      /* zinc-100 — lightest (text / headings) */
-  --sl-color-gray-1: #d4d4d8;     /* zinc-300 — secondary text */
-  --sl-color-gray-2: #a1a1aa;     /* zinc-400 — muted text */
-  --sl-color-gray-3: #71717a;     /* zinc-500 — dimmed text */
-  --sl-color-gray-4: #52525b;     /* zinc-600 — subtle borders */
-  --sl-color-gray-5: #27272a;     /* zinc-800 — elevated surfaces */
-  --sl-color-gray-6: #18181b;     /* zinc-900 — main background */
-  --sl-color-gray-7: #09090b;     /* zinc-950 — deepest wells */
-  --sl-color-black: #09090b;      /* zinc-950 — darkest (background base) */
+  --sl-color-white: #f2f1ee;      /* chalk — headings */
+  --sl-color-gray-1: #dddcd8;
+  --sl-color-gray-2: #b3b2ad;
+  --sl-color-gray-3: #8e8e95;
+  --sl-color-gray-4: #4a4a50;
+  --sl-color-gray-5: #2c2c31;
+  --sl-color-gray-6: #1b1b1f;
+  --sl-color-gray-7: #121214;
+  --sl-color-black: #121214;      /* onyx — background base */
 
-  /* Accent — emerald */
-  --sl-color-accent-low: #064e3b;  /* emerald-900 */
-  --sl-color-accent: #10b981;      /* emerald-500 */
-  --sl-color-accent-high: #34d399; /* emerald-400 */
+  --sl-color-accent-low: #0b3d2c;
+  --sl-color-accent: #22e3a2;
+  --sl-color-accent-high: #7ef0c6;
 
-  /* Text */
-  --sl-color-text: #d4d4d8;
-  --sl-color-text-accent: #10b981;
+  --sl-color-text: #dddcd8;
+  --sl-color-text-accent: #22e3a2;
 
-  /* Backgrounds */
-  --sl-color-bg: #09090b;
-  --sl-color-bg-nav: #09090b;
-  --sl-color-bg-sidebar: #09090b;
-  --sl-color-bg-inline-code: #18181b;
+  --sl-color-bg: #121214;
+  --sl-color-bg-nav: #121214;
+  --sl-color-bg-sidebar: #121214;
+  --sl-color-bg-inline-code: #1b1b1f;
 
-  /* Borders */
-  --sl-color-hairline-light: #27272a;
-  --sl-color-hairline-shade: #18181b;
+  --sl-color-hairline-light: #2c2c31;
+  --sl-color-hairline-shade: #1b1b1f;
 
-  /* Waza custom properties — dark */
-  --waza-surface: #09090b;
-  --waza-surface-raised: #18181b;
-  --waza-border: #27272a;
-  --waza-border-hover: #3f3f46;
-  --waza-text: #d4d4d8;
-  --waza-text-heading: #f4f4f5;
-  --waza-text-muted: #a1a1aa;
-  --waza-code-bg: #18181b;
-  --waza-code-border: #27272a;
-  --waza-code-text: #e4e4e7;
-  --waza-pre-bg: #0a0a0a;
-  --waza-table-header-bg: #18181b;
-  --waza-table-header-text: #a1a1aa;
-  --waza-search-bg: #18181b;
-  --waza-search-border: #27272a;
-  --waza-banner-bg: #18181b;
-  --waza-banner-border: #27272a;
-  --waza-link: #10b981;
-  --waza-link-hover: #34d399;
+  --waza-surface: #121214;
+  --waza-surface-raised: #1b1b1f;
+  --waza-border: #2c2c31;
+  --waza-border-hover: #4a4a50;
+  --waza-text: #dddcd8;
+  --waza-text-heading: #f2f1ee;
+  --waza-text-muted: #a9a9ae;
+  --waza-code-bg: #1b1b1f;
+  --waza-code-border: #2c2c31;
+  --waza-code-text: #f2f1ee;
+  --waza-pre-bg: #17171a;
+  --waza-table-header-bg: #1b1b1f;
+  --waza-table-header-text: #a9a9ae;
+  --waza-search-bg: #1b1b1f;
+  --waza-search-border: #2c2c31;
+  --waza-banner-bg: #1b1b1f;
+  --waza-banner-border: #2c2c31;
+  --waza-link: #22e3a2;
+  --waza-link-hover: #7ef0c6;
+  --waza-focus: #22e3a2;
 }
 
 /* ─── Kill the gray content band ────────────────────────────────────── */
@@ -177,12 +170,35 @@ nav.sidebar a[aria-current='true'] {
   margin-bottom: 0.5rem;
 }
 .sidebar-group-details[open] {
-  background-color: rgba(16, 185, 129, 0.05);
+  background-color: transparent;
 }
 
 /* ─── Content typography ────────────────────────────────────────────── */
 h1, h2, h3, h4, h5, h6 {
   color: var(--waza-text-heading);
+}
+.content-panel h1 {
+  font-weight: 650;
+  letter-spacing: -0.05em;
+}
+.sl-markdown-content h2,
+.sl-markdown-content h3 {
+  letter-spacing: -0.035em;
+}
+.sl-markdown-content {
+  line-height: 1.8;
+}
+.sl-markdown-content a {
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+:focus-visible {
+  outline: 3px solid var(--waza-focus);
+  outline-offset: 3px;
+}
+::selection {
+  background: #22e3a2;
+  color: #121214;
 }
 
 a {
@@ -198,7 +214,7 @@ a:hover {
 [class*='card'] {
   background-color: var(--waza-surface-raised) !important;
   border: 1px solid var(--waza-border) !important;
-  border-radius: 8px;
+  border-radius: 2px;
 }
 .card:hover,
 [class*='card']:hover {
