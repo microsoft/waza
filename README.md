@@ -747,6 +747,12 @@ Creates:
 - `.gitignore` — Waza-specific exclusions
 - `README.md` — Getting started guide for your project
 
+Before enabling generated live CI, review the
+[credential and artifact warning](https://microsoft.github.io/waza/guides/ci-cd/):
+eval code inherits the Copilot credential, and uploaded results are not
+secret-redacted. Create and verify the protected `waza-agent` environment before
+adding its secret; the workflow's ref condition does not configure that protection.
+
 **Example:**
 ```bash
 waza init my-project

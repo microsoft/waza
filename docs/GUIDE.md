@@ -603,10 +603,25 @@ are discovered. Custom path flags do not update its path filters.
 
 Live evaluations require a manual default-branch dispatch with `run-agent=true`.
 Configure the `waza-agent` environment and its `WAZA_COPILOT_TOKEN` secret,
-passed to the runtime as `COPILOT_GITHUB_TOKEN`. Before adding the secret,
-restrict the environment's deployment branches to the default branch and
-require reviewers. The workflow's branch check is not a security boundary: a
-writer can dispatch a modified workflow from another branch.
+passed to the runtime as `COPILOT_GITHUB_TOKEN`.
+
+**Credential and artifact warning:** Program graders and other eval code
+inherit COPILOT_GITHUB_TOKEN. Their output can appear in results.json and
+uploaded artifacts retained for 30 days. Waza does not redact secrets from these
+outputs or artifacts. GitHub log masking does not protect artifacts.
+
+Store WAZA_COPILOT_TOKEN only in a protected waza-agent environment. In the
+destination repository, create this environment and select only the default
+branch for deployment, require reviewers, then verify those settings before
+adding WAZA_COPILOT_TOKEN. Where independent approval is required, prevent
+self-review and disable admin bypass where available. GitHub auto-creates an
+unknown referenced environment with no protection rules or secrets. The workflow's
+if/ref condition is not the protection boundary: a modified branch workflow
+can remove it.
+
+Do not define a same-named repository or organization secret. If the environment
+secret is missing, GitHub can silently use that broader-scoped secret.
+
 Model calls can incur charges. `init` does not configure credentials or grant
 PRs access to secrets, and it preserves existing workflow files. Keep the
 fork-PR and untrusted-input safeguards described in the

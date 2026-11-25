@@ -312,6 +312,46 @@ func TestInitCI_OfflineCommandsAndTrust(t *testing.T) {
 	}
 }
 
+func TestInitCI_GeneratedCredentialWarnings(t *testing.T) {
+	for _, standalone := range []bool{false, true} {
+		t.Run(fmt.Sprintf("standalone_%t", standalone), func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			cmd := newInitCommand()
+			cmd.SetArgs([]string{dir, "--no-skill"})
+			readmeDir := dir
+			if standalone {
+				cmd = newNewSkillCommand()
+				cmd.SetArgs([]string{"reviewed", "--output-dir", dir})
+				readmeDir = filepath.Join(dir, "reviewed")
+			}
+			cmd.SetOut(&bytes.Buffer{})
+			require.NoError(t, cmd.Execute())
+			readme, err := os.ReadFile(filepath.Join(readmeDir, "README.md"))
+			require.NoError(t, err)
+			content := strings.Join(strings.Fields(string(readme)), " ")
+			for _, warning := range []string{
+				"Program graders and other eval code inherit COPILOT_GITHUB_TOKEN.",
+				"Their output can appear in results.json and uploaded artifacts retained for 30 days.",
+				"Waza does not redact secrets from these outputs or artifacts.",
+				"GitHub log masking does not protect artifacts.",
+				"Store WAZA_COPILOT_TOKEN only in a protected waza-agent environment.",
+				"destination repository, create this environment and select only the default branch for deployment, require reviewers",
+				"verify those settings before adding WAZA_COPILOT_TOKEN.",
+				"Where independent approval is required, prevent self-review and disable admin bypass where available.",
+				"GitHub auto-creates an unknown referenced environment with no protection rules or secrets.",
+				"The workflow's if/ref condition is not the protection boundary: a modified branch workflow can remove it.",
+				"Do not define a same-named repository or organization secret.",
+				"If the environment secret is missing, GitHub can silently use that broader-scoped secret.",
+			} {
+				if !strings.Contains(content, warning) {
+					t.Errorf("generated README missing warning: %q", warning)
+				}
+			}
+		})
+	}
+}
+
 func TestInitCI_SymlinkedSkillsRootFailsClosed(t *testing.T) {
 	for _, linked := range []bool{false, true} {
 		t.Run(fmt.Sprintf("linked_%t", linked), func(t *testing.T) {

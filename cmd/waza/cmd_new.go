@@ -545,10 +545,27 @@ Invalid configuration fails; unresolved runtime prerequisites warn. An empty
 inventory is not a successful evaluation.
 
 For intentional agent execution, review the eval, model, tools, graders, and
-dependencies. Before adding WAZA_COPILOT_TOKEN with model access to the waza-agent
-environment, restrict its deployment branches to the default branch and require
-reviewers; the workflow's branch check does not stop a writer from dispatching a
-modified workflow from another branch. Manually dispatch on the repository's default
+dependencies. Use WAZA_COPILOT_TOKEN with model access; CI passes it as
+COPILOT_GITHUB_TOKEN.
+
+**Credential and artifact warning:** Program graders and other eval code
+inherit COPILOT_GITHUB_TOKEN. Their output can appear in results.json and
+uploaded artifacts retained for 30 days. Waza does not redact secrets from these
+outputs or artifacts. GitHub log masking does not protect artifacts.
+
+Store WAZA_COPILOT_TOKEN only in a protected waza-agent environment. In the
+destination repository, create this environment and select only the default
+branch for deployment, require reviewers, then verify those settings before
+adding WAZA_COPILOT_TOKEN. Where independent approval is required, prevent
+self-review and disable admin bypass where available. GitHub auto-creates an
+unknown referenced environment with no protection rules or secrets. The workflow's
+if/ref condition is not the protection boundary: a modified branch workflow
+can remove it.
+
+Do not define a same-named repository or organization secret. If the environment
+secret is missing, GitHub can silently use that broader-scoped secret.
+
+Manually dispatch on the repository's default
 branch with run-agent enabled and the reviewed eval-path. Pull requests cannot
 run the agent job. Execution can incur usage; fixture isolation is not sandboxing.
 The agent-evidence gate requires a fresh, passing copilot-sdk result and rejects
