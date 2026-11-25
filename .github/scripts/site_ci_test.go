@@ -285,7 +285,8 @@ func testSiteFilterSelection(t *testing.T, source []byte) {
 		path           string
 		site, examples bool
 	}{
-		{"site/src/content/docs/index.mdx", true, true},
+		{"site/src/pages/index.astro", true, true},
+		{"site/src/content/docs/overview.mdx", true, true},
 		{"docs/GUIDE.md", true, true},
 		{"internal/models/outcome.go", true, true},
 		{"cmd/waza/cmd_serve.go", true, true},
