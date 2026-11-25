@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,13 +9,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
+	"slices"
 
 	"github.com/microsoft/waza/internal/preflight"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 func newPreflightCommand() *cobra.Command {
@@ -252,21 +252,23 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	}
 	reports := make([]*preflight.Report, 0, len(wsCtx.Skills))
 	seen := make(map[string]struct{}, len(wsCtx.Skills))
-	markSeen := func(path string) bool {
+	seenReports := make(map[string]struct{}, len(wsCtx.Skills))
+	inspect := func(path string) {
 		if _, ok := seen[path]; ok {
-			return true
-		}
-		canonical, err := evalResolutionIdentity(path)
-		if err != nil {
-			discoveryErrors = append(discoveryErrors, fmt.Errorf("resolving evaluation path %q: %w", path, err))
-		} else {
-			if _, ok := seen[canonical]; ok {
-				return true
-			}
-			seen[canonical] = struct{}{}
+			return
 		}
 		seen[path] = struct{}{}
-		return false
+		report := preflight.Inspect(path, optionsForEval(path))
+		identity, err := evalResolutionIdentity(report)
+		if err != nil {
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("resolving evaluation path %q: %w", path, err))
+		} else if identity != "" {
+			if _, ok := seenReports[identity]; ok {
+				return
+			}
+			seenReports[identity] = struct{}{}
+		}
+		reports = append(reports, report)
 	}
 	skillContexts := []*workspace.WorkspaceContext{wsCtx}
 	if partialContext && filepath.Clean(wsCtx.Root) != absRoot {
@@ -297,10 +299,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 				continue
 			}
 			path = filepath.Clean(path)
-			if markSeen(path) {
-				continue
-			}
-			reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
+			inspect(path)
 		}
 	}
 	// Target-free scenario evals use the separated layout without a matching skill.
@@ -325,75 +324,69 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 			discoveryErrors = append(discoveryErrors, err)
 		}
 		for _, path := range extra {
-			if markSeen(path) {
-				continue
-			}
-			reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
+			inspect(path)
 		}
 	}
 	return workspacePreflightInventory{reports: reports, root: absRoot, skills: skillCount}, errors.Join(discoveryErrors...)
 }
 
-// evalResolutionIdentity identifies the physical files an eval's relative
-// resources resolve to. Relative references are cleaned lexically against the
-// eval directory before symlinks resolve, so a reference with n leading ".."
-// segments names the nth lexical ancestor; equal canonical ancestor chains up
-// to the deepest such reference resolve identically.
-func evalResolutionIdentity(path string) (string, error) {
-	dir := filepath.Dir(path)
-	canonicalDir, err := canonicalPath(dir)
+// Deduplicate only after inspection, using both the resolved inputs and the
+// observed report. Untracked declarations or differing diagnostics retain both
+// aliases; metadata resembling a path cannot change resource identity.
+func evalResolutionIdentity(report *preflight.Report) (string, error) {
+	paths, complete := report.ResolutionPaths()
+	if !complete {
+		return "", nil
+	}
+	resolve := func(path *string) error {
+		resolved, err := canonicalPath(*path)
+		if err == nil {
+			*path = resolved
+		}
+		return err
+	}
+	for i := range paths {
+		if err := resolve(&paths[i]); err != nil {
+			return "", err
+		}
+	}
+	slices.Sort(paths)
+	paths = slices.Compact(paths)
+	normalized := *report
+	if err := resolve(&normalized.Source); err != nil {
+		return "", err
+	}
+	normalized.Tasks = slices.Clone(report.Tasks)
+	for i := range normalized.Tasks {
+		if err := resolve(&normalized.Tasks[i].Source); err != nil {
+			return "", err
+		}
+		if err := resolve(&normalized.Tasks[i].ContextDir); err != nil {
+			return "", err
+		}
+	}
+	normalized.Diagnostics = slices.Clone(report.Diagnostics)
+	for i := range normalized.Diagnostics {
+		if err := resolve(&normalized.Diagnostics[i].Source); err != nil {
+			return "", err
+		}
+	}
+	normalized.Dependencies = slices.Clone(report.Dependencies)
+	for i := range normalized.Dependencies {
+		if normalized.Dependencies[i].Kind == "boundary" {
+			if err := resolve(&normalized.Dependencies[i].Name); err != nil {
+				return "", err
+			}
+		}
+	}
+	data, err := json.Marshal(struct {
+		Paths  []string
+		Report preflight.Report
+	}{paths, normalized})
 	if err != nil {
 		return "", err
 	}
-	parts := []string{filepath.Join(canonicalDir, filepath.Base(path))}
-	depth := evalParentReferenceDepth(path)
-	for level := 0; depth < 0 || level < depth; level++ {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-		canonicalAncestor, err := canonicalPath(dir)
-		if err != nil {
-			return "", err
-		}
-		parts = append(parts, canonicalAncestor)
-	}
-	return strings.Join(parts, "\x00"), nil
-}
-
-// evalParentReferenceDepth conservatively over-approximates how many lexical
-// ancestors any relative reference in the manifest can reach by counting
-// leading ".." segments in every scalar. It returns -1, meaning every
-// ancestor, when the manifest cannot be read safely.
-func evalParentReferenceDepth(path string) int {
-	data, err := workspace.ReadSkillDefinition(path)
-	if err != nil {
-		return -1
-	}
-	var root yaml.Node
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return 0
-	}
-	depth := 0
-	var walk func(*yaml.Node)
-	walk = func(node *yaml.Node) {
-		if node.Kind == yaml.ScalarNode && !filepath.IsAbs(node.Value) {
-			n := 0
-			for _, segment := range strings.Split(filepath.ToSlash(filepath.Clean(filepath.FromSlash(node.Value))), "/") {
-				if segment != ".." {
-					break
-				}
-				n++
-			}
-			depth = max(depth, n)
-		}
-		for _, child := range node.Content {
-			walk(child)
-		}
-	}
-	walk(&root)
-	return depth
+	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
 }
 
 // separatedWorkspaceEvals lists evaluation files directly under the evals root

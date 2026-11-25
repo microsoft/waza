@@ -219,7 +219,10 @@ test('runtime package and reader/schema helpers select the proof, while adjacent
     assert.equal(applicability([`${directory}-near-miss/${file}`]).runtime, false, directory);
   }
   assert.equal(Object.isFrozen(runtimeInputs), true);
-  assert.equal(applicability(['internal/rootedfile/open_unix.go']).runtime, false, 'not imported by the A69 pinned test binary');
+  assert.equal(applicability(['internal/rootedfile/open_unix.go']).runtime, true, 'imported by the pinned execution test binary');
+  assert.equal(applicability(['internal/workspace/workspace.go']).runtime, true, 'imported by the pinned execution test binary');
+  assert.equal(applicability(['internal/rootedfile-near-miss/open_unix.go']).runtime, false);
+  assert.equal(applicability(['internal/workspace-near-miss/workspace.go']).runtime, false);
 });
 
 test('site compound chat outcome covers all three commands without inventing separate step outcomes', () => {

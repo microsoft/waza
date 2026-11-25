@@ -16,7 +16,7 @@ import (
 func ValidateRequiredSkillConfiguration(spec *models.EvalSpec, baseDir string) error {
 	return validateRequiredSkillConfiguration(spec, baseDir, func(paths []string) (map[string]string, error) {
 		var readErrors []error
-		discovered, err := discoverSkillsWithReporter(paths, func(path string, err error) {
+		discovered, err := discoverSkillsWithReporter(paths, readSkillDefinition, func(path string, err error) {
 			var readErr *definitionReadError
 			if errors.As(err, &readErr) {
 				readErrors = append(readErrors, err)

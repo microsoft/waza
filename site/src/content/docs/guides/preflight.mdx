@@ -194,6 +194,14 @@ a fixture is not itself a discovery failure. When discovery fails, reports for
 independently discovered evaluations are still written to stdout in the selected
 format; the error is written to stderr and the command exits 2.
 
+Workspace mode inspects each distinct eval path before deduplicating aliases.
+Aliases collapse only when their tracked local inputs and reported results
+agree after resolving links. Parent-relative task, skill-directory, and mock
+fixture paths can keep two aliases separate; description text cannot.
+Declarations whose paths are not fully tracked offline, such as hooks or
+program graders, keep their alias reports separate rather than assuming
+equivalence. This bookkeeping adds no fields to the JSON report.
+
 When no skills or evaluations are discovered, workspace mode exits 2 with a
 `workspace.empty` diagnostic naming the discovery root. JSON mode writes an
 empty report array to stdout and the structured diagnostic to stderr. A discovered
@@ -212,6 +220,8 @@ Waza requests a nonblocking open and checks the opened definition is regular.
 Windows and other hosts cannot guarantee a nonblocking open if a path is
 replaced concurrently. These checks do not authenticate paths, guarantee stable
 content, or protect later skill loads.
+The regular-file reader is specific to offline validation; runtime required-skill
+discovery retains its existing file-reader and warn/skip behavior.
 
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
 nonempty `scenario`. Existing v1 suites retain their version/default/discovery
