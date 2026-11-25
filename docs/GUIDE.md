@@ -619,6 +619,11 @@ unknown referenced environment with no protection rules or secrets. The workflow
 if/ref condition is not the protection boundary: a modified branch workflow
 can remove it.
 
+Protection availability depends on the repository's visibility and GitHub plan.
+Required reviewers are unavailable for private repositories on GitHub Free,
+Pro, or Team. Do not enable the credentialed job if the recommended branch
+restrictions or required reviewers cannot be configured.
+
 Do not define a same-named repository or organization secret. If the environment
 secret is missing, GitHub can silently use that broader-scoped secret.
 
