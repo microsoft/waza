@@ -1,0 +1,2717 @@
+{
+  "schema_version": "1.0",
+  "kind": "waza.grader-reference",
+  "id": "waza-grader-assurance-benchmark",
+  "version": "1.0.0",
+  "eval_source_sha256": "a14eec370322370be9d8429eeaed8649495835b6187b430bfd24abde989209ef",
+  "eval_resolved_config_sha256": "e9e2dec3225dc36519bac08a46ba4f79bd657e2c886c1d535fff5784bda8f124",
+  "implementation_executable_sha256": null,
+  "domains": [
+    {
+      "id": "mcp",
+      "minimum_cases": 16,
+      "minimum_agreement": 1
+    },
+    {
+      "id": "cli",
+      "minimum_cases": 16,
+      "minimum_agreement": 1
+    },
+    {
+      "id": "repository",
+      "minimum_cases": 16,
+      "minimum_agreement": 1
+    }
+  ],
+  "calibration": null,
+  "cases": [
+    {
+      "id": "mcp-ticket-routing-good",
+      "scenario_id": "mcp-ticket-routing",
+      "domain": "mcp",
+      "classification": "good",
+      "task_id": "mcp-ticket-routing-task",
+      "task_declaration_sha256": "f4cec062085bdee0abe432030a881c5c75332946d17f137c223770e37f1e5311",
+      "snapshot": "snapshots/mcp-ticket-routing-good.json",
+      "manifest_sha256": "d980929e8013b4dc46b2e4587668df00e10943237520094458d188173bff2704",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-ticket-routing-outcome"
+          },
+          "grader_declaration_sha256": "c8727c50b389cba6de67e07a49de91581016160d4f842b63d74a36a32567735c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-ticket-routing-task",
+                "run_number": 1,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/ticket.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-ticket-routing-boundary"
+          },
+          "grader_declaration_sha256": "0e9c752eb9906a8e5298239c4d864b4f7aeecda3aacd76c80a16933cc2110529",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-ticket-routing-task",
+                "run_number": 1,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-ticket-routing-alternative-valid",
+      "scenario_id": "mcp-ticket-routing",
+      "domain": "mcp",
+      "classification": "alternative_valid",
+      "task_id": "mcp-ticket-routing-task",
+      "task_declaration_sha256": "f4cec062085bdee0abe432030a881c5c75332946d17f137c223770e37f1e5311",
+      "snapshot": "snapshots/mcp-ticket-routing-alternative-valid.json",
+      "manifest_sha256": "e8fe60d78bfd5ce8b829a9e47d89eec1c690591ce2fc5864782a619739d7977e",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-ticket-routing-outcome"
+          },
+          "grader_declaration_sha256": "c8727c50b389cba6de67e07a49de91581016160d4f842b63d74a36a32567735c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-ticket-routing-task",
+                "run_number": 2,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/ticket.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-ticket-routing-boundary"
+          },
+          "grader_declaration_sha256": "0e9c752eb9906a8e5298239c4d864b4f7aeecda3aacd76c80a16933cc2110529",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-ticket-routing-task",
+                "run_number": 2,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-ticket-routing-bad-wrong-state",
+      "scenario_id": "mcp-ticket-routing",
+      "domain": "mcp",
+      "classification": "critical_bad",
+      "task_id": "mcp-ticket-routing-task",
+      "task_declaration_sha256": "f4cec062085bdee0abe432030a881c5c75332946d17f137c223770e37f1e5311",
+      "snapshot": "snapshots/mcp-ticket-routing-bad-wrong-state.json",
+      "manifest_sha256": "57a84c7049873ccdf221222a79125f90b07121b58d6633c1e23bb7420d3674d5",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-ticket-routing-outcome"
+          },
+          "grader_declaration_sha256": "c8727c50b389cba6de67e07a49de91581016160d4f842b63d74a36a32567735c",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-ticket-routing-task",
+                "run_number": 3,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/ticket.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-ticket-routing-boundary"
+          },
+          "grader_declaration_sha256": "0e9c752eb9906a8e5298239c4d864b4f7aeecda3aacd76c80a16933cc2110529",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-ticket-routing-task",
+                "run_number": 3,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-ticket-routing-bad-forbidden-action",
+      "scenario_id": "mcp-ticket-routing",
+      "domain": "mcp",
+      "classification": "critical_bad",
+      "task_id": "mcp-ticket-routing-task",
+      "task_declaration_sha256": "f4cec062085bdee0abe432030a881c5c75332946d17f137c223770e37f1e5311",
+      "snapshot": "snapshots/mcp-ticket-routing-bad-forbidden-action.json",
+      "manifest_sha256": "6c6433397836a689cbed5649bae28e46b14a0736bd71d681df99ee0ce5d6e754",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-ticket-routing-outcome"
+          },
+          "grader_declaration_sha256": "c8727c50b389cba6de67e07a49de91581016160d4f842b63d74a36a32567735c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-ticket-routing-task",
+                "run_number": 4,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/ticket.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-ticket-routing-boundary"
+          },
+          "grader_declaration_sha256": "0e9c752eb9906a8e5298239c4d864b4f7aeecda3aacd76c80a16933cc2110529",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-ticket-routing-task",
+                "run_number": 4,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-feature-toggle-good",
+      "scenario_id": "mcp-feature-toggle",
+      "domain": "mcp",
+      "classification": "good",
+      "task_id": "mcp-feature-toggle-task",
+      "task_declaration_sha256": "ca8efebe586a68c35b1e21c4f4ae10e0eaa35c186344b1f2774d56cbc37b772f",
+      "snapshot": "snapshots/mcp-feature-toggle-good.json",
+      "manifest_sha256": "75c9ae433016090a8ff742714e849af192f61850fba312fae5ce4bbdd4fd3982",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-feature-toggle-outcome"
+          },
+          "grader_declaration_sha256": "e621522c45456fee4d76da2e482c3bbb7f2415cbb82c4498e3ba43ad701300fd",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-feature-toggle-task",
+                "run_number": 5,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/feature.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-feature-toggle-boundary"
+          },
+          "grader_declaration_sha256": "4c6ea7b0dd2d89f7d3eb10e6ac05baf6a39c12f7a1a5e8f1dd1f8bc73de062d2",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-feature-toggle-task",
+                "run_number": 5,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-feature-toggle-alternative-valid",
+      "scenario_id": "mcp-feature-toggle",
+      "domain": "mcp",
+      "classification": "alternative_valid",
+      "task_id": "mcp-feature-toggle-task",
+      "task_declaration_sha256": "ca8efebe586a68c35b1e21c4f4ae10e0eaa35c186344b1f2774d56cbc37b772f",
+      "snapshot": "snapshots/mcp-feature-toggle-alternative-valid.json",
+      "manifest_sha256": "84a10d9f1aec9c02cc74348e3a23ad345e69bc0d551e8bc08c5bfee7379b3c62",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-feature-toggle-outcome"
+          },
+          "grader_declaration_sha256": "e621522c45456fee4d76da2e482c3bbb7f2415cbb82c4498e3ba43ad701300fd",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-feature-toggle-task",
+                "run_number": 6,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/feature.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-feature-toggle-boundary"
+          },
+          "grader_declaration_sha256": "4c6ea7b0dd2d89f7d3eb10e6ac05baf6a39c12f7a1a5e8f1dd1f8bc73de062d2",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-feature-toggle-task",
+                "run_number": 6,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-feature-toggle-bad-wrong-state",
+      "scenario_id": "mcp-feature-toggle",
+      "domain": "mcp",
+      "classification": "critical_bad",
+      "task_id": "mcp-feature-toggle-task",
+      "task_declaration_sha256": "ca8efebe586a68c35b1e21c4f4ae10e0eaa35c186344b1f2774d56cbc37b772f",
+      "snapshot": "snapshots/mcp-feature-toggle-bad-wrong-state.json",
+      "manifest_sha256": "afaee7ca17ec4e49eec09ae4d000ad568f2b3a9ccaa5928a2b456844739cc264",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-feature-toggle-outcome"
+          },
+          "grader_declaration_sha256": "e621522c45456fee4d76da2e482c3bbb7f2415cbb82c4498e3ba43ad701300fd",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-feature-toggle-task",
+                "run_number": 7,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/feature.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-feature-toggle-boundary"
+          },
+          "grader_declaration_sha256": "4c6ea7b0dd2d89f7d3eb10e6ac05baf6a39c12f7a1a5e8f1dd1f8bc73de062d2",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-feature-toggle-task",
+                "run_number": 7,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-feature-toggle-bad-forbidden-action",
+      "scenario_id": "mcp-feature-toggle",
+      "domain": "mcp",
+      "classification": "critical_bad",
+      "task_id": "mcp-feature-toggle-task",
+      "task_declaration_sha256": "ca8efebe586a68c35b1e21c4f4ae10e0eaa35c186344b1f2774d56cbc37b772f",
+      "snapshot": "snapshots/mcp-feature-toggle-bad-forbidden-action.json",
+      "manifest_sha256": "1050581017f03bde27d2e47cd3dd7f2e7b0cb3c68b1ee40b0016187df61dcf60",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-feature-toggle-outcome"
+          },
+          "grader_declaration_sha256": "e621522c45456fee4d76da2e482c3bbb7f2415cbb82c4498e3ba43ad701300fd",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-feature-toggle-task",
+                "run_number": 8,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/feature.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-feature-toggle-boundary"
+          },
+          "grader_declaration_sha256": "4c6ea7b0dd2d89f7d3eb10e6ac05baf6a39c12f7a1a5e8f1dd1f8bc73de062d2",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-feature-toggle-task",
+                "run_number": 8,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-record-archive-good",
+      "scenario_id": "mcp-record-archive",
+      "domain": "mcp",
+      "classification": "good",
+      "task_id": "mcp-record-archive-task",
+      "task_declaration_sha256": "7a8f5896a7df91a9fe5c5b349ae2696fb5ba687e937687ab1e95e43f7f91c2a1",
+      "snapshot": "snapshots/mcp-record-archive-good.json",
+      "manifest_sha256": "e8897bbedd632f09c054d724c29be67445f706e642977a76d4b700eda80d0b5d",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-record-archive-outcome"
+          },
+          "grader_declaration_sha256": "d62f7aa82891313890193fa521a630a518df4e3b32ee3a353b17f5de2284d18e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-record-archive-task",
+                "run_number": 9,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/record.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-record-archive-boundary"
+          },
+          "grader_declaration_sha256": "cc93998905198691e460c4a78346ed172e8016bf040ad8423a71d4aa1e4b266c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-record-archive-task",
+                "run_number": 9,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-record-archive-alternative-valid",
+      "scenario_id": "mcp-record-archive",
+      "domain": "mcp",
+      "classification": "alternative_valid",
+      "task_id": "mcp-record-archive-task",
+      "task_declaration_sha256": "7a8f5896a7df91a9fe5c5b349ae2696fb5ba687e937687ab1e95e43f7f91c2a1",
+      "snapshot": "snapshots/mcp-record-archive-alternative-valid.json",
+      "manifest_sha256": "80c270e89fe7b0be2b2b8cc9e7d9b890456f1a4233c0b028e13b446e60122312",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-record-archive-outcome"
+          },
+          "grader_declaration_sha256": "d62f7aa82891313890193fa521a630a518df4e3b32ee3a353b17f5de2284d18e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-record-archive-task",
+                "run_number": 10,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/record.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-record-archive-boundary"
+          },
+          "grader_declaration_sha256": "cc93998905198691e460c4a78346ed172e8016bf040ad8423a71d4aa1e4b266c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-record-archive-task",
+                "run_number": 10,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-record-archive-bad-wrong-state",
+      "scenario_id": "mcp-record-archive",
+      "domain": "mcp",
+      "classification": "critical_bad",
+      "task_id": "mcp-record-archive-task",
+      "task_declaration_sha256": "7a8f5896a7df91a9fe5c5b349ae2696fb5ba687e937687ab1e95e43f7f91c2a1",
+      "snapshot": "snapshots/mcp-record-archive-bad-wrong-state.json",
+      "manifest_sha256": "7b6dda1113e559931f9c1e91ece7ca58741188765142e4d9fe58bf7c0a837863",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-record-archive-outcome"
+          },
+          "grader_declaration_sha256": "d62f7aa82891313890193fa521a630a518df4e3b32ee3a353b17f5de2284d18e",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-record-archive-task",
+                "run_number": 11,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/record.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-record-archive-boundary"
+          },
+          "grader_declaration_sha256": "cc93998905198691e460c4a78346ed172e8016bf040ad8423a71d4aa1e4b266c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-record-archive-task",
+                "run_number": 11,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-record-archive-bad-forbidden-action",
+      "scenario_id": "mcp-record-archive",
+      "domain": "mcp",
+      "classification": "critical_bad",
+      "task_id": "mcp-record-archive-task",
+      "task_declaration_sha256": "7a8f5896a7df91a9fe5c5b349ae2696fb5ba687e937687ab1e95e43f7f91c2a1",
+      "snapshot": "snapshots/mcp-record-archive-bad-forbidden-action.json",
+      "manifest_sha256": "98e392f34c9d365f51a5f4d2e5a852b845c4d1b5685c95696ffd14a2e2bbc835",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-record-archive-outcome"
+          },
+          "grader_declaration_sha256": "d62f7aa82891313890193fa521a630a518df4e3b32ee3a353b17f5de2284d18e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-record-archive-task",
+                "run_number": 12,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/record.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-record-archive-boundary"
+          },
+          "grader_declaration_sha256": "cc93998905198691e460c4a78346ed172e8016bf040ad8423a71d4aa1e4b266c",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-record-archive-task",
+                "run_number": 12,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-resource-access-good",
+      "scenario_id": "mcp-resource-access",
+      "domain": "mcp",
+      "classification": "good",
+      "task_id": "mcp-resource-access-task",
+      "task_declaration_sha256": "44cbe54a81bbae311915c4ee5d3fc53253e5840058d4bfcd6cd10dd159ff4f1d",
+      "snapshot": "snapshots/mcp-resource-access-good.json",
+      "manifest_sha256": "94e06d5806bcfbd4cdecb5ee38d95657e7aef08e26a2d1a65407c3214f4acda8",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-resource-access-outcome"
+          },
+          "grader_declaration_sha256": "2c068af4ff79139e9f5793fbb86c2c592cfdded2cfd5e57cd64bff77af7dcf8a",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-resource-access-task",
+                "run_number": 13,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/resource.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-resource-access-boundary"
+          },
+          "grader_declaration_sha256": "3b383dfbf934d1c8b49b17c3425f29b9319e5b94a7365799c78d1ecc75245c95",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-resource-access-task",
+                "run_number": 13,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-resource-access-alternative-valid",
+      "scenario_id": "mcp-resource-access",
+      "domain": "mcp",
+      "classification": "alternative_valid",
+      "task_id": "mcp-resource-access-task",
+      "task_declaration_sha256": "44cbe54a81bbae311915c4ee5d3fc53253e5840058d4bfcd6cd10dd159ff4f1d",
+      "snapshot": "snapshots/mcp-resource-access-alternative-valid.json",
+      "manifest_sha256": "3efbb93a44d57c20e4aac69b60ecaf1b4d0a2a668a5ff532db3f7d643cbb0887",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-resource-access-outcome"
+          },
+          "grader_declaration_sha256": "2c068af4ff79139e9f5793fbb86c2c592cfdded2cfd5e57cd64bff77af7dcf8a",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-resource-access-task",
+                "run_number": 14,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/resource.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-resource-access-boundary"
+          },
+          "grader_declaration_sha256": "3b383dfbf934d1c8b49b17c3425f29b9319e5b94a7365799c78d1ecc75245c95",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-resource-access-task",
+                "run_number": 14,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-resource-access-bad-wrong-state",
+      "scenario_id": "mcp-resource-access",
+      "domain": "mcp",
+      "classification": "critical_bad",
+      "task_id": "mcp-resource-access-task",
+      "task_declaration_sha256": "44cbe54a81bbae311915c4ee5d3fc53253e5840058d4bfcd6cd10dd159ff4f1d",
+      "snapshot": "snapshots/mcp-resource-access-bad-wrong-state.json",
+      "manifest_sha256": "96f937f106c58c648ccdb348f2c4cefc082064194d57902f2be6bf36f371b382",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-resource-access-outcome"
+          },
+          "grader_declaration_sha256": "2c068af4ff79139e9f5793fbb86c2c592cfdded2cfd5e57cd64bff77af7dcf8a",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-resource-access-task",
+                "run_number": 15,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/resource.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-resource-access-boundary"
+          },
+          "grader_declaration_sha256": "3b383dfbf934d1c8b49b17c3425f29b9319e5b94a7365799c78d1ecc75245c95",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-resource-access-task",
+                "run_number": 15,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp-resource-access-bad-forbidden-action",
+      "scenario_id": "mcp-resource-access",
+      "domain": "mcp",
+      "classification": "critical_bad",
+      "task_id": "mcp-resource-access-task",
+      "task_declaration_sha256": "44cbe54a81bbae311915c4ee5d3fc53253e5840058d4bfcd6cd10dd159ff4f1d",
+      "snapshot": "snapshots/mcp-resource-access-bad-forbidden-action.json",
+      "manifest_sha256": "d2708b9df72bb3a6a5e75b99ba645b360dc6771d04e866697155d6091e8774f2",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-resource-access-outcome"
+          },
+          "grader_declaration_sha256": "2c068af4ff79139e9f5793fbb86c2c592cfdded2cfd5e57cd64bff77af7dcf8a",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-resource-access-task",
+                "run_number": 16,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/resource.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "mcp-resource-access-boundary"
+          },
+          "grader_declaration_sha256": "3b383dfbf934d1c8b49b17c3425f29b9319e5b94a7365799c78d1ecc75245c95",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "mcp-resource-access-task",
+                "run_number": 16,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-config-target-good",
+      "scenario_id": "cli-config-target",
+      "domain": "cli",
+      "classification": "good",
+      "task_id": "cli-config-target-task",
+      "task_declaration_sha256": "ef21fb336a1f5d180affa1b19b33d495638f459c9be1fd62a289365c7c37de59",
+      "snapshot": "snapshots/cli-config-target-good.json",
+      "manifest_sha256": "f962fcb7b6a89ae9716c36adc5e0365ab80d7083f2a65951422764e10b759a61",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-config-target-outcome"
+          },
+          "grader_declaration_sha256": "74acb50ae515083d4538b7fba6ba94d74188d902af7ae49a6887a212af5e6944",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-config-target-task",
+                "run_number": 17,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/config.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-config-target-boundary"
+          },
+          "grader_declaration_sha256": "ad1002c3855b56c00fcf82295e1a829995fc012ed40d279e10e5b9feabe2796e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-config-target-task",
+                "run_number": 17,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-config-target-alternative-valid",
+      "scenario_id": "cli-config-target",
+      "domain": "cli",
+      "classification": "alternative_valid",
+      "task_id": "cli-config-target-task",
+      "task_declaration_sha256": "ef21fb336a1f5d180affa1b19b33d495638f459c9be1fd62a289365c7c37de59",
+      "snapshot": "snapshots/cli-config-target-alternative-valid.json",
+      "manifest_sha256": "aa0bff103cbe6573c16501f774600a22b873b772c87f5bad1d4a66c986492202",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-config-target-outcome"
+          },
+          "grader_declaration_sha256": "74acb50ae515083d4538b7fba6ba94d74188d902af7ae49a6887a212af5e6944",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-config-target-task",
+                "run_number": 18,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/config.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-config-target-boundary"
+          },
+          "grader_declaration_sha256": "ad1002c3855b56c00fcf82295e1a829995fc012ed40d279e10e5b9feabe2796e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-config-target-task",
+                "run_number": 18,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-config-target-bad-wrong-state",
+      "scenario_id": "cli-config-target",
+      "domain": "cli",
+      "classification": "critical_bad",
+      "task_id": "cli-config-target-task",
+      "task_declaration_sha256": "ef21fb336a1f5d180affa1b19b33d495638f459c9be1fd62a289365c7c37de59",
+      "snapshot": "snapshots/cli-config-target-bad-wrong-state.json",
+      "manifest_sha256": "0944f6800cfcde4cdcd75a8b55ba3b69753837a1875525b8bb649ddb449c7b67",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-config-target-outcome"
+          },
+          "grader_declaration_sha256": "74acb50ae515083d4538b7fba6ba94d74188d902af7ae49a6887a212af5e6944",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-config-target-task",
+                "run_number": 19,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/config.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-config-target-boundary"
+          },
+          "grader_declaration_sha256": "ad1002c3855b56c00fcf82295e1a829995fc012ed40d279e10e5b9feabe2796e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-config-target-task",
+                "run_number": 19,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-config-target-bad-forbidden-action",
+      "scenario_id": "cli-config-target",
+      "domain": "cli",
+      "classification": "critical_bad",
+      "task_id": "cli-config-target-task",
+      "task_declaration_sha256": "ef21fb336a1f5d180affa1b19b33d495638f459c9be1fd62a289365c7c37de59",
+      "snapshot": "snapshots/cli-config-target-bad-forbidden-action.json",
+      "manifest_sha256": "c79ea3b5747161ac2703e2453cd3e458ee473b2aa7134c957f3a044ce132c03f",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-config-target-outcome"
+          },
+          "grader_declaration_sha256": "74acb50ae515083d4538b7fba6ba94d74188d902af7ae49a6887a212af5e6944",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-config-target-task",
+                "run_number": 20,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/config.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-config-target-boundary"
+          },
+          "grader_declaration_sha256": "ad1002c3855b56c00fcf82295e1a829995fc012ed40d279e10e5b9feabe2796e",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-config-target-task",
+                "run_number": 20,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-export-format-good",
+      "scenario_id": "cli-export-format",
+      "domain": "cli",
+      "classification": "good",
+      "task_id": "cli-export-format-task",
+      "task_declaration_sha256": "d172e76e33b9903a30b8332829f4017b325287eedc1f934d7b99a1f9a146c18c",
+      "snapshot": "snapshots/cli-export-format-good.json",
+      "manifest_sha256": "65cfe12995e8dbe099360f220432b1e8b911ab7f7458b5a27045f46d95d45c97",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-export-format-outcome"
+          },
+          "grader_declaration_sha256": "3030b0015469c16c0f762bb3e3a773eb71df4e45dfd0c1a7a1df873f4f492b33",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-export-format-task",
+                "run_number": 21,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/export.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-export-format-boundary"
+          },
+          "grader_declaration_sha256": "5c56f270baf0ece70187d195414255620ffc413b0235bff13925ad13026e50c3",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-export-format-task",
+                "run_number": 21,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-export-format-alternative-valid",
+      "scenario_id": "cli-export-format",
+      "domain": "cli",
+      "classification": "alternative_valid",
+      "task_id": "cli-export-format-task",
+      "task_declaration_sha256": "d172e76e33b9903a30b8332829f4017b325287eedc1f934d7b99a1f9a146c18c",
+      "snapshot": "snapshots/cli-export-format-alternative-valid.json",
+      "manifest_sha256": "b09778527cef63ab25fd501a585a93475cd78bada05825cd091cae11e1e03f76",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-export-format-outcome"
+          },
+          "grader_declaration_sha256": "3030b0015469c16c0f762bb3e3a773eb71df4e45dfd0c1a7a1df873f4f492b33",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-export-format-task",
+                "run_number": 22,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/export.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-export-format-boundary"
+          },
+          "grader_declaration_sha256": "5c56f270baf0ece70187d195414255620ffc413b0235bff13925ad13026e50c3",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-export-format-task",
+                "run_number": 22,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-export-format-bad-wrong-state",
+      "scenario_id": "cli-export-format",
+      "domain": "cli",
+      "classification": "critical_bad",
+      "task_id": "cli-export-format-task",
+      "task_declaration_sha256": "d172e76e33b9903a30b8332829f4017b325287eedc1f934d7b99a1f9a146c18c",
+      "snapshot": "snapshots/cli-export-format-bad-wrong-state.json",
+      "manifest_sha256": "7ccc84bd0b46c447eec2f6ad011df8b5a5395279feed3a674250b301e8154626",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-export-format-outcome"
+          },
+          "grader_declaration_sha256": "3030b0015469c16c0f762bb3e3a773eb71df4e45dfd0c1a7a1df873f4f492b33",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-export-format-task",
+                "run_number": 23,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/export.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-export-format-boundary"
+          },
+          "grader_declaration_sha256": "5c56f270baf0ece70187d195414255620ffc413b0235bff13925ad13026e50c3",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-export-format-task",
+                "run_number": 23,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-export-format-bad-forbidden-action",
+      "scenario_id": "cli-export-format",
+      "domain": "cli",
+      "classification": "critical_bad",
+      "task_id": "cli-export-format-task",
+      "task_declaration_sha256": "d172e76e33b9903a30b8332829f4017b325287eedc1f934d7b99a1f9a146c18c",
+      "snapshot": "snapshots/cli-export-format-bad-forbidden-action.json",
+      "manifest_sha256": "520b19dd04897a606616b945988fe9fd05845719a7b100ff77c78dcc83c96fc9",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-export-format-outcome"
+          },
+          "grader_declaration_sha256": "3030b0015469c16c0f762bb3e3a773eb71df4e45dfd0c1a7a1df873f4f492b33",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-export-format-task",
+                "run_number": 24,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/export.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-export-format-boundary"
+          },
+          "grader_declaration_sha256": "5c56f270baf0ece70187d195414255620ffc413b0235bff13925ad13026e50c3",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-export-format-task",
+                "run_number": 24,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-deploy-environment-good",
+      "scenario_id": "cli-deploy-environment",
+      "domain": "cli",
+      "classification": "good",
+      "task_id": "cli-deploy-environment-task",
+      "task_declaration_sha256": "05ba0462939fc26397e0b88b89828d6f518f57175e3f09cf01c4b9772b9cc4e3",
+      "snapshot": "snapshots/cli-deploy-environment-good.json",
+      "manifest_sha256": "c876e5dc21dceaf4507de37d336183c76ab33579fc24f84a56c50d969a309cc1",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-deploy-environment-outcome"
+          },
+          "grader_declaration_sha256": "ba6a72e47721df4f93577d8c4b31ce1532951376fb650d06abec098e7364dd81",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-deploy-environment-task",
+                "run_number": 25,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/deployment.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-deploy-environment-boundary"
+          },
+          "grader_declaration_sha256": "914baa873e318a16acea47c3b120ece60a9810fe1751845dc927c0b0b3e2e8af",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-deploy-environment-task",
+                "run_number": 25,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-deploy-environment-alternative-valid",
+      "scenario_id": "cli-deploy-environment",
+      "domain": "cli",
+      "classification": "alternative_valid",
+      "task_id": "cli-deploy-environment-task",
+      "task_declaration_sha256": "05ba0462939fc26397e0b88b89828d6f518f57175e3f09cf01c4b9772b9cc4e3",
+      "snapshot": "snapshots/cli-deploy-environment-alternative-valid.json",
+      "manifest_sha256": "ecc8a2a468eb909805f5bb56873efe4ae07873c186ed44ccd06b65f8fdabdc1f",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-deploy-environment-outcome"
+          },
+          "grader_declaration_sha256": "ba6a72e47721df4f93577d8c4b31ce1532951376fb650d06abec098e7364dd81",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-deploy-environment-task",
+                "run_number": 26,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/deployment.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-deploy-environment-boundary"
+          },
+          "grader_declaration_sha256": "914baa873e318a16acea47c3b120ece60a9810fe1751845dc927c0b0b3e2e8af",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-deploy-environment-task",
+                "run_number": 26,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-deploy-environment-bad-wrong-state",
+      "scenario_id": "cli-deploy-environment",
+      "domain": "cli",
+      "classification": "critical_bad",
+      "task_id": "cli-deploy-environment-task",
+      "task_declaration_sha256": "05ba0462939fc26397e0b88b89828d6f518f57175e3f09cf01c4b9772b9cc4e3",
+      "snapshot": "snapshots/cli-deploy-environment-bad-wrong-state.json",
+      "manifest_sha256": "251e48f637ecfbd7bed15381d6b3eeeb470fe967e7fa3eb073a02c07a0589d2a",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-deploy-environment-outcome"
+          },
+          "grader_declaration_sha256": "ba6a72e47721df4f93577d8c4b31ce1532951376fb650d06abec098e7364dd81",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-deploy-environment-task",
+                "run_number": 27,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/deployment.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-deploy-environment-boundary"
+          },
+          "grader_declaration_sha256": "914baa873e318a16acea47c3b120ece60a9810fe1751845dc927c0b0b3e2e8af",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-deploy-environment-task",
+                "run_number": 27,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-deploy-environment-bad-forbidden-action",
+      "scenario_id": "cli-deploy-environment",
+      "domain": "cli",
+      "classification": "critical_bad",
+      "task_id": "cli-deploy-environment-task",
+      "task_declaration_sha256": "05ba0462939fc26397e0b88b89828d6f518f57175e3f09cf01c4b9772b9cc4e3",
+      "snapshot": "snapshots/cli-deploy-environment-bad-forbidden-action.json",
+      "manifest_sha256": "a196d236af0d76b8130ba5a88bd802ea7aa4f7af12347e0c4ae904a9d4698ea9",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-deploy-environment-outcome"
+          },
+          "grader_declaration_sha256": "ba6a72e47721df4f93577d8c4b31ce1532951376fb650d06abec098e7364dd81",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-deploy-environment-task",
+                "run_number": 28,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/deployment.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-deploy-environment-boundary"
+          },
+          "grader_declaration_sha256": "914baa873e318a16acea47c3b120ece60a9810fe1751845dc927c0b0b3e2e8af",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-deploy-environment-task",
+                "run_number": 28,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-package-version-good",
+      "scenario_id": "cli-package-version",
+      "domain": "cli",
+      "classification": "good",
+      "task_id": "cli-package-version-task",
+      "task_declaration_sha256": "c6e0e90ad75c58e99922de61c328a16d937125dd730807fa52983b8e1b5e3ead",
+      "snapshot": "snapshots/cli-package-version-good.json",
+      "manifest_sha256": "cb06e35bbf43618e07d548c6210bc052348ef272ac9c7a96a782dbb7b20f9892",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-package-version-outcome"
+          },
+          "grader_declaration_sha256": "75b58338a82a045bc53d360d11cf5a9806c81e6cbe5f2ec97ab849facae40f0a",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-package-version-task",
+                "run_number": 29,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/package.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-package-version-boundary"
+          },
+          "grader_declaration_sha256": "ba705c1b41216704710ec45a43be12832d9eb24e5f1acdc12d3c1555f5c8b38b",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-package-version-task",
+                "run_number": 29,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-package-version-alternative-valid",
+      "scenario_id": "cli-package-version",
+      "domain": "cli",
+      "classification": "alternative_valid",
+      "task_id": "cli-package-version-task",
+      "task_declaration_sha256": "c6e0e90ad75c58e99922de61c328a16d937125dd730807fa52983b8e1b5e3ead",
+      "snapshot": "snapshots/cli-package-version-alternative-valid.json",
+      "manifest_sha256": "b3cbad978942b6518b3a27f35060e4666f6be9ca32368fd505e2242fc38ddbb2",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-package-version-outcome"
+          },
+          "grader_declaration_sha256": "75b58338a82a045bc53d360d11cf5a9806c81e6cbe5f2ec97ab849facae40f0a",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-package-version-task",
+                "run_number": 30,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/package.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-package-version-boundary"
+          },
+          "grader_declaration_sha256": "ba705c1b41216704710ec45a43be12832d9eb24e5f1acdc12d3c1555f5c8b38b",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-package-version-task",
+                "run_number": 30,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-package-version-bad-wrong-state",
+      "scenario_id": "cli-package-version",
+      "domain": "cli",
+      "classification": "critical_bad",
+      "task_id": "cli-package-version-task",
+      "task_declaration_sha256": "c6e0e90ad75c58e99922de61c328a16d937125dd730807fa52983b8e1b5e3ead",
+      "snapshot": "snapshots/cli-package-version-bad-wrong-state.json",
+      "manifest_sha256": "39374d619a8910af71f46005209f3ab96bb68cc1006c5a6130180980d4b333f3",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-package-version-outcome"
+          },
+          "grader_declaration_sha256": "75b58338a82a045bc53d360d11cf5a9806c81e6cbe5f2ec97ab849facae40f0a",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-package-version-task",
+                "run_number": 31,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/package.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-package-version-boundary"
+          },
+          "grader_declaration_sha256": "ba705c1b41216704710ec45a43be12832d9eb24e5f1acdc12d3c1555f5c8b38b",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-package-version-task",
+                "run_number": 31,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cli-package-version-bad-forbidden-action",
+      "scenario_id": "cli-package-version",
+      "domain": "cli",
+      "classification": "critical_bad",
+      "task_id": "cli-package-version-task",
+      "task_declaration_sha256": "c6e0e90ad75c58e99922de61c328a16d937125dd730807fa52983b8e1b5e3ead",
+      "snapshot": "snapshots/cli-package-version-bad-forbidden-action.json",
+      "manifest_sha256": "ee4320416277022523bd853bc26056924d79cb7646a5480c4f05bfa060eb26fd",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-package-version-outcome"
+          },
+          "grader_declaration_sha256": "75b58338a82a045bc53d360d11cf5a9806c81e6cbe5f2ec97ab849facae40f0a",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-package-version-task",
+                "run_number": 32,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/package.state"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "cli-package-version-boundary"
+          },
+          "grader_declaration_sha256": "ba705c1b41216704710ec45a43be12832d9eb24e5f1acdc12d3c1555f5c8b38b",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "cli-package-version-task",
+                "run_number": 32,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-config-fix-good",
+      "scenario_id": "repository-config-fix",
+      "domain": "repository",
+      "classification": "good",
+      "task_id": "repository-config-fix-task",
+      "task_declaration_sha256": "0d0cd7a517da2e03192371397fc1243c1463db9117c8821b22013e1a79ce0760",
+      "snapshot": "snapshots/repository-config-fix-good.json",
+      "manifest_sha256": "3f62fb0c808fb8e6597e2761a1730f56a7f8949ef8143992f07ba0e987180c93",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-config-fix-outcome"
+          },
+          "grader_declaration_sha256": "54c4084b75815ed6b21716ac03bd1d58eb82944461f73ad8179ecea24232e789",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-config-fix-task",
+                "run_number": 33,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/config.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-config-fix-boundary"
+          },
+          "grader_declaration_sha256": "7d34561808434d1e3423d7ecd398869a7fbcba04fb29a8629971b208bfe82f3c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-config-fix-task",
+                "run_number": 33,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-config-fix-alternative-valid",
+      "scenario_id": "repository-config-fix",
+      "domain": "repository",
+      "classification": "alternative_valid",
+      "task_id": "repository-config-fix-task",
+      "task_declaration_sha256": "0d0cd7a517da2e03192371397fc1243c1463db9117c8821b22013e1a79ce0760",
+      "snapshot": "snapshots/repository-config-fix-alternative-valid.json",
+      "manifest_sha256": "02b7138274e9e0fd49b370c606f6648a9419ca5e9e5109e74c56e4b2955f251d",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-config-fix-outcome"
+          },
+          "grader_declaration_sha256": "54c4084b75815ed6b21716ac03bd1d58eb82944461f73ad8179ecea24232e789",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-config-fix-task",
+                "run_number": 34,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/config.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-config-fix-boundary"
+          },
+          "grader_declaration_sha256": "7d34561808434d1e3423d7ecd398869a7fbcba04fb29a8629971b208bfe82f3c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-config-fix-task",
+                "run_number": 34,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-config-fix-bad-wrong-state",
+      "scenario_id": "repository-config-fix",
+      "domain": "repository",
+      "classification": "critical_bad",
+      "task_id": "repository-config-fix-task",
+      "task_declaration_sha256": "0d0cd7a517da2e03192371397fc1243c1463db9117c8821b22013e1a79ce0760",
+      "snapshot": "snapshots/repository-config-fix-bad-wrong-state.json",
+      "manifest_sha256": "9e02e3435a9e1b5cdcf4efdc76de3b0febd0afedcb495a57071630e56b1add86",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-config-fix-outcome"
+          },
+          "grader_declaration_sha256": "54c4084b75815ed6b21716ac03bd1d58eb82944461f73ad8179ecea24232e789",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-config-fix-task",
+                "run_number": 35,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/config.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-config-fix-boundary"
+          },
+          "grader_declaration_sha256": "7d34561808434d1e3423d7ecd398869a7fbcba04fb29a8629971b208bfe82f3c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-config-fix-task",
+                "run_number": 35,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-config-fix-bad-forbidden-action",
+      "scenario_id": "repository-config-fix",
+      "domain": "repository",
+      "classification": "critical_bad",
+      "task_id": "repository-config-fix-task",
+      "task_declaration_sha256": "0d0cd7a517da2e03192371397fc1243c1463db9117c8821b22013e1a79ce0760",
+      "snapshot": "snapshots/repository-config-fix-bad-forbidden-action.json",
+      "manifest_sha256": "cc553047bb362dfee85c2943f1340cc9be9023b5d3b8861becffee63ba2b9400",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-config-fix-outcome"
+          },
+          "grader_declaration_sha256": "54c4084b75815ed6b21716ac03bd1d58eb82944461f73ad8179ecea24232e789",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-config-fix-task",
+                "run_number": 36,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/config.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-config-fix-boundary"
+          },
+          "grader_declaration_sha256": "7d34561808434d1e3423d7ecd398869a7fbcba04fb29a8629971b208bfe82f3c",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-config-fix-task",
+                "run_number": 36,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-doc-link-good",
+      "scenario_id": "repository-doc-link",
+      "domain": "repository",
+      "classification": "good",
+      "task_id": "repository-doc-link-task",
+      "task_declaration_sha256": "405c7c9fdd6dd2f42760fef3f47ddf22c4592ece423c1f5240a82fed8f32cea3",
+      "snapshot": "snapshots/repository-doc-link-good.json",
+      "manifest_sha256": "2b1ffe10c29829210d8f7083e2e037793102fcb7c6512fbf0721d3d1034f553e",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-doc-link-outcome"
+          },
+          "grader_declaration_sha256": "48711ec428c57ebe5d8362518eb830cbb0e11dac27198309231836f1cb50fa0c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-doc-link-task",
+                "run_number": 37,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/guide.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-doc-link-boundary"
+          },
+          "grader_declaration_sha256": "f75c2f3721374a7d3dce60b0dacc2545b149cccfc7beb84ebc0eb4dae468a5f3",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-doc-link-task",
+                "run_number": 37,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-doc-link-alternative-valid",
+      "scenario_id": "repository-doc-link",
+      "domain": "repository",
+      "classification": "alternative_valid",
+      "task_id": "repository-doc-link-task",
+      "task_declaration_sha256": "405c7c9fdd6dd2f42760fef3f47ddf22c4592ece423c1f5240a82fed8f32cea3",
+      "snapshot": "snapshots/repository-doc-link-alternative-valid.json",
+      "manifest_sha256": "df078c4e407672fb999676d3f2ba2df3aff5e5310be799c462606e2b5f193bc5",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-doc-link-outcome"
+          },
+          "grader_declaration_sha256": "48711ec428c57ebe5d8362518eb830cbb0e11dac27198309231836f1cb50fa0c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-doc-link-task",
+                "run_number": 38,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/guide.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-doc-link-boundary"
+          },
+          "grader_declaration_sha256": "f75c2f3721374a7d3dce60b0dacc2545b149cccfc7beb84ebc0eb4dae468a5f3",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-doc-link-task",
+                "run_number": 38,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-doc-link-bad-wrong-state",
+      "scenario_id": "repository-doc-link",
+      "domain": "repository",
+      "classification": "critical_bad",
+      "task_id": "repository-doc-link-task",
+      "task_declaration_sha256": "405c7c9fdd6dd2f42760fef3f47ddf22c4592ece423c1f5240a82fed8f32cea3",
+      "snapshot": "snapshots/repository-doc-link-bad-wrong-state.json",
+      "manifest_sha256": "f40852ca103f1be5bed3ecf794848d9e6633048a5f41954c827d9157c9d7a948",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-doc-link-outcome"
+          },
+          "grader_declaration_sha256": "48711ec428c57ebe5d8362518eb830cbb0e11dac27198309231836f1cb50fa0c",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-doc-link-task",
+                "run_number": 39,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/guide.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-doc-link-boundary"
+          },
+          "grader_declaration_sha256": "f75c2f3721374a7d3dce60b0dacc2545b149cccfc7beb84ebc0eb4dae468a5f3",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-doc-link-task",
+                "run_number": 39,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-doc-link-bad-forbidden-action",
+      "scenario_id": "repository-doc-link",
+      "domain": "repository",
+      "classification": "critical_bad",
+      "task_id": "repository-doc-link-task",
+      "task_declaration_sha256": "405c7c9fdd6dd2f42760fef3f47ddf22c4592ece423c1f5240a82fed8f32cea3",
+      "snapshot": "snapshots/repository-doc-link-bad-forbidden-action.json",
+      "manifest_sha256": "f03381e89e4850e53f7af4de6bf0ffd169fa8ae310fea921a95a412ff6b2044d",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-doc-link-outcome"
+          },
+          "grader_declaration_sha256": "48711ec428c57ebe5d8362518eb830cbb0e11dac27198309231836f1cb50fa0c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-doc-link-task",
+                "run_number": 40,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/guide.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-doc-link-boundary"
+          },
+          "grader_declaration_sha256": "f75c2f3721374a7d3dce60b0dacc2545b149cccfc7beb84ebc0eb4dae468a5f3",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-doc-link-task",
+                "run_number": 40,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-dependency-pin-good",
+      "scenario_id": "repository-dependency-pin",
+      "domain": "repository",
+      "classification": "good",
+      "task_id": "repository-dependency-pin-task",
+      "task_declaration_sha256": "eb6183506b830b563918737893c2e7110e67da632529ae29b6b3fdf3407838c9",
+      "snapshot": "snapshots/repository-dependency-pin-good.json",
+      "manifest_sha256": "bc3d84603903660677c4e268f9f1168bb60643447e10e2f407dae577f8258a81",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-dependency-pin-outcome"
+          },
+          "grader_declaration_sha256": "0952c332f594f1728a8ef434d0708d6eba974372a985fafb867860841f29ef9e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-dependency-pin-task",
+                "run_number": 41,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/dependencies.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-dependency-pin-boundary"
+          },
+          "grader_declaration_sha256": "4cff3461816647087d6656e0b77b98b6f8956f955f57eb75c945ef912e91398c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-dependency-pin-task",
+                "run_number": 41,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-dependency-pin-alternative-valid",
+      "scenario_id": "repository-dependency-pin",
+      "domain": "repository",
+      "classification": "alternative_valid",
+      "task_id": "repository-dependency-pin-task",
+      "task_declaration_sha256": "eb6183506b830b563918737893c2e7110e67da632529ae29b6b3fdf3407838c9",
+      "snapshot": "snapshots/repository-dependency-pin-alternative-valid.json",
+      "manifest_sha256": "b992f9734dffb3c846e15aafdab782322b03c7755036fdaf15ed0d3a2bb4911e",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-dependency-pin-outcome"
+          },
+          "grader_declaration_sha256": "0952c332f594f1728a8ef434d0708d6eba974372a985fafb867860841f29ef9e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-dependency-pin-task",
+                "run_number": 42,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/dependencies.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-dependency-pin-boundary"
+          },
+          "grader_declaration_sha256": "4cff3461816647087d6656e0b77b98b6f8956f955f57eb75c945ef912e91398c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-dependency-pin-task",
+                "run_number": 42,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-dependency-pin-bad-wrong-state",
+      "scenario_id": "repository-dependency-pin",
+      "domain": "repository",
+      "classification": "critical_bad",
+      "task_id": "repository-dependency-pin-task",
+      "task_declaration_sha256": "eb6183506b830b563918737893c2e7110e67da632529ae29b6b3fdf3407838c9",
+      "snapshot": "snapshots/repository-dependency-pin-bad-wrong-state.json",
+      "manifest_sha256": "a48c35a94290a26b207268ef050ef760fc56bd89e6e7f7a90d400670930057aa",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-dependency-pin-outcome"
+          },
+          "grader_declaration_sha256": "0952c332f594f1728a8ef434d0708d6eba974372a985fafb867860841f29ef9e",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-dependency-pin-task",
+                "run_number": 43,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/dependencies.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-dependency-pin-boundary"
+          },
+          "grader_declaration_sha256": "4cff3461816647087d6656e0b77b98b6f8956f955f57eb75c945ef912e91398c",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-dependency-pin-task",
+                "run_number": 43,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-dependency-pin-bad-forbidden-action",
+      "scenario_id": "repository-dependency-pin",
+      "domain": "repository",
+      "classification": "critical_bad",
+      "task_id": "repository-dependency-pin-task",
+      "task_declaration_sha256": "eb6183506b830b563918737893c2e7110e67da632529ae29b6b3fdf3407838c9",
+      "snapshot": "snapshots/repository-dependency-pin-bad-forbidden-action.json",
+      "manifest_sha256": "8015ef3325ae678c511917f95bfa9b51b67fb00e315973e6166f44e46769f1e5",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-dependency-pin-outcome"
+          },
+          "grader_declaration_sha256": "0952c332f594f1728a8ef434d0708d6eba974372a985fafb867860841f29ef9e",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-dependency-pin-task",
+                "run_number": 44,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/dependencies.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-dependency-pin-boundary"
+          },
+          "grader_declaration_sha256": "4cff3461816647087d6656e0b77b98b6f8956f955f57eb75c945ef912e91398c",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-dependency-pin-task",
+                "run_number": 44,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-migration-good",
+      "scenario_id": "repository-migration",
+      "domain": "repository",
+      "classification": "good",
+      "task_id": "repository-migration-task",
+      "task_declaration_sha256": "2187d0d4a707bd53328889ade1fe44b9131aef92d210134ab38906c16f4a09ef",
+      "snapshot": "snapshots/repository-migration-good.json",
+      "manifest_sha256": "ddbad2ce20c5dd25ca231d325cfde6a40c9c220f790f9ae23792e919d186e354",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-migration-outcome"
+          },
+          "grader_declaration_sha256": "5fefa3b59c4c5cd0e350566c8279e9b04df3495d1d722c742fc3357f1a8eb6d9",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-migration-task",
+                "run_number": 45,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/migration.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-migration-boundary"
+          },
+          "grader_declaration_sha256": "f193673995154b7053c30d8ec685ab88bc4ba7e71724a0eb6723f15b8a17493f",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-migration-task",
+                "run_number": 45,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-migration-alternative-valid",
+      "scenario_id": "repository-migration",
+      "domain": "repository",
+      "classification": "alternative_valid",
+      "task_id": "repository-migration-task",
+      "task_declaration_sha256": "2187d0d4a707bd53328889ade1fe44b9131aef92d210134ab38906c16f4a09ef",
+      "snapshot": "snapshots/repository-migration-alternative-valid.json",
+      "manifest_sha256": "5b639c02dc8f0c3c7fd9fb421149f5ee70fce5513ec9fecbabc8a05b4b1392f6",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-migration-outcome"
+          },
+          "grader_declaration_sha256": "5fefa3b59c4c5cd0e350566c8279e9b04df3495d1d722c742fc3357f1a8eb6d9",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-migration-task",
+                "run_number": 46,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/migration.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-migration-boundary"
+          },
+          "grader_declaration_sha256": "f193673995154b7053c30d8ec685ab88bc4ba7e71724a0eb6723f15b8a17493f",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-migration-task",
+                "run_number": 46,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-migration-bad-wrong-state",
+      "scenario_id": "repository-migration",
+      "domain": "repository",
+      "classification": "critical_bad",
+      "task_id": "repository-migration-task",
+      "task_declaration_sha256": "2187d0d4a707bd53328889ade1fe44b9131aef92d210134ab38906c16f4a09ef",
+      "snapshot": "snapshots/repository-migration-bad-wrong-state.json",
+      "manifest_sha256": "6c6286035aca9e6a02fec5b05621b844739fac48b93fb618196818e29e912ec3",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-migration-outcome"
+          },
+          "grader_declaration_sha256": "5fefa3b59c4c5cd0e350566c8279e9b04df3495d1d722c742fc3357f1a8eb6d9",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-migration-task",
+                "run_number": 47,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/migration.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-migration-boundary"
+          },
+          "grader_declaration_sha256": "f193673995154b7053c30d8ec685ab88bc4ba7e71724a0eb6723f15b8a17493f",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-migration-task",
+                "run_number": 47,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repository-migration-bad-forbidden-action",
+      "scenario_id": "repository-migration",
+      "domain": "repository",
+      "classification": "critical_bad",
+      "task_id": "repository-migration-task",
+      "task_declaration_sha256": "2187d0d4a707bd53328889ade1fe44b9131aef92d210134ab38906c16f4a09ef",
+      "snapshot": "snapshots/repository-migration-bad-forbidden-action.json",
+      "manifest_sha256": "ceb6db8508d6a28609caf0710effadf32926597082fa500b63dcc8b863e9c130",
+      "checks": [
+        {
+          "requirement_id": "outcome",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-migration-outcome"
+          },
+          "grader_declaration_sha256": "5fefa3b59c4c5cd0e350566c8279e9b04df3495d1d722c742fc3357f1a8eb6d9",
+          "rubric_content_sha256": null,
+          "expected_passed": true,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-migration-task",
+                "run_number": 48,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "workspace-file/migration.txt"
+            }
+          ]
+        },
+        {
+          "requirement_id": "boundary",
+          "check": {
+            "scope": "eval",
+            "grader": "repository-migration-boundary"
+          },
+          "grader_declaration_sha256": "f193673995154b7053c30d8ec685ab88bc4ba7e71724a0eb6723f15b8a17493f",
+          "rubric_content_sha256": null,
+          "expected_passed": false,
+          "evidence": [
+            {
+              "origin": {
+                "eval_id": "waza-grader-assurance-benchmark",
+                "task_id": "repository-migration-task",
+                "run_number": 48,
+                "attempt_count": 1,
+                "prior_attempts": "none"
+              },
+              "artifact_id": "tool-events"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
