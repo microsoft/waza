@@ -397,6 +397,12 @@ of reporting an empty inventory. Resolvable resource links without discoverable
 skills and resolvable eval symlinks remain supported. Discovery errors go to
 stderr; reports for independently discovered evaluations remain on stdout in
 the selected format.
+During workspace discovery, linked-directory probes inspect definition
+metadata without reading it. On supported Unix hosts, Waza requests a
+nonblocking open and checks the opened definition is regular. Windows and
+other hosts cannot guarantee a nonblocking open if a path is replaced
+concurrently. These checks do not authenticate paths, guarantee stable
+content, or protect later skill loads.
 Valid unmatched task globs are optional when other patterns discover tasks.
 CSV paths must be lexically within the eval directory and remain within it
 after resolving symlinks;

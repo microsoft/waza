@@ -17,6 +17,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/preflight"
 	"github.com/microsoft/waza/internal/projectconfig"
+	"github.com/microsoft/waza/internal/scaffold"
 	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -1246,11 +1247,15 @@ func TestInitCI_WorkspaceRetainsRequestedEvalsWithPartialAncestor(t *testing.T) 
 		withLink         bool
 		override         bool
 		absoluteOverride bool
+		sameEvalsRoot    bool
+		brokenEvalLink   bool
 	}{
 		{name: "healthy ancestor"},
 		{name: "partial ancestor", withLink: true},
 		{name: "partial ancestor with relative eval override", withLink: true, override: true},
 		{name: "partial ancestor with absolute eval override", withLink: true, override: true, absoluteOverride: true},
+		{name: "partial ancestor with aliased eval root", withLink: true, sameEvalsRoot: true},
+		{name: "aliased eval root retains discovery errors", withLink: true, sameEvalsRoot: true, brokenEvalLink: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parent := t.TempDir()
@@ -1266,11 +1271,25 @@ func TestInitCI_WorkspaceRetainsRequestedEvalsWithPartialAncestor(t *testing.T) 
 			require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# reviewed\n"), 0o600))
 			skillEval := filepath.Join(skillDir, "eval.yaml")
 			initCIWriteEvalAt(t, skillDir, "eval.yaml", "")
+			if tc.sameEvalsRoot {
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, "evals"), 0o700))
+				if err := os.Symlink(filepath.Join("workspace", "evals"), filepath.Join(parent, "evals")); err != nil {
+					t.Skipf("directory symlink unavailable: %v", err)
+				}
+				parentInfo, err := os.Stat(filepath.Join(parent, "evals"))
+				require.NoError(t, err)
+				requestedInfo, err := os.Stat(filepath.Join(dir, "evals"))
+				require.NoError(t, err)
+				require.True(t, os.SameFile(parentInfo, requestedInfo), "fixture roots must refer to the same directory")
+			}
 			parentEval := filepath.Join(parent, "evals", "ancestor-extra", "eval.yaml")
 			initCIWriteEvalAt(t, filepath.Dir(parentEval), "eval.yaml", "")
 			requestedEval := filepath.Join(dir, "evals", "workspace-extra", "eval.yaml")
 			require.NoError(t, os.MkdirAll(filepath.Dir(requestedEval), 0o700))
 			require.NoError(t, os.WriteFile(requestedEval, []byte("config: [invalid]\n"), 0o600))
+			if tc.brokenEvalLink {
+				require.NoError(t, os.Symlink("missing", filepath.Join(dir, "evals", "broken")))
+			}
 			overrideEval := filepath.Join(dir, "chosen", "eval.yaml")
 			initCIWriteEvalAt(t, filepath.Dir(overrideEval), "eval.yaml", "")
 			if tc.withLink {
@@ -1322,12 +1341,17 @@ func TestInitCI_WorkspaceRetainsRequestedEvalsWithPartialAncestor(t *testing.T) 
 				require.False(t, sources[parentEval])
 			}
 			if tc.withLink && !tc.override {
-				require.Contains(t, sources, requestedEval)
-				require.True(t, sources[requestedEval])
+				reportedRequestedEval := requestedEval
+				if tc.sameEvalsRoot {
+					reportedRequestedEval = filepath.Join(parent, "evals", "workspace-extra", "eval.yaml")
+					require.NotContains(t, sources, requestedEval, "the aliased root must not produce duplicate reports")
+				}
+				require.Contains(t, sources, reportedRequestedEval)
+				require.True(t, sources[reportedRequestedEval])
 				require.Len(t, reports, 3)
 				var diagnosticFound bool
 				for _, report := range reports {
-					if report.Source == requestedEval {
+					if report.Source == reportedRequestedEval {
 						for _, diagnostic := range report.Diagnostics {
 							diagnosticFound = diagnosticFound || diagnostic.Code == "eval.configuration" && diagnostic.State == preflight.Invalid
 						}
@@ -1341,8 +1365,12 @@ func TestInitCI_WorkspaceRetainsRequestedEvalsWithPartialAncestor(t *testing.T) 
 				require.Equal(t, ExitError, humanExit.ExitCode(), human)
 				require.Contains(t, human, "Offline preflight: "+skillEval)
 				require.Contains(t, human, "Offline preflight: "+parentEval)
-				require.Contains(t, human, "invalid eval.configuration [error] "+requestedEval)
+				require.Contains(t, human, "invalid eval.configuration [error] "+reportedRequestedEval)
 				require.Contains(t, human, filepath.Join(parent, ".apm", "skills", "broken"))
+				require.Equal(t, 3, strings.Count(human, "Offline preflight: "))
+				if tc.brokenEvalLink {
+					require.Contains(t, human, filepath.Join(parent, "evals", "broken"))
+				}
 			} else {
 				require.NotContains(t, sources, requestedEval, "successful ancestor discovery and explicit overrides keep their existing roots")
 				require.Len(t, reports, 2)
@@ -1351,6 +1379,9 @@ func TestInitCI_WorkspaceRetainsRequestedEvalsWithPartialAncestor(t *testing.T) 
 				diagnostics, err := os.ReadFile(errorPath)
 				require.NoError(t, err)
 				require.Contains(t, string(diagnostics), filepath.Join(parent, ".apm", "skills", "broken"))
+				if tc.brokenEvalLink {
+					require.Contains(t, string(diagnostics), filepath.Join(parent, "evals", "broken"))
+				}
 			}
 			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
 		})
@@ -1775,6 +1806,107 @@ func TestInitCI_ExistingWorkflowAllowsLiteralExpressions(t *testing.T) {
 	}
 }
 
+func TestInitCI_StandaloneRepairAllowsExistingWorkflowWithLiteralEvalFile(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		workflow    string
+		evalFile    string
+		wantSuccess bool
+		wantError   string
+	}{
+		{name: "existing workflow", workflow: "file", evalFile: "${{ github.token }}.yml", wantSuccess: true},
+		{name: "existing workflow symlink", workflow: "symlink", evalFile: "${{ github.token }}.yml", wantSuccess: true},
+		{name: "missing workflow", evalFile: "${{ github.token }}.yml", wantError: "GitHub Actions would evaluate"},
+		{name: "dangling workflow symlink", workflow: "dangling", evalFile: "${{ github.token }}.yml", wantError: "cannot be resolved"},
+		{name: "dangling workflow symlink with safe filename", workflow: "dangling", evalFile: "suite.yml", wantError: "cannot be resolved"},
+		{name: "workflow is a directory", workflow: "directory", evalFile: "${{ github.token }}.yml", wantError: "exists but is a directory"},
+		{name: "missing workflow with safe filename", evalFile: "suite.yml", wantSuccess: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("WAZA_NO_UPDATE_CHECK", "1")
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			configPath := filepath.Join(dir, ".waza.yaml")
+			config := []byte("files:\n  evalFile: '" + tc.evalFile + "'\n")
+			require.NoError(t, os.WriteFile(configPath, config, 0o600))
+			root := filepath.Join(dir, "reviewed")
+			require.NoError(t, os.MkdirAll(root, 0o700))
+			skillPath := filepath.Join(root, "SKILL.md")
+			skill := []byte(defaultSkillMD("reviewed") + "\nUser-owned sentinel.\n")
+			require.NoError(t, os.WriteFile(skillPath, skill, 0o600))
+			workflowPath := filepath.Join(root, ".github", "workflows", "eval.yml")
+			workflow := []byte("existing workflow sentinel\r\n")
+			workflowTarget := filepath.Join(root, "workflow-target.yml")
+			var originalLink os.FileInfo
+			var originalLinkTarget string
+			if tc.workflow != "" {
+				require.NoError(t, os.MkdirAll(filepath.Dir(workflowPath), 0o700))
+			}
+			switch tc.workflow {
+			case "file":
+				require.NoError(t, os.WriteFile(workflowPath, workflow, 0o600))
+			case "symlink", "dangling":
+				if tc.workflow == "symlink" {
+					require.NoError(t, os.WriteFile(workflowTarget, workflow, 0o600))
+				}
+				target, err := filepath.Rel(filepath.Dir(workflowPath), workflowTarget)
+				require.NoError(t, err)
+				if err := os.Symlink(target, workflowPath); err != nil {
+					t.Skipf("workflow symlink unavailable: %v", err)
+				}
+				originalLink, err = os.Lstat(workflowPath)
+				require.NoError(t, err)
+				originalLinkTarget, err = os.Readlink(workflowPath)
+				require.NoError(t, err)
+			case "directory":
+				require.NoError(t, os.Mkdir(workflowPath, 0o700))
+			}
+
+			var diagnostics bytes.Buffer
+			code := initCIRunMain(t, &diagnostics, []string{"--no-telemetry", "new", "skill", "reviewed", "--output-dir", dir})
+			if tc.wantSuccess {
+				require.Equal(t, ExitSuccess, code, diagnostics.String())
+				require.FileExists(t, filepath.Join(root, "evals", tc.evalFile))
+				require.FileExists(t, filepath.Join(root, "evals", "tasks", "basic-usage.yaml"))
+				require.FileExists(t, filepath.Join(root, "README.md"))
+				if tc.workflow == "file" || tc.workflow == "symlink" {
+					preserved, err := os.ReadFile(workflowPath)
+					require.NoError(t, err)
+					require.Equal(t, workflow, preserved)
+				} else {
+					require.FileExists(t, workflowPath)
+				}
+			} else {
+				require.Equal(t, ExitError, code, diagnostics.String())
+				require.Contains(t, diagnostics.String(), tc.wantError)
+				require.NoDirExists(t, filepath.Join(root, "evals"))
+				require.NoFileExists(t, filepath.Join(root, "README.md"))
+				if tc.workflow == "" {
+					require.NoDirExists(t, filepath.Join(root, ".github"))
+				}
+			}
+			if tc.workflow == "symlink" || tc.workflow == "dangling" {
+				info, err := os.Lstat(workflowPath)
+				require.NoError(t, err)
+				require.NotZero(t, info.Mode()&os.ModeSymlink)
+				require.True(t, os.SameFile(originalLink, info), "the existing link must not be replaced")
+				target, err := os.Readlink(workflowPath)
+				require.NoError(t, err)
+				require.Equal(t, originalLinkTarget, target)
+				if tc.workflow == "dangling" {
+					require.NoFileExists(t, workflowTarget)
+				}
+			}
+			preservedSkill, err := os.ReadFile(skillPath)
+			require.NoError(t, err)
+			require.Equal(t, skill, preservedSkill)
+			preservedConfig, err := os.ReadFile(configPath)
+			require.NoError(t, err)
+			require.Equal(t, config, preservedConfig)
+		})
+	}
+}
+
 func TestInitCI_DanglingExistingWorkflowDoesNotSucceed(t *testing.T) {
 	t.Setenv("WAZA_NO_UPDATE_CHECK", "1")
 	dir := t.TempDir()
@@ -1884,6 +2016,28 @@ func TestInitCI_RejectsActionsExpressionsInLiteralPaths(t *testing.T) {
 		require.FileExists(t, filepath.Join(root, "evals", "suite.yml"))
 		require.FileExists(t, filepath.Join(root, ".github", "workflows", "eval.yml"))
 	})
+}
+
+func TestInitCI_StandaloneRepairRequiresPreservedWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".github", "workflows", "eval.yml")
+	entries := []scaffold.FileEntry{{Path: path, Label: "CI pipeline"}}
+	cmd := newNewSkillCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := writeScaffold(cmd, entries, "reviewed", true, filepath.Join(dir, "tasks"), filepath.Join(dir, "fixtures"), path)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	require.Contains(t, err.Error(), "checking existing workflow")
+	require.Empty(t, out.String(), "a missing preserved workflow must not produce a success summary")
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	workflow := []byte("existing workflow\n")
+	require.NoError(t, os.WriteFile(path, workflow, 0o600))
+	require.NoError(t, writeScaffold(cmd, entries, "reviewed", true, filepath.Join(dir, "tasks"), filepath.Join(dir, "fixtures"), path))
+	preserved, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, workflow, preserved)
 }
 
 func TestInitCI_InventoryUsesLiteralFilenameAndFallbackPrecedence(t *testing.T) {

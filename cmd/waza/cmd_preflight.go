@@ -223,9 +223,17 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	evalContexts := []*workspace.WorkspaceContext{wsCtx}
 	// A partial ancestor context must not hide independent evals in the requested workspace.
 	if partialContext && !filepath.IsAbs(wsCtx.EvalsDir) && filepath.Clean(wsCtx.Root) != absRoot {
-		requested := *wsCtx
-		requested.Root = absRoot
-		evalContexts = append(evalContexts, &requested)
+		evalsDir := wsCtx.EvalsDir
+		if evalsDir == "" {
+			evalsDir = projectconfig.DefaultEvalsDir
+		}
+		ancestorInfo, ancestorErr := os.Stat(filepath.Join(wsCtx.Root, evalsDir))
+		requestedInfo, requestedErr := os.Stat(filepath.Join(absRoot, evalsDir))
+		if ancestorErr != nil || requestedErr != nil || !os.SameFile(ancestorInfo, requestedInfo) {
+			requested := *wsCtx
+			requested.Root = absRoot
+			evalContexts = append(evalContexts, &requested)
+		}
 	}
 	for _, evalCtx := range evalContexts {
 		extra, err := separatedWorkspaceEvals(evalCtx)

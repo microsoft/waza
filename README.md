@@ -648,6 +648,12 @@ reports those unsupported paths. Resolvable resource links without discoverable
 skills and resolvable eval symlinks remain supported. On a discovery error,
 reports for independently discovered evaluations still appear on stdout; the
 error appears on stderr.
+During workspace discovery, linked-directory probes inspect definition
+metadata without reading it. On supported Unix hosts, Waza requests a
+nonblocking open and checks the opened definition is regular. Windows and
+other hosts cannot guarantee a nonblocking open if a path is replaced
+concurrently. These checks do not authenticate paths, guarantee stable
+content, or protect later skill loads.
 Eager schema matchers are guarded before decoding; external schema prerequisites
 remain unresolved and leave the affected inventory incomplete.
 This also covers grader schema files and MCP tool input schemas encountered

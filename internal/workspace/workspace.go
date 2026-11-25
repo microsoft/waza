@@ -6,6 +6,7 @@ package workspace
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -548,8 +549,8 @@ func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
 		}
 		visited[key] = true
 		if !recursive {
-			_, found, err := inspectSkillDirectory(resolved, true, false)
-			return found, err
+			definition, err := skillDefinitionPath(resolved, false)
+			return definition != "", err
 		}
 		if includeRoot {
 			apmRoot := filepath.Join(resolved, ".apm", "skills")
@@ -577,11 +578,11 @@ func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
 				if current != resolved && shouldSkipSkillScanDir(entry.Name()) {
 					return fs.SkipDir
 				}
-				_, isSkill, err := inspectSkillDirectory(current, true, false)
+				definition, err := skillDefinitionPath(current, false)
 				if err != nil {
 					return err
 				}
-				if isSkill {
+				if definition != "" {
 					found = true
 					return fs.SkipAll
 				}
@@ -616,31 +617,68 @@ func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
 
 func inspectSkillDirectory(dir string, validateSymlinks, optionalAncestor bool) (SkillInfo, bool, error) {
 	if validateSymlinks {
-		skillPath := filepath.Join(dir, "SKILL.md")
-		if err := ValidateDiscoveryPath(skillPath); err != nil {
+		definition, err := skillDefinitionPath(dir, optionalAncestor)
+		if err != nil {
 			return SkillInfo{}, false, err
 		}
-		if !isFile(skillPath) {
-			entries, err := os.ReadDir(dir)
-			if optionalAncestor && errors.Is(err, fs.ErrPermission) {
-				// Ancestors are optional ownership probes in native discovery.
-				return SkillInfo{}, false, nil
-			}
-			if err != nil {
-				return SkillInfo{}, false, fmt.Errorf("reading skill directory %q: %w", dir, err)
-			}
-			for _, entry := range entries {
-				if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
-					if err := ValidateDiscoveryPath(filepath.Join(dir, entry.Name())); err != nil {
-						return SkillInfo{}, false, err
-					}
-					break
-				}
-			}
+		if definition == "" {
+			return SkillInfo{}, false, nil
 		}
+		data, err := readSkillDefinition(definition)
+		if err != nil {
+			return SkillInfo{}, false, fmt.Errorf("reading skill definition %q: %w", definition, err)
+		}
+		name, err := parseDefinitionName(definition, data)
+		if err != nil || name == "" {
+			name = filepath.Base(dir)
+		}
+		return SkillInfo{Name: name, Dir: dir, SkillPath: definition}, true, nil
 	}
 	info, ok := tryParseSkill(dir)
 	return info, ok, nil
+}
+
+func skillDefinitionPath(dir string, optionalAncestor bool) (string, error) {
+	skillPath := filepath.Join(dir, "SKILL.md")
+	if err := ValidateDiscoveryPath(skillPath); err != nil {
+		return "", err
+	}
+	info, err := os.Stat(skillPath)
+	if err == nil && !info.IsDir() {
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("skill definition %q is not a regular file", skillPath)
+		}
+		return skillPath, nil
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", fmt.Errorf("checking skill definition %q: %w", skillPath, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if optionalAncestor && errors.Is(err, fs.ErrPermission) {
+		// Ancestors are optional ownership probes in native discovery.
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading skill directory %q: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !skill.IsAgentFile(entry.Name()) {
+			continue
+		}
+		agentPath := filepath.Join(dir, entry.Name())
+		if err := ValidateDiscoveryPath(agentPath); err != nil {
+			return "", err
+		}
+		info, err := os.Stat(agentPath)
+		if err != nil {
+			return "", fmt.Errorf("checking agent definition %q: %w", agentPath, err)
+		}
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("agent definition %q is not a regular file", agentPath)
+		}
+		return agentPath, nil
+	}
+	return "", nil
 }
 
 // tryParseSkill checks if dir contains SKILL.md or .agent.md and parses it.
@@ -668,6 +706,9 @@ func tryParseSkill(dir string) (SkillInfo, bool) {
 	for _, entry := range entries {
 		if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
 			agentPath := filepath.Join(dir, entry.Name())
+			if info, err := os.Stat(agentPath); err == nil && !info.Mode().IsRegular() {
+				continue
+			}
 			name := parseAgentNameFromFile(agentPath)
 			if name == "" {
 				name = filepath.Base(dir)
@@ -685,19 +726,31 @@ func tryParseSkill(dir string) (SkillInfo, bool) {
 
 // parseAgentNameFromFile reads an .agent.md file and extracts the agent name.
 func parseAgentNameFromFile(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := readSkillDefinition(path)
 	if err != nil {
 		return ""
 	}
+	name, _ := parseDefinitionName(path, data)
+	return name
+}
+
+func parseDefinitionName(path string, data []byte) (string, error) {
+	if filepath.Base(path) == "SKILL.md" {
+		var s skill.Skill
+		if err := s.UnmarshalTextWithoutTokenCount(data); err != nil {
+			return "", fmt.Errorf("parsing SKILL.md: %w", err)
+		}
+		return strings.TrimSpace(s.Frontmatter.Name), nil
+	}
 	fm, _, err := skill.ParseAgentFrontmatter(string(data))
 	if err != nil {
-		return ""
+		return "", err
 	}
 	name := strings.TrimSpace(fm.Name)
 	if name == "" {
 		name = strings.TrimSuffix(filepath.Base(path), ".agent.md")
 	}
-	return name
+	return name, nil
 }
 
 // scanForSkills scans directories under parentDir for skill definitions.
@@ -838,23 +891,36 @@ func shouldSkipSkillScanDir(name string) bool {
 
 // parseSkillName reads a SKILL.md file and extracts the skill name from frontmatter.
 func parseSkillName(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := readSkillDefinition(path)
 	if err != nil {
 		return "", fmt.Errorf("reading skill file: %w", err)
 	}
+	return parseDefinitionName(path, data)
+}
 
-	var s skill.Skill
-	if err := s.UnmarshalTextWithoutTokenCount(data); err != nil {
-		return "", fmt.Errorf("parsing SKILL.md: %w", err)
+// Supported Unix systems request a nonblocking open and validate the opened
+// descriptor. Windows and other platforms cannot guarantee a nonblocking open
+// after concurrent path replacement; none of these reads authenticate content.
+func readSkillDefinition(path string) (data []byte, err error) {
+	file, err := openSkillDefinition(path)
+	if err != nil {
+		return nil, err
 	}
-
-	return strings.TrimSpace(s.Frontmatter.Name), nil
+	defer func() { err = errors.Join(err, file.Close()) }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("skill definition %q is not a regular file", path)
+	}
+	return io.ReadAll(file)
 }
 
 // isFile returns true if path exists and is a regular file.
 func isFile(path string) bool {
 	fi, err := os.Stat(path)
-	return err == nil && !fi.IsDir()
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // isDir returns true if path exists and is a directory.

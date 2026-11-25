@@ -191,6 +191,13 @@ a fixture is not itself a discovery failure. When discovery fails, reports for
 independently discovered evaluations are still written to stdout in the selected
 format; the error is written to stderr and the command exits 2.
 
+During workspace discovery, linked-directory probes inspect definition
+metadata without reading it. On supported Unix hosts, Waza requests a
+nonblocking open and checks the opened definition is regular. Windows and
+other hosts cannot guarantee a nonblocking open if a path is replaced
+concurrently. These checks do not authenticate paths, guarantee stable
+content, or protect later skill loads.
+
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
 nonempty `scenario`. Existing v1 suites retain their version/default/discovery
 semantics. The approved scenario loader determines requested skill discovery:

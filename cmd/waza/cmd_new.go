@@ -296,7 +296,7 @@ func scaffoldInProject(cmd *cobra.Command, projectRoot, skillName, skillMD strin
 		entries = append(entries, scaffold.FileEntry{Path: filepath.Join(fixturesDir, "sample.py"), Label: "Fixture", Content: scaffold.Fixture()})
 	}
 
-	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir)
+	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir, "")
 }
 
 // scaffoldStandalone creates a self-contained skill directory.
@@ -308,10 +308,29 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	tasksDir := filepath.Join(evalsDir, "tasks")
 	fixturesDir := filepath.Join(evalsDir, "fixtures")
 	workflowDir := filepath.Join(rootDir, ".github", "workflows")
+	workflowPath := filepath.Join(workflowDir, "eval.yml")
 
-	workflow, err := ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
-	if err != nil {
-		return err
+	var workflow string
+	var requiredWorkflow string
+	info, err := os.Stat(workflowPath)
+	if err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("path %s exists but is a directory", workflowPath)
+		}
+		requiredWorkflow = workflowPath
+	} else {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("checking existing workflow %s: %w", workflowPath, err)
+		}
+		if _, lstatErr := os.Lstat(workflowPath); lstatErr == nil {
+			return fmt.Errorf("existing workflow %s cannot be resolved: %w", workflowPath, err)
+		} else if !os.IsNotExist(lstatErr) {
+			return fmt.Errorf("checking existing workflow %s: %w", workflowPath, lstatErr)
+		}
+		workflow, err = ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Create directories
@@ -347,17 +366,17 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	}
 
 	entries = append(entries,
-		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: workflow},
+		scaffold.FileEntry{Path: workflowPath, Label: "CI pipeline", Content: workflow},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, ".gitignore"), Label: "Build artifacts excluded", Content: defaultGitignore()},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, "README.md"), Label: "Getting started guide", Content: defaultReadme(skillName)},
 	)
 
-	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir)
+	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir, requiredWorkflow)
 }
 
 // writeScaffold uses the shared FileWriter to create missing files, then prints
 // the inventory with header and summary footer.
-func writeScaffold(cmd *cobra.Command, entries []scaffold.FileEntry, skillName string, existing bool, tasksDir, fixturesDir string) error {
+func writeScaffold(cmd *cobra.Command, entries []scaffold.FileEntry, skillName string, existing bool, tasksDir, fixturesDir, requiredWorkflow string) error {
 	out := cmd.OutOrStdout()
 	baseDir, _ := os.Getwd() //nolint:errcheck // best-effort for display paths
 
@@ -365,6 +384,15 @@ func writeScaffold(cmd *cobra.Command, entries []scaffold.FileEntry, skillName s
 	inv, err := fw.Write(entries)
 	if err != nil {
 		return err
+	}
+	if requiredWorkflow != "" {
+		info, err := os.Stat(requiredWorkflow)
+		if err != nil {
+			return fmt.Errorf("checking existing workflow %s: %w", requiredWorkflow, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("path %s exists but is a directory", requiredWorkflow)
+		}
 	}
 
 	if existing {
