@@ -157,7 +157,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     const announcement = main.getByRole('link', { name: 'Release article', exact: true });
     await expect(announcement).toHaveAttribute('href', '/waza/releases/v0-42-0/');
     await expect(announcement).toBeInViewport();
-    await expect(main.getByRole('heading', { name: 'What can waza do?', exact: true })).toBeInViewport();
+    await expect(main.getByRole('link', { name: 'Explore what you can do', exact: true })).toBeInViewport();
     const paragraph = announcement.locator('..');
     expect(await paragraph.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(150);
     await expect(main).toContainText('A mock pass proves harness wiring, not agent quality');

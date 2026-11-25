@@ -431,12 +431,35 @@ test('dependency recovery multi-turn MCP example preflights with native fields',
   }
 });
 
+test('homepage preflight commands execute without a model', () => {
+  const fixture = allocateExampleFixture(root);
+  const run = cliRunner(fixture.env);
+  try {
+    const commands = read('site/src/pages/index.astro').match(/const runCommands = `([\s\S]*?)`;/)?.[1];
+    assert.ok(commands, 'homepage publishes preflight commands');
+    let cwd = fixture.directory;
+    for (const line of commands.split('\n')) {
+      const [command, ...args] = line.trim().split(/\s+/);
+      if (command === 'cd') {
+        assert.equal(args.length, 1);
+        cwd = join(cwd, args[0]);
+      } else {
+        assert.equal(command, 'waza');
+        run(args, cwd);
+      }
+    }
+    assert.ok(existsSync(join(cwd, 'evals/inventory/eval.yaml')));
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test('all published explanation walkthroughs execute only their selected task, including negative controls', () => {
   const fixture = allocateExampleFixture(root);
   const run = cliRunner(fixture.env);
   const canonical = 'site/src/content/docs/getting-started.mdx';
   try {
-    for (const [index, path] of [canonical, 'docs/GETTING-STARTED.md', 'site/src/content/docs/index.mdx'].entries()) {
+    for (const [index, path] of [canonical, 'docs/GETTING-STARTED.md', 'site/src/content/docs/overview.mdx'].entries()) {
       const name = `walkthrough-${index}`;
       run(['init', name, '--no-skill'], fixture.directory);
       const project = join(fixture.directory, name);

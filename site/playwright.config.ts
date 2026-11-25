@@ -12,7 +12,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:4321/waza',
+    baseURL: 'http://localhost:4321/waza/',
     screenshot: 'off',
   },
   projects: [

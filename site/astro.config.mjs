@@ -32,6 +32,10 @@ export default defineConfig({
 			customCss: ['./src/styles/custom.css'],
 			sidebar: [
 				{
+					label: 'Overview',
+					slug: 'overview',
+				},
+				{
 					label: 'Concepts and Learning Path',
 					slug: 'concepts',
 				},

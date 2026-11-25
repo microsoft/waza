@@ -19,6 +19,10 @@ const dashboardMediaInputs = [
   'web/e2e/screenshots.spec.ts', 'web/e2e/release-screenshots.spec.ts',
   'web/e2e/runner-negotiation.spec.ts', '.github/workflows/web-ci.yml',
 ];
+const homepageInputs = [
+  'site/src/pages/index.astro', 'site/src/styles/home.css',
+  'site/src/content/docs/overview.mdx', 'site/e2e/homepage.spec.ts',
+];
 const embeddedTargets = ['darwin_amd64', 'darwin_arm64', 'linux_amd64', 'linux_arm64', 'windows_amd64', 'windows_arm64'];
 const embeddedFiles = embeddedTargets.flatMap((target) => [
   `internal/embedded/zcopilot_${target}.go`,
@@ -312,9 +316,9 @@ function assertSiteDiscovery(workflow, inputs) {
   assert.equal(scripts['test:docs'], 'node --test tests/documentation.test.mjs');
 }
 
-test('every catalog, release, Docker and dashboard media input enables PR site checks and the main push workflow', () => {
+test('every catalog, release, homepage, Docker and dashboard media input enables PR site checks and the main push workflow', () => {
   assertSiteDiscovery(read('.github/workflows/site-ci.yml'),
-    [...Object.values(catalogInputs).flat(), ...releaseInputs, ...dashboardMediaInputs,
+    [...Object.values(catalogInputs).flat(), ...releaseInputs, ...homepageInputs, ...dashboardMediaInputs,
       '.github/workflows/docker-ci.yml', serveCommandInput]);
 });
 
@@ -502,7 +506,7 @@ test('onboarding and active grader docs reject obsolete example contracts', () =
     const text = read(path);
     assert.doesNotMatch(text, /^\s*-?\s*type:\s*(?:llm|script|llm_comparison|regex|keyword|trigger_tests)\s*$/m, path);
   }
-  for (const path of ['site/src/content/docs/index.mdx', 'site/src/content/docs/getting-started.mdx', 'docs/GETTING-STARTED.md']) {
+  for (const path of ['site/src/pages/index.astro', 'site/src/content/docs/overview.mdx', 'site/src/content/docs/getting-started.mdx', 'docs/GETTING-STARTED.md']) {
     assert.doesNotMatch(read(path), /^\s+pattern:/m, path);
   }
   const registry = JSON.parse(read('registry.json'));
@@ -958,11 +962,11 @@ test('v0.41 features are labeled as released in v0.41.0', () => {
 });
 
 test('v0.40.1 article owns hotfix detail while the homepage leads with the current release', () => {
-  const homepage = read('site/src/content/docs/index.mdx');
-  const intro = homepage.split('## What can waza do?')[0];
+  const homepage = read('site/src/pages/index.astro');
+  const intro = homepage.split('<p class="hero-promise">')[0];
   assert.doesNotMatch(intro, /<Aside\b/);
-  assert.equal((intro.match(/\]\(\/waza\/releases\/v0-42-0\/\)/g) ?? []).length, 1);
-  assert.match(intro, /\*\*New in v0\.42\.0:\*\*/);
+  assert.equal((intro.match(/href=\{docs\('releases\/v0-42-0'\)\}/g) ?? []).length, 1);
+  assert.match(intro, /New in v0\.42\.0:/);
   assert.doesNotMatch(intro, /New in v0\.41\.0/);
   const announcement = intro.replace(/\s+/g, ' ');
   for (const boundary of [
@@ -1322,7 +1326,7 @@ test('current onboarding uses matching published source tags and build stamps', 
   assert.equal(gettingStarted.match(/standalone stable is `v([^`]+)`/)?.[1], published);
   const cliReference = read('site/src/content/docs/reference/cli.mdx');
   assert.equal(cliReference.match(/published standalone `v([^`]+)`/)?.[1], published);
-  for (const path of ['site/src/content/docs/index.mdx', 'site/src/content/docs/concepts.mdx']) {
+  for (const path of ['site/src/pages/index.astro', 'site/src/content/docs/overview.mdx', 'site/src/content/docs/concepts.mdx']) {
     assert.match(read(path), new RegExp(`install(?:ing)? v${published.replaceAll('.', '\\.')}`), path);
   }
 
