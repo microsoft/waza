@@ -1945,6 +1945,7 @@ func (r *EvalRunner) executeAttemptWithRequest(ctx context.Context, tc *models.T
 				Status:         models.StatusError,
 				DurationMs:     time.Since(startTime).Milliseconds(),
 				ErrorMsg:       "running graders: " + err.Error(),
+				Validations:    gradersResults,
 				SessionDigest:  r.buildSessionDigest(resp),
 				GraderSessions: resp.GraderSessions,
 			}, fmt.Errorf("running graders: %w", err))

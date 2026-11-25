@@ -69,6 +69,122 @@ func TestRunAllPreservesFailingGraderKindAndCause(t *testing.T) {
 	}
 }
 
+type runAllScriptedGrader struct {
+	name   string
+	result *models.GraderResults
+	err    error
+	calls  *[]string
+}
+
+func (g runAllScriptedGrader) Name() string            { return g.name }
+func (g runAllScriptedGrader) Kind() models.GraderKind { return models.GraderKindProgram }
+func (g runAllScriptedGrader) Grade(context.Context, *Context) (*models.GraderResults, error) {
+	*g.calls = append(*g.calls, g.name)
+	if g.err != nil {
+		return nil, g.err
+	}
+	result := *g.result
+	return &result, nil
+}
+
+func TestRunAllPreservesCompletedResultsWhenLaterGraderErrors(t *testing.T) {
+	cause := errors.New("operational failure")
+	passing := models.GraderResults{Name: "passing", Type: models.GraderKindProgram, Score: 1, Passed: true, Feedback: "all checks passed"}
+	failing := models.GraderResults{Name: "failing", Type: models.GraderKindProgram, Score: 0.25, Passed: false,
+		Feedback: "missing required token", Details: map[string]any{"missing": []any{"token"}}}
+	eval := func(names ...string) []models.GraderConfig {
+		configs := make([]models.GraderConfig, 0, len(names))
+		for _, name := range names {
+			configs = append(configs, models.GraderConfig{Identifier: name, Kind: models.GraderKindProgram, Weight: 2})
+		}
+		return configs
+	}
+	task := func(names ...string) []models.ValidatorInline {
+		validators := make([]models.ValidatorInline, 0, len(names))
+		for _, name := range names {
+			validators = append(validators, models.ValidatorInline{Identifier: name, Kind: models.GraderKindProgram})
+		}
+		return validators
+	}
+	tests := []struct {
+		name       string
+		configs    []models.GraderConfig
+		validators []models.ValidatorInline
+		want       []string
+		wantCalls  []string
+		wantErr    string
+	}{
+		{name: "all complete control", configs: eval("passing", "failing"), validators: task("task-passing"),
+			want: []string{"passing", "failing", "task-passing", "_output_contains"}, wantCalls: []string{"passing", "failing", "task-passing"}},
+		{name: "eval-level later run error", configs: eval("passing", "failing", "broken", "after"),
+			want: []string{"passing", "failing"}, wantCalls: []string{"passing", "failing", "broken"},
+			wantErr: "failed to run grader broken: operational failure"},
+		{name: "eval-level later create error", configs: eval("passing", "failing", "uncreatable", "after"),
+			want: []string{"passing", "failing"}, wantCalls: []string{"passing", "failing"},
+			wantErr: "failed to create grader uncreatable: operational failure"},
+		{name: "task-level later run error", configs: eval("passing"), validators: task("failing", "broken", "after"),
+			want: []string{"passing", "failing"}, wantCalls: []string{"passing", "failing", "broken"},
+			wantErr: "failed to run grader broken: operational failure"},
+		{name: "task-level missing kind", configs: eval("passing", "failing"),
+			validators: []models.ValidatorInline{{Identifier: "kindless"}},
+			want:       []string{"passing", "failing"}, wantCalls: []string{"passing", "failing"},
+			wantErr: "no kind associated with grader kindless"},
+		{name: "first grader error", configs: eval("broken", "passing"),
+			wantCalls: []string{"broken"}, wantErr: "failed to run grader broken: operational failure"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls []string
+			create := func(name string, _ models.GraderParameters) (Grader, error) {
+				grader := runAllScriptedGrader{name: name, calls: &calls}
+				switch name {
+				case "passing":
+					grader.result = &passing
+				case "failing":
+					grader.result = &failing
+				case "task-passing":
+					grader.result = &models.GraderResults{Name: name, Score: 1, Passed: true}
+				case "broken":
+					grader.err = cause
+				case "uncreatable":
+					return nil, cause
+				default:
+					t.Fatalf("grader %q must not be created after an earlier grader error", name)
+				}
+				return grader, nil
+			}
+			testCase := &models.TestCase{Validators: tt.validators,
+				Expectation: models.TaskExpectation{MustInclude: []string{"absent"}}}
+			results, err := runAll(t.Context(), tt.configs, testCase, &Context{Output: "output"}, "", "", false, create)
+			require.Equal(t, tt.wantCalls, calls)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tt.wantErr)
+				_, ok := errors.AsType[*RunError](err)
+				require.True(t, ok)
+			}
+			if len(tt.want) == 0 {
+				require.Nil(t, results)
+				return
+			}
+			require.Len(t, results, len(tt.want))
+			for _, name := range tt.want {
+				require.Contains(t, results, name)
+			}
+			require.Equal(t, 2.0, results["passing"].Weight)
+			require.True(t, results["passing"].Passed)
+			require.Equal(t, "all checks passed", results["passing"].Feedback)
+			if want, ok := results["failing"]; ok {
+				require.False(t, want.Passed)
+				require.Equal(t, 0.25, want.Score)
+				require.Equal(t, "missing required token", want.Feedback)
+				require.Equal(t, failing.Details, want.Details)
+			}
+		})
+	}
+}
+
 func TestRunAllMissingTaskKindRemainsClassifiable(t *testing.T) {
 	_, err := RunAll(t.Context(), nil, &models.TestCase{Validators: []models.ValidatorInline{{Identifier: "missing"}}}, &Context{}, "", "", false)
 	require.EqualError(t, err, "no kind associated with grader missing")
