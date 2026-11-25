@@ -400,7 +400,9 @@ configuration root's `.github/skills`, preflight exits 2 and names that root.
 Run from the project root or preflight an explicit eval. Empty directories and
 unrelated resources do not trigger this error.
 Workspace preflight exits 2 for unavailable symlinks encountered during
-discovery. Native workspace detection does not follow symlinked skill-scan
+discovery. Configured eval filenames take precedence over `eval.yaml`; an
+unselected dangling fallback is ignored, including in child suites.
+Native workspace detection does not follow symlinked skill-scan
 roots or skill directories; preflight reports those unsupported paths instead
 of reporting an empty inventory. Resolvable resource links without discoverable
 skills and resolvable eval symlinks remain supported. Discovery errors go to

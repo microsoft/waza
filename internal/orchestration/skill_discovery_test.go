@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +60,10 @@ func TestRequiredSkillDiscoverySelectsRuntimeAndOfflineReaders(t *testing.T) {
 			var readErr *definitionReadError
 			require.ErrorAs(t, err, &readErr)
 			require.Equal(t, path, readErr.path)
-			require.Contains(t, err.Error(), "must be a regular file")
+			require.Contains(t, []string{
+				"assurance: input must be a regular file",
+				fmt.Sprintf("skill definition %q is not a regular file", path),
+			}, readErr.err.Error(), "offline admission must specifically reject the non-regular definition")
 
 			require.NoError(t, os.Remove(path))
 			require.NoError(t, os.WriteFile(path, []byte("---\nname: alternative\ndescription: Alternative definition\n---\nBody\n"), 0o600))

@@ -1945,10 +1945,6 @@ func buildInstructionSystemMessage(instructions []InstructionFile) string {
 	return sb.String()
 }
 
-func loadSkillDefinitionWithLogging(dir string, logRaw bool, selectedName ...string) (*skillDefinition, error) {
-	return loadSkillDefinitionWithReader(dir, logRaw, runtimeDefinitionReader, selectedName...)
-}
-
 func loadSkillDefinitionWithReader(dir string, logRaw bool, reader definitionReader, selectedName ...string) (*skillDefinition, error) {
 	// Try SKILL.md first (existing behavior)
 	skillPath := filepath.Join(dir, "SKILL.md")

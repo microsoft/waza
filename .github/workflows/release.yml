@@ -43,7 +43,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF_NAME" == v* ]]
+          if [[ "$GITHUB_REF_NAME" != v* ]]; then
+            printf '::error::Release ref must start with v (for example v1.2.3): %s\n' "$GITHUB_REF_NAME" >&2
+            exit 1
+          fi
           VERSION="${GITHUB_REF_NAME#v}"
 
           bash .github/scripts/release_version_check.sh "$VERSION"

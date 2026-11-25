@@ -182,7 +182,10 @@ the selected root for required-skill discovery; this does not change a later
 `waza run`. Explicit eval directories take precedence. Disabled scenario
 discovery does not inspect or inject ambient project skills.
 
-Workspace preflight exits 2 when a discovery symlink is unavailable. Native
+Workspace preflight exits 2 when a discovery symlink is unavailable, except for
+an unselected fallback manifest. Configured eval filenames take precedence over
+`eval.yaml`; a dangling fallback is ignored when the configured eval is
+selected, including in child suites. Native
 workspace detection does not follow symlinked skill-scan roots or skill
 directories; preflight reports those unsupported paths rather than returning an
 empty inventory. A symlinked skills root, including an in-project relative link,

@@ -92,6 +92,8 @@ Run from the project root or preflight an explicit eval. Empty directories and
 unrelated resources do not trigger this error. Generated CI runs preflight from
 the project root.
 Workspace preflight exits 2 for unavailable symlinks encountered in discovery.
+Configured eval filenames take precedence over `eval.yaml`; an unselected
+dangling fallback is ignored, including in child suites.
 Native workspace detection does not follow symlinked skill-scan roots or skill
 directories; preflight reports those unsupported paths instead of an empty
 inventory. Resolvable resource links without discoverable skills and resolvable

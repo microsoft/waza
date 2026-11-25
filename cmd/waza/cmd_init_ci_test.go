@@ -1010,6 +1010,7 @@ func TestInitCI_EvalFilenamePrecedenceWithSymlinks(t *testing.T) {
 		wantError  bool
 		wantSource []string
 	}{
+		{name: "preferred without fallback", layout: "preferred", wantSource: []string{"suite.yml"}},
 		{name: "lower priority dangling", layout: "lower dangling", wantSource: []string{"suite.yml"}},
 		{name: "fallback valid", layout: "fallback", wantSource: []string{"eval.yaml"}},
 		{name: "child lower priority dangling", layout: "child lower dangling", wantSource: []string{filepath.Join("reviewed", "suite.yml")}},
@@ -1022,6 +1023,8 @@ func TestInitCI_EvalFilenamePrecedenceWithSymlinks(t *testing.T) {
 			evals := filepath.Join(dir, "evals")
 			link := ""
 			switch tc.layout {
+			case "preferred":
+				initCIWriteEvalAt(t, evals, "suite.yml", "")
 			case "lower dangling", "unrelated dangling":
 				initCIWriteEvalAt(t, evals, "suite.yml", "")
 				link = filepath.Join(evals, "eval.yaml")
@@ -1046,6 +1049,11 @@ func TestInitCI_EvalFilenamePrecedenceWithSymlinks(t *testing.T) {
 				if err := os.Symlink("missing", link); err != nil {
 					t.Skipf("symlink unavailable: %v", err)
 				}
+				info, err := os.Lstat(link)
+				require.NoError(t, err)
+				require.NotZero(t, info.Mode()&os.ModeSymlink)
+				_, err = os.Stat(link)
+				require.ErrorIs(t, err, os.ErrNotExist, "fixture must contain an unavailable symlink")
 			}
 
 			step := initCIStepByName(t, workflow.Jobs["validate"], "waza preflight")

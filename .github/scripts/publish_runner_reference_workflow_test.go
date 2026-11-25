@@ -624,6 +624,25 @@ func TestReleaseVersionAdmissionParity(t *testing.T) {
 		!strings.HasPrefix(checkout.Uses, "actions/checkout@") {
 		t.Fatal("version admission must check out the exact event source without persisted credentials")
 	}
+	for _, ref := range []string{"1.2.3", "V1.2.3", "main", ""} {
+		t.Run("tag-prefix-diagnostic/"+ref, func(t *testing.T) {
+			dir := t.TempDir()
+			outputPath := filepath.Join(dir, "github-output")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", steps[2].Run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_REF_NAME="+ref, "GITHUB_OUTPUT="+outputPath)
+			output, err := cmd.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), "::error::Release ref must start with v") {
+				t.Fatalf("unexpected ref %q must fail with an actionable diagnostic: %v, output %s", ref, err, output)
+			}
+			if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
+				t.Fatalf("unexpected ref must exit 1: %v", err)
+			}
+			if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+				t.Fatalf("rejected ref must not write release identity: %v", err)
+			}
+		})
+	}
 	versions := []struct {
 		value string
 		valid bool
