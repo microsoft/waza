@@ -87,6 +87,11 @@ not make model calls. Review the
 Standalone `waza new skill` scaffolds use the same policy with their generated
 evaluation filenames.
 
+The offline step runs from the project root and exits 2 if it finds no skills or
+evals. A symlinked skills root, even a relative link inside the project, is
+rejected by workspace preflight; use a regular directory or the generated step
+will fail.
+
 Live execution is a separate manual default-branch dispatch with
 `run-agent=true`. Configure the `waza-agent` environment, its approval policy
 and the `WAZA_COPILOT_TOKEN` secret, which the workflow passes as

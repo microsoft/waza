@@ -46,6 +46,7 @@ boundary, valid credential, or successful external state change.
 
 Exit 1 for invalid configuration. Unresolved or unsupported prerequisites warn
 and exit 0 by default; --strict opts into exit 1 for those diagnostics too.
+An empty workspace with no discovered skills or evaluations exits 2.
 Existing run/check exit policies are unchanged.`,
 		Args: func(_ *cobra.Command, args []string) error {
 			if workspaceMode {
@@ -68,18 +69,37 @@ Existing run/check exit policies are unchanged.`,
 				if contextDir != "" {
 					return fmt.Errorf("--context-dir cannot be used with --workspace")
 				}
-				reports, discoveryErr := inspectWorkspacePreflight(".", workspacePreflightOverrides{
+				inventory, discoveryErr := inspectWorkspacePreflight(".", workspacePreflightOverrides{
 					skillsDir: skillsDir,
 					evalsDir:  evalsDir,
 					evalFile:  evalFile,
 				})
+				reports := inventory.reports
 				if len(reports) == 0 && discoveryErr == nil {
 					if format == "json" {
 						if err := json.NewEncoder(cmd.OutOrStdout()).Encode(reports); err != nil {
 							return fmt.Errorf("writing preflight JSON: %w", err)
 						}
-					} else if _, err := fmt.Fprintln(cmd.OutOrStdout(), "No evaluation files found; agent evaluation not run."); err != nil {
-						return fmt.Errorf("writing empty workspace preflight notice: %w", err)
+					}
+					if inventory.skills == 0 {
+						diagnostic := preflight.Diagnostic{
+							Code: "workspace.empty", State: preflight.Unresolved, Severity: "error", Source: inventory.root,
+							Message:     "No skills or evaluation files were discovered.",
+							Remediation: "Run from the project root or pass an explicit eval path to waza preflight.",
+						}
+						if format == "json" {
+							if err := json.NewEncoder(cmd.ErrOrStderr()).Encode(diagnostic); err != nil {
+								return fmt.Errorf("writing empty workspace diagnostic: %w", err)
+							}
+						} else if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "%s %s [%s] %s: %s %s\n", diagnostic.State, diagnostic.Code, diagnostic.Severity, diagnostic.Source, diagnostic.Message, diagnostic.Remediation); err != nil {
+							return fmt.Errorf("writing empty workspace diagnostic: %w", err)
+						}
+						return &ExitCodeError{Code: ExitError}
+					}
+					if format != "json" {
+						if _, err := fmt.Fprintln(cmd.OutOrStdout(), "No evaluation files found; agent evaluation not run."); err != nil {
+							return fmt.Errorf("writing empty workspace preflight notice: %w", err)
+						}
 					}
 					return nil
 				}
@@ -147,14 +167,20 @@ type workspacePreflightOverrides struct {
 	evalFile  string
 }
 
-func inspectWorkspacePreflight(root string, overrides workspacePreflightOverrides) ([]*preflight.Report, error) {
+type workspacePreflightInventory struct {
+	reports []*preflight.Report
+	root    string
+	skills  int
+}
+
+func inspectWorkspacePreflight(root string, overrides workspacePreflightOverrides) (workspacePreflightInventory, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return nil, fmt.Errorf("resolving workspace path: %w", err)
+		return workspacePreflightInventory{}, fmt.Errorf("resolving workspace path: %w", err)
 	}
 	paths, err := loadProjectWorkspaceDetectPaths(absRoot)
 	if err != nil {
-		return nil, err
+		return workspacePreflightInventory{}, err
 	}
 	resolveOverride := func(dir string) string {
 		if filepath.IsAbs(dir) {
@@ -198,26 +224,56 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	}
 	reports := make([]*preflight.Report, 0, len(wsCtx.Skills))
 	seen := make(map[string]struct{}, len(wsCtx.Skills))
-	for _, skill := range wsCtx.Skills {
-		evalPath, err := workspace.FindEval(wsCtx, skill.Name)
-		if err != nil {
-			discoveryErrors = append(discoveryErrors, fmt.Errorf("finding evaluation for skill %q: %w", skill.Name, err))
-			continue
-		}
-		if evalPath == "" {
-			continue
-		}
-		path, err := filepath.Abs(evalPath)
-		if err != nil {
-			discoveryErrors = append(discoveryErrors, fmt.Errorf("resolving evaluation for skill %q: %w", skill.Name, err))
-			continue
-		}
-		path = filepath.Clean(path)
+	markSeen := func(path string) bool {
 		if _, ok := seen[path]; ok {
-			continue
+			return true
+		}
+		canonical, err := canonicalPath(path)
+		if err != nil {
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("resolving evaluation path %q: %w", path, err))
+		} else {
+			if _, ok := seen[canonical]; ok {
+				return true
+			}
+			seen[canonical] = struct{}{}
 		}
 		seen[path] = struct{}{}
-		reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
+		return false
+	}
+	skillContexts := []*workspace.WorkspaceContext{wsCtx}
+	if partialContext && filepath.Clean(wsCtx.Root) != absRoot {
+		localOptions := append(detectOptions, workspace.WithoutAncestorDiscovery())
+		localCtx, err := workspace.DetectContext(absRoot, localOptions...)
+		if err != nil {
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("discovering requested workspace skills: %w", err))
+		}
+		if localCtx != nil {
+			skillContexts = append(skillContexts, localCtx)
+		}
+	}
+	skillCount := 0
+	for _, skillCtx := range skillContexts {
+		skillCount += len(skillCtx.Skills)
+		for _, skill := range skillCtx.Skills {
+			evalPath, err := workspace.FindEval(skillCtx, skill.Name)
+			if err != nil {
+				discoveryErrors = append(discoveryErrors, fmt.Errorf("finding evaluation for skill %q: %w", skill.Name, err))
+				continue
+			}
+			if evalPath == "" {
+				continue
+			}
+			path, err := filepath.Abs(evalPath)
+			if err != nil {
+				discoveryErrors = append(discoveryErrors, fmt.Errorf("resolving evaluation for skill %q: %w", skill.Name, err))
+				continue
+			}
+			path = filepath.Clean(path)
+			if markSeen(path) {
+				continue
+			}
+			reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
+		}
 	}
 	// Target-free scenario evals use the separated layout without a matching skill.
 	evalContexts := []*workspace.WorkspaceContext{wsCtx}
@@ -241,14 +297,13 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 			discoveryErrors = append(discoveryErrors, err)
 		}
 		for _, path := range extra {
-			if _, ok := seen[path]; ok {
+			if markSeen(path) {
 				continue
 			}
-			seen[path] = struct{}{}
 			reports = append(reports, preflight.Inspect(path, optionsForEval(path)))
 		}
 	}
-	return reports, errors.Join(discoveryErrors...)
+	return workspacePreflightInventory{reports: reports, root: absRoot, skills: skillCount}, errors.Join(discoveryErrors...)
 }
 
 // separatedWorkspaceEvals lists evaluation files directly under the evals root

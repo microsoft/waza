@@ -185,11 +185,23 @@ discovery does not inspect or inject ambient project skills.
 Workspace preflight exits 2 when a discovery symlink is unavailable. Native
 workspace detection does not follow symlinked skill-scan roots or skill
 directories; preflight reports those unsupported paths rather than returning an
-empty inventory. Resolvable resource links without discoverable skills and
+empty inventory. A symlinked skills root, including an in-project relative link,
+produces `skill discovery root ... is a symlink` and exits 2. The generated
+offline CI preflight step also fails; use a regular skills directory.
+Resolvable resource links without discoverable skills and
 resolvable eval symlinks remain supported. An unrelated unavailable link inside
 a fixture is not itself a discovery failure. When discovery fails, reports for
 independently discovered evaluations are still written to stdout in the selected
 format; the error is written to stderr and the command exits 2.
+
+When no skills or evaluations are discovered, workspace mode exits 2 with a
+`workspace.empty` diagnostic naming the discovery root. JSON mode writes an
+empty report array to stdout and the structured diagnostic to stderr. A discovered
+skill without an eval retains the empty-report success behavior.
+Implicit `.github/skills` discovery starts at the invocation directory, not the
+configuration root. Run from the project root to include its implicit skills;
+finding other entries does not prove that directory was inspected. Generated CI
+invokes preflight from the project root.
 
 During workspace discovery, linked-directory probes inspect definition
 metadata without reading it. On supported Unix hosts, Waza requests a

@@ -390,6 +390,13 @@ workspace-mode path and filename flags override those settings. `--skills-dir`
 also selects the root used to inspect required skills; it does not change the
 configuration used by a later `waza run`. Explicit eval-level directories and
 disabled skill discovery retain precedence.
+If neither skills nor evals are discovered, workspace mode exits 2 with a
+`workspace.empty` diagnostic naming the discovery root. In JSON mode, stdout
+remains an empty report array and the structured diagnostic goes to stderr.
+An admitted skill without an eval retains the empty-report success behavior.
+Implicit `.github/skills` discovery starts at the invocation directory, not the
+configuration root; use the project root to include its implicit skills. Other
+discovered entries do not prove that the project-root directory was inspected.
 Workspace preflight exits 2 for unavailable symlinks encountered during
 discovery. Native workspace detection does not follow symlinked skill-scan
 roots or skill directories; preflight reports those unsupported paths instead
@@ -563,9 +570,9 @@ Initialize a waza project with directory structure.
 
 When generating a workflow, configured skill and eval paths take precedence over
 auto-detected paths; symlinks in those paths must be relative and stay inside
-the project so they can work in a relocated checkout. Workspace preflight reports
-symlinked skill-scan roots as unsupported because native discovery does not
-follow them. Existing workflows are preserved. On Windows, macOS, and Linux,
+the project so they can work in a relocated checkout. A symlinked skills root,
+even a relative link within the project, makes the generated offline preflight
+exit 2; use a regular directory. Existing workflows are preserved. On Windows, macOS, and Linux,
 project and missing-eval scaffold writes use a rooted handle to reject symlink
 escapes. Filesystem mounts and the separate `new skill` flow are not constrained
 by this. Existing files are preserved, but a failed scaffold can leave partial
@@ -587,7 +594,8 @@ by the scaffold.
 
 **Review the generated CI workflow before enabling it.** Its PR path runs
 offline preflight using a pinned standalone Waza release, action commit SHAs
-and Ubuntu 24.04. Custom path flags do not update its path filters.
+and Ubuntu 24.04. It runs from the project root and fails if no skills or evals
+are discovered. Custom path flags do not update its path filters.
 
 Live evaluations require a manual default-branch dispatch with `run-agent=true`.
 Configure the `waza-agent` environment and its `WAZA_COPILOT_TOKEN` secret,

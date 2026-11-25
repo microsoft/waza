@@ -37,6 +37,7 @@ type detectOptions struct {
 	evalsDir         string // subdirectory name for evals (default "evals")
 	evalFile         string // eval filename (default "eval.yaml")
 	validateSymlinks bool
+	skipAncestors    bool
 }
 
 func defaultDetectOptions() detectOptions {
@@ -79,6 +80,14 @@ func WithEvalFile(filename string) DetectOption {
 func WithDiscoverySymlinkValidation() DetectOption {
 	return func(o *detectOptions) {
 		o.validateSymlinks = true
+	}
+}
+
+// WithoutAncestorDiscovery limits detection to the requested directory and its
+// configured roots. It does not change ordinary workspace precedence.
+func WithoutAncestorDiscovery() DetectOption {
+	return func(o *detectOptions) {
+		o.skipAncestors = true
 	}
 }
 
@@ -148,7 +157,7 @@ func DetectContext(dir string, opts ...DetectOption) (*WorkspaceContext, error) 
 
 	// 2. Walk up parent directories looking for SKILL.md or known compiled outputs
 	current := absDir
-	for i := 0; i < maxParentWalk; i++ {
+	for i := 0; !o.skipAncestors && i < maxParentWalk; i++ {
 		parent := filepath.Dir(current)
 		if parent == current {
 			break // reached filesystem root

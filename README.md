@@ -641,6 +641,13 @@ Relative configured paths resolve from the project configuration directory;
 settings in workspace mode. `--skills-dir` also selects the root used to inspect
 required skills when discovery is enabled and no eval-level directories are
 specified; it does not change the configuration used by a later `waza run`.
+If neither skills nor evals are discovered, workspace preflight exits 2 with
+`workspace.empty` and the discovery root. JSON mode writes an empty report
+array to stdout and the structured diagnostic to stderr. A discovered skill
+without an eval retains the empty-report success behavior.
+Implicit `.github/skills` discovery starts at the invocation directory, not
+the configuration root; run from the project root to include its implicit
+skills. Finding other skills or evals does not prove that root was inspected.
 Workspace preflight exits 2 for unavailable symlinks encountered during
 discovery rather than reporting an empty inventory. Native workspace discovery
 does not follow symlinked skill-scan roots or skill directories; preflight
@@ -715,8 +722,9 @@ Initialize a waza project workspace with separated `skills/` and `evals/` direct
 
 When generating a workflow, existing `.waza.yaml` skill and eval paths take
 precedence over discovery; symlinks in those paths must be relative and stay
-inside the project. Workspace preflight reports symlinked skill-scan roots as
-unsupported because native skill discovery does not follow them. On Windows,
+inside the project. A symlinked skills root, including an in-project relative
+link, causes generated CI preflight to exit 2; use a regular directory.
+On Windows,
 macOS, and Linux, project and missing-eval
 scaffold writes use a rooted handle to reject symlink escapes; filesystem mounts
 and the separate `new skill` flow are not constrained by this. A failed scaffold
@@ -731,7 +739,7 @@ tracked file preserves the directory.
 Creates:
 - `skills/` — Skill definitions directory
 - `evals/` — Evaluation suites directory
-- `.github/workflows/eval.yml` — CI/CD pipeline for running evals on PR
+- `.github/workflows/eval.yml` — CI/CD pipeline for offline preflight on PRs
 - `.gitignore` — Waza-specific exclusions
 - `README.md` — Getting started guide for your project
 
