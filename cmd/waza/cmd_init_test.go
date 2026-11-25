@@ -76,6 +76,10 @@ func TestInitCommand_NeverOverwrites(t *testing.T) {
 	require.NoError(t, os.MkdirAll(target, 0o755))
 	customContent := "# My Custom README\n"
 	require.NoError(t, os.WriteFile(filepath.Join(target, "README.md"), []byte(customContent), 0o644))
+	workflowPath := filepath.Join(target, ".github", "workflows", "eval.yml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(workflowPath), 0o755))
+	customWorkflow := "name: Keep my workflow\n"
+	require.NoError(t, os.WriteFile(workflowPath, []byte(customWorkflow), 0o644))
 
 	cmd := newInitCommand()
 	cmd.SetOut(&bytes.Buffer{})
@@ -87,6 +91,9 @@ func TestInitCommand_NeverOverwrites(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(target, "README.md"))
 	require.NoError(t, err)
 	assert.Equal(t, customContent, string(data))
+	data, err = os.ReadFile(workflowPath)
+	require.NoError(t, err)
+	assert.Equal(t, customWorkflow, string(data))
 }
 
 func TestInitCommand_DefaultDir(t *testing.T) {
@@ -190,11 +197,15 @@ func TestInitCommand_CIWorkflowContent(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(dir, ".github", "workflows", "eval.yml"))
 	require.NoError(t, err)
 	content := string(data)
-	assert.Contains(t, content, "Run Skill Evaluations")
-	assert.Contains(t, content, "actions/checkout@v4")
-	assert.Contains(t, content, "Azure/setup-azd@v2")
-	assert.Contains(t, content, "azd waza run")
-	assert.Contains(t, content, "upload-artifact@v4")
+	assert.Contains(t, content, "Offline configuration inventory (not an evaluation)")
+	assert.Contains(t, content, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1")
+	assert.Contains(t, content, "WAZA_VERSION: '0.42.1'")
+	assert.Contains(t, content, "install-waza-release.sh")
+	assert.Contains(t, content, "waza preflight")
+	assert.Contains(t, content, "waza run")
+	assert.Contains(t, content, "upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9")
+	assert.NotContains(t, content, "azd ext install")
+	assert.NotContains(t, content, "/main/")
 }
 
 func TestInitCommand_GitignoreContent(t *testing.T) {
@@ -232,7 +243,8 @@ func TestInitCommand_ReadmeContent(t *testing.T) {
 	assert.Contains(t, content, "waza new skill my-skill")
 	assert.Contains(t, content, "waza run")
 	assert.Contains(t, content, "waza check")
-	assert.Contains(t, content, "git push")
+	assert.Contains(t, content, "offline configuration inventory")
+	assert.Contains(t, content, "run-agent")
 }
 
 func TestInitCommand_WazaYAMLContent(t *testing.T) {

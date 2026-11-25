@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -205,14 +207,10 @@ func detectPaths(root string) detectedPaths {
 	return dp
 }
 
-func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir, flagEvalsDir, flagResultsDir string) error {
+func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir, flagEvalsDir, flagResultsDir string) (resultErr error) {
 	dir := "."
 	if len(args) > 0 {
 		dir = args[0]
-	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
 	out := cmd.OutOrStdout()
@@ -224,7 +222,10 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	wazaConfigPath := filepath.Join(absDir, ".waza.yaml")
 	_, wazaStatErr := os.Stat(wazaConfigPath)
-	needConfigPrompt := wazaStatErr != nil
+	if wazaStatErr != nil && !errors.Is(wazaStatErr, fs.ErrNotExist) {
+		return fmt.Errorf("checking project configuration %s: %w", wazaConfigPath, wazaStatErr)
+	}
+	needConfigPrompt := errors.Is(wazaStatErr, fs.ErrNotExist)
 	needSkillPrompt := !noSkill
 
 	// --- Phase 1: Configuration (if .waza.yaml missing) ---
@@ -232,6 +233,8 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	var skillsPath, evalsPath, resultsPath string
 	files := projectconfig.New().Files
 	var createSkill, scaffoldMissing bool
+	var configuredSkills, configuredEvals string
+	hasConfiguredPaths := false
 	engine = projectconfig.DefaultEngine
 	model = projectconfig.DefaultModel
 	skillsPath = projectconfig.DefaultSkillsDir
@@ -240,6 +243,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 
 	// If .waza.yaml exists, read engine/model from it so scaffolded evals
 	// match the project's actual config instead of hardcoded defaults.
+	var configErr error
 	if !needConfigPrompt {
 		if cfg, err := projectconfig.Load(absDir); err == nil {
 			engine = cfg.Defaults.Engine
@@ -248,8 +252,23 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			evalsPath = cfg.Paths.Evals
 			resultsPath = cfg.Paths.Results
 			files = cfg.Files
+			configuredSkills, configuredEvals = cfg.Paths.Skills, cfg.Paths.Evals
+			hasConfiguredPaths = true
+		} else {
+			configErr = err
 		}
 	}
+
+	workflowPath := filepath.Join(absDir, ".github", "workflows", "eval.yml")
+	_, workflowStatErr := os.Lstat(workflowPath)
+	if workflowStatErr != nil && !errors.Is(workflowStatErr, fs.ErrNotExist) {
+		return fmt.Errorf("checking generated workflow %s: %w", workflowPath, workflowStatErr)
+	}
+	needWorkflow := errors.Is(workflowStatErr, fs.ErrNotExist)
+	if needWorkflow && configErr != nil {
+		return fmt.Errorf("loading existing project configuration: %w", configErr)
+	}
+	useConfiguredWorkflowPaths := needWorkflow && hasConfiguredPaths
 
 	// --- Path resolution: CLI flags > detected paths > config defaults ---
 	// Only run detection when at least one path is still using its default
@@ -262,10 +281,10 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	var detected detectedPaths
 	if needDetection {
 		detected = detectPaths(absDir)
-		if detected.SkillsDir != "" && skillsPath == projectconfig.DefaultSkillsDir {
+		if !useConfiguredWorkflowPaths && detected.SkillsDir != "" && skillsPath == projectconfig.DefaultSkillsDir {
 			skillsPath = detected.SkillsDir
 		}
-		if detected.EvalsDir != "" && evalsPath == projectconfig.DefaultEvalsDir {
+		if !useConfiguredWorkflowPaths && detected.EvalsDir != "" && evalsPath == projectconfig.DefaultEvalsDir {
 			evalsPath = detected.EvalsDir
 		}
 		if detected.ResultsDir != "" && resultsPath == projectconfig.DefaultResultsDir {
@@ -283,6 +302,14 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 	if flagResultsDir != "" {
 		resultsPath = flagResultsDir
 	}
+	if useConfiguredWorkflowPaths {
+		if err := rejectConfiguredPathOverride("--skills-dir", "paths.skills", flagSkillsDir, configuredSkills); err != nil {
+			return err
+		}
+		if err := rejectConfiguredPathOverride("--evals-dir", "paths.evals", flagEvalsDir, configuredEvals); err != nil {
+			return err
+		}
+	}
 
 	// Show detection results when paths were discovered
 	if needConfigPrompt && (detected.SkillsDir != "" || detected.EvalsDir != "" || detected.ResultsDir != "") {
@@ -298,19 +325,50 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		}
 	}
 
-	// Validate resolved paths are safe (applies to all code paths: flags, detection, defaults)
-	for _, p := range []string{skillsPath, evalsPath, resultsPath} {
-		cleaned := filepath.Clean(p)
-		if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
-			return fmt.Errorf("path %q must be relative and within the project directory", p)
-		}
-		if strings.ContainsAny(p, ":#") {
-			return fmt.Errorf("path %q contains invalid characters", p)
-		}
-	}
-
 	var inventory []skillEntry
 	var skillsMissingEvals int
+	var workflow string
+	var root *os.Root
+	var fw *scaffold.FileWriter
+	defer func() {
+		if root != nil {
+			if err := root.Close(); err != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("closing project directory %s: %w", absDir, err))
+			}
+		}
+	}()
+	prepareScaffold := func() error {
+		for _, p := range []string{skillsPath, evalsPath, resultsPath} {
+			cleaned := filepath.Clean(p)
+			if filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, "..") {
+				return fmt.Errorf("path %q must be relative and within the project directory", p)
+			}
+			if strings.ContainsAny(p, ":#") {
+				return fmt.Errorf("path %q contains invalid characters", p)
+			}
+		}
+		var err error
+		if needWorkflow {
+			for _, path := range []string{skillsPath, evalsPath} {
+				if err := validateWorkflowCheckoutPath(absDir, path); err != nil {
+					return err
+				}
+			}
+			workflow, err = ciWorkflow(skillsPath, evalsPath, files.EvalFile, filepath.Join(evalsPath, "my-skill", files.EvalFile))
+			if err != nil {
+				return err
+			}
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+		root, err = os.OpenRoot(absDir)
+		if err != nil {
+			return fmt.Errorf("opening project directory %s: %w", absDir, err)
+		}
+		fw = scaffold.NewFileWriter(absDir)
+		return nil
+	}
 
 	if isTTY {
 		// Engine selector (separate form)
@@ -392,6 +450,9 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 				_ = err
 			}
 		}
+		if err := prepareScaffold(); err != nil {
+			return err
+		}
 
 		// --- Phase 2: Discover & Display Inventory (using configured paths) ---
 		inventory = displayInventory(out, absDir,
@@ -423,7 +484,9 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 			}
 
 			if scaffoldMissing {
-				scaffoldMissingEvals(absDir, evalsPath, inventory, engine, model, files)
+				if err := scaffoldMissingEvals(root, fw, absDir, evalsPath, inventory, engine, model, files); err != nil {
+					return err
+				}
 				// Re-display inventory showing updated state
 				inventory = displayInventory(out, absDir,
 					workspace.WithSkillsDir(skillsPath),
@@ -461,6 +524,9 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		}
 	} else {
 		// Non-TTY: use defaults, skip forms
+		if err := prepareScaffold(); err != nil {
+			return err
+		}
 		fmt.Fprintf(out, "\nUsing defaults: engine=%s, model=%s, scaffold missing evals=yes, create skill=no\n", engine, model) //nolint:errcheck
 
 		// Discover inventory using configured paths
@@ -477,7 +543,9 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		scaffoldMissing = skillsMissingEvals > 0
 
 		if scaffoldMissing {
-			scaffoldMissingEvals(absDir, evalsPath, inventory, engine, model, files)
+			if err := scaffoldMissingEvals(root, fw, absDir, evalsPath, inventory, engine, model, files); err != nil {
+				return err
+			}
 			// Re-display inventory after scaffolding
 			inventory = displayInventory(out, absDir,
 				workspace.WithSkillsDir(skillsPath),
@@ -504,15 +572,35 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 		{Path: filepath.Join(absDir, skillsPath), Label: "Skill definitions", IsDir: true},
 		{Path: filepath.Join(absDir, evalsPath), Label: "Evaluation suites", IsDir: true},
 		{Path: filepath.Join(absDir, ".waza.yaml"), Label: configLabel, Content: wazaConfigContent},
-		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: initCIWorkflow()},
+		{Path: filepath.Join(absDir, ".github", "workflows", "eval.yml"), Label: "CI pipeline", Content: workflow},
 		{Path: filepath.Join(absDir, ".gitignore"), Label: "Build artifacts excluded", Content: initGitignore()},
 		{Path: filepath.Join(absDir, "README.md"), Label: "Getting started guide", Content: initReadme(projectName)},
 	}
+	evalsRoot := filepath.Join(absDir, evalsPath)
+	resolvedEvals, resolveErr := filepath.EvalSymlinks(evalsRoot)
+	if resolveErr != nil && !errors.Is(resolveErr, fs.ErrNotExist) {
+		return fmt.Errorf("resolving evaluation directory %s: %w", evalsRoot, resolveErr)
+	}
+	if resolveErr != nil || pathWithinResolvedDir(absDir, resolvedEvals) {
+		entries = append(entries, scaffold.FileEntry{
+			Path:    filepath.Join(evalsRoot, ".gitkeep"),
+			Label:   "Keep evaluation directory in Git",
+			Content: "# Preserve this directory for generated CI.\n",
+		})
+	}
 
-	fw := scaffold.NewFileWriter(absDir)
-	inv, err := fw.Write(entries)
+	inv, err := fw.WriteRooted(root, entries)
 	if err != nil {
 		return err
+	}
+	if !needWorkflow {
+		info, err := os.Stat(workflowPath)
+		if err != nil {
+			return fmt.Errorf("checking existing workflow %s: %w", workflowPath, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("path %s exists but is a directory", workflowPath)
+		}
 	}
 
 	fmt.Fprintf(out, "\nProject structure:\n\n") //nolint:errcheck
@@ -562,7 +650,7 @@ func initCommandE(cmd *cobra.Command, args []string, noSkill bool, flagSkillsDir
 }
 
 // scaffoldMissingEvals creates eval suites for skills that lack them.
-func scaffoldMissingEvals(absDir, evalsDir string, inventory []skillEntry, engine, model string, files projectconfig.FilesConfig) {
+func scaffoldMissingEvals(root *os.Root, fw *scaffold.FileWriter, absDir, evalsDir string, inventory []skillEntry, engine, model string, files projectconfig.FilesConfig) error {
 	for _, inv := range inventory {
 		if inv.HasEval {
 			continue
@@ -571,15 +659,20 @@ func scaffoldMissingEvals(absDir, evalsDir string, inventory []skillEntry, engin
 		tasksDir := filepath.Join(evalDir, "tasks")
 		fixturesDir := filepath.Join(evalDir, "fixtures")
 
-		for _, d := range []string{tasksDir, fixturesDir} {
-			os.MkdirAll(d, 0o755) //nolint:errcheck
+		entries := []scaffold.FileEntry{
+			{Path: tasksDir, IsDir: true},
+			{Path: fixturesDir, IsDir: true},
+			{Path: filepath.Join(evalDir, files.EvalFile), Content: scaffold.EvalYAMLWithTaskGlob(inv.Name, engine, model, files.TaskGlob)},
 		}
-		os.WriteFile(filepath.Join(evalDir, files.EvalFile), []byte(scaffold.EvalYAMLWithTaskGlob(inv.Name, engine, model, files.TaskGlob)), 0o644) //nolint:errcheck
 		for name, content := range scaffold.TaskFilesWithSuffix(files.TaskFileSuffix) {
-			os.WriteFile(filepath.Join(tasksDir, name), []byte(content), 0o644) //nolint:errcheck
+			entries = append(entries, scaffold.FileEntry{Path: filepath.Join(tasksDir, name), Content: content})
 		}
-		os.WriteFile(filepath.Join(fixturesDir, "sample.py"), []byte(scaffold.Fixture()), 0o644) //nolint:errcheck
+		entries = append(entries, scaffold.FileEntry{Path: filepath.Join(fixturesDir, "sample.py"), Content: scaffold.Fixture()})
+		if _, err := fw.WriteRooted(root, entries); err != nil {
+			return fmt.Errorf("scaffolding missing evaluation for skill %q: %w", inv.Name, err)
+		}
 	}
+	return nil
 }
 
 func printNextSteps(out io.Writer) {
@@ -604,42 +697,236 @@ func absOrDefault(path string) string {
 
 // --- Init template content ---
 
-func initCIWorkflow() string {
-	return `name: Run Skill Evaluations
+// rejectConfiguredPathOverride prevents generated CI from validating a root
+// that ordinary runs, which read .waza.yaml, would not select.
+func rejectConfiguredPathOverride(flag, key, override, configured string) error {
+	if override == "" || filepath.Clean(override) == filepath.Clean(configured) {
+		return nil
+	}
+	return fmt.Errorf("%s %q conflicts with .waza.yaml %s %q; generated CI must use the configured path. Update .waza.yaml or omit %s", flag, override, key, configured, flag)
+}
+
+// validateWorkflowCheckoutPath checks symlink components before generating CI;
+// Git preserves relative in-project links when the checkout moves.
+func validateWorkflowCheckoutPath(projectDir, path string) error {
+	const maxSymlinkExpansions = 255
+	split := func(value string) []string {
+		return strings.FieldsFunc(value, func(r rune) bool {
+			return r <= 127 && os.IsPathSeparator(uint8(r))
+		})
+	}
+	root := filepath.Clean(projectDir)
+	current := root
+	pending := split(filepath.Clean(path))
+	expansions := 0
+	for len(pending) > 0 {
+		part := pending[0]
+		pending = pending[1:]
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if current == root {
+				return fmt.Errorf("cannot generate CI: project path %q follows a symlink outside project directory %s", path, projectDir)
+			}
+			current = filepath.Dir(current)
+			continue
+		}
+
+		next := filepath.Join(current, part)
+		info, err := os.Lstat(next)
+		if errors.Is(err, fs.ErrNotExist) {
+			current = next
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("checking project path %q for generated CI: %w", path, err)
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			current = next
+			continue
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return fmt.Errorf("reading symlink %s for generated CI: %w", next, err)
+		}
+		if filepath.IsAbs(target) || filepath.VolumeName(target) != "" || (target != "" && os.IsPathSeparator(target[0])) {
+			return fmt.Errorf("cannot generate CI: project path %q has symlink %s with absolute target %q; use a relative target inside the project", path, next, target)
+		}
+		expansions++
+		if expansions > maxSymlinkExpansions {
+			return fmt.Errorf("cannot generate CI: project path %q has too many symlink expansions", path)
+		}
+		pending = append(split(target), pending...)
+	}
+	return nil
+}
+
+// pathWithinResolvedDir reports whether resolvedPath is dir or inside dir
+// after resolving dir's own symlinks.
+func pathWithinResolvedDir(dir, resolvedPath string) bool {
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(resolvedDir, resolvedPath)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
+}
+
+// ciWorkflow renders the generated workflow. GitHub Actions evaluates ${{ in
+// otherwise quoted scalars, so literal paths containing it are rejected.
+func ciWorkflow(skillsPath, evalsPath, evalFile, defaultEvalPath string) (string, error) {
+	for _, value := range []string{skillsPath, evalsPath, evalFile, defaultEvalPath} {
+		if strings.Contains(value, "${{") {
+			return "", fmt.Errorf("generated CI cannot use path %q: GitHub Actions would evaluate its ${{ expression; choose a path without ${{", value)
+		}
+	}
+	content := `name: Validate and Evaluate Skills
 
 on:
   pull_request:
-    branches: [main]
-    paths:
-      - 'evals/**'
-      - 'skills/**'
+  workflow_dispatch:
+    inputs:
+      run-agent:
+        description: 'Intentionally run a trusted evaluation (requires configured credentials/model access)'
+        type: boolean
+        default: false
+      eval-path:
+        description: 'Reviewed evaluation file to execute'
+        type: string
+        default: __DEFAULT_EVAL_PATH__
 
 permissions:
   contents: read
 
+env:
+  # Standalone release; azd extension availability is a separate contract.
+  WAZA_VERSION: '0.42.1'
+
 jobs:
-  eval:
-    name: Run Evaluations
-    runs-on: ubuntu-latest
+  validate:
+    name: Offline configuration inventory (not an evaluation)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Azure Developer CLI
-        uses: Azure/setup-azd@v2
-      - name: Install waza extension
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install checksum-verified standalone Waza
         run: |
-          azd config set alpha.extensions on
-          azd ext source add -n waza -t url -l https://raw.githubusercontent.com/microsoft/waza/main/registry.json
-          azd ext install microsoft.azd.waza
-      - name: Run evaluations
-        run: azd waza run --output-dir ./results
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/install-waza-release.sh" \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" "$WAZA_VERSION"
+      - name: Observe installed version
+        run: waza --version
+      - name: Inventory evaluation configuration offline
+        env:
+          SKILLS_PATH: __SKILLS_PATH__
+          EVALS_PATH: __EVALS_PATH__
+          EVAL_FILE: __EVAL_FILE__
+        run: |
+          if [ ! -d "$EVALS_PATH" ]; then
+            echo "::error::Evaluation directory is missing: $EVALS_PATH"
+            exit 1
+          fi
+          waza preflight --workspace --skills-dir "$SKILLS_PATH" --evals-dir "$EVALS_PATH" --eval-file "$EVAL_FILE"
+          echo "Offline inventory only. Unresolved prerequisites are warnings, not runtime readiness or evaluation success."
+
+  agent:
+    name: Explicit trusted evaluation
+    if: github.event_name == 'workflow_dispatch' && inputs.run-agent && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Restrict this environment to the default branch and require reviewers
+    # before adding WAZA_COPILOT_TOKEN; the branch check below is not a boundary.
+    environment: waza-agent
+    steps:
+      # Expression string comparison ignores case; Git refs do not.
+      - name: Require exact default-branch ref
+        id: exact-default-ref
+        env:
+          DEFAULT_REF: refs/heads/${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_REF" != "$DEFAULT_REF" ]; then
+            echo "::error::Trusted evaluations run only from $DEFAULT_REF, not $GITHUB_REF."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install checksum-verified standalone Waza
+        run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/install-waza-release.sh" \
+            -o "$RUNNER_TEMP/install-waza-release.sh"
+          bash "$RUNNER_TEMP/install-waza-release.sh" "$WAZA_VERSION"
+      - name: Observe installed version
+        run: waza --version
+      - name: Run reviewed evaluation
+        id: run-eval
+        env:
+          EVAL_PATH: ${{ inputs.eval-path }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.WAZA_COPILOT_TOKEN }}
+        run: |
+          rm -f -- results.json
+          if [ -z "$COPILOT_GITHUB_TOKEN" ]; then
+            echo "::error::Configure WAZA_COPILOT_TOKEN with Copilot/model access in the protected waza-agent environment before opting in."
+            exit 1
+          fi
+          if [ ! -f "$EVAL_PATH" ]; then
+            echo "::error::Review and select an existing evaluation file."
+            exit 1
+          fi
+          set +e
+          waza run "$EVAL_PATH" --no-cache --output results.json
+          exit_code=$?
+          set -e
+          echo "exit_code=$exit_code" >> "$GITHUB_OUTPUT"
+      - name: Validate fresh result artifact and retain verdict
+        id: validate-result
+        if: always()
+        env:
+          RUN_EXIT_CODE: ${{ steps.run-eval.outputs.exit_code }}
+        run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/microsoft/waza/v${WAZA_VERSION}/.github/scripts/validate-waza-result.sh" \
+            -o "$RUNNER_TEMP/validate-waza-result.sh"
+          bash "$RUNNER_TEMP/validate-waza-result.sh" results.json 0 "$RUN_EXIT_CODE"
+          if ! jq -e -s 'length == 1 and (.[0].config.engine_type == "copilot-sdk")' < results.json >/dev/null; then
+            echo "::error::Result executor is not copilot-sdk; mock or unknown execution cannot satisfy the agent-evidence gate."
+            exit 1
+          fi
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: eval-results
-          path: ./results
+          path: results.json
           retention-days: 30
+          if-no-files-found: error
+      - name: Enforce evaluation status
+        if: always()
+        env:
+          VALIDATION_OUTCOME: ${{ steps.validate-result.outcome }}
+          EVALUATION_STATUS: ${{ steps.validate-result.outputs.status }}
+        run: |
+          if [ "$VALIDATION_OUTCOME" != "success" ] || [ "$EVALUATION_STATUS" != "success" ]; then
+            exit 1
+          fi
 `
+	// JSON string quoting is also valid YAML quoting for user-selected paths.
+	quotedSkillsPath, _ := json.Marshal(filepath.ToSlash(skillsPath))
+	quotedPath, _ := json.Marshal(filepath.ToSlash(evalsPath))
+	quotedEvalFile, _ := json.Marshal(evalFile)
+	quotedDefault, _ := json.Marshal(filepath.ToSlash(defaultEvalPath))
+	return strings.NewReplacer(
+		"__SKILLS_PATH__", string(quotedSkillsPath),
+		"__EVALS_PATH__", string(quotedPath),
+		"__EVAL_FILE__", string(quotedEvalFile),
+		"__DEFAULT_EVAL_PATH__", string(quotedDefault),
+	).Replace(content), nil
 }
 
 func initGitignore() string {
@@ -677,10 +964,61 @@ func initReadme(projectName string) string {
    waza dev my-skill           # improve with real-time scoring
    `+"`"+``+"`"+``+"`"+`
 
-5. Push to trigger CI:
-   `+"`"+``+"`"+``+"`"+`bash
-   git push
-   `+"`"+``+"`"+``+"`"+`
+5. Open a pull request for automatic **offline configuration inventory**.
+   CI installs checksum-verified standalone Waza 0.42.1 (not the azd extension)
+   and prints the installed version. It runs preflight without starting an agent,
+   model, or grader subprocess. Invalid configuration fails; unresolved runtime
+   prerequisites warn and are not verified readiness. No eval files means an
+   explicit not-run notice, not a successful evaluation. No result artifact is
+   produced by the offline job. Commit the evaluation root's `+"`"+`.gitkeep`+"`"+`
+   if no other tracked file preserves the directory; unignore or force-add it
+   if needed.
+
+## Intentional agent-backed CI
+
+Review the evaluation, executor, model, tools, graders, and dependencies first.
+Use a supported Copilot token with model access. CI passes **WAZA_COPILOT_TOKEN**
+as **COPILOT_GITHUB_TOKEN**, not the workflow's default GitHub token.
+Local login state does not authenticate a hosted runner.
+
+**Credential and artifact warning:** Program graders and other eval code
+inherit COPILOT_GITHUB_TOKEN. Their output can appear in results.json and
+uploaded artifacts retained for 30 days. Waza does not redact secrets from these
+outputs or artifacts. GitHub log masking does not protect artifacts.
+
+Store WAZA_COPILOT_TOKEN only in a protected waza-agent environment. In the
+destination repository, create this environment and select only the default
+branch for deployment, require reviewers, then verify those settings before
+adding WAZA_COPILOT_TOKEN. Where independent approval is required, prevent
+self-review and disable admin bypass where available. GitHub auto-creates an
+unknown referenced environment with no protection rules or secrets. The workflow's
+if/ref condition is not the protection boundary: a modified branch workflow
+can remove it.
+
+Protection availability depends on the repository's visibility and GitHub plan.
+Required reviewers are unavailable for private repositories on GitHub Free,
+Pro, or Team. Do not enable the credentialed job if the recommended branch
+restrictions or required reviewers cannot be configured.
+
+Do not define a same-named repository or organization secret. If the environment
+secret is missing, GitHub can silently use that broader-scoped secret.
+
+On the repository's default branch, manually dispatch the generated workflow,
+set **run-agent** to true, and choose **eval-path**. It defaults to offline-only;
+the generated workflow skips the agent job for pull requests and non-default branches. Intentional
+execution can incur usage and runs reviewed code with that credential. Fixture
+isolation is not sandboxing. The executor in your eval is preserved, never
+silently replaced with mock; the agent-evidence gate rejects mock or unknown
+result executors and requires copilot-sdk.
+
+The live job requires a fresh results.json, disables cached results, validates
+the shared result contract, and uploads diagnostics even for completed failing
+grading. Missing credentials/model access, task/runtime errors, missing or
+malformed artifacts, and failed verdicts cannot pass as successful evaluations.
+JUnit publication is not configured here. Existing workflows are never
+overwritten by re-running init. Update the release pin deliberately only after
+verifying published standalone assets and the shared installer/result scripts;
+offline inventory is neither release approval nor external-consumer evidence.
 `, projectName)
 }
 

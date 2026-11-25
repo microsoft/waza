@@ -35,6 +35,15 @@ const releaseInputs = [
   'version.txt', 'extension.yaml', 'registry.json', 'go.mod', 'CHANGELOG.md',
   'internal/models/schema_version.go', ...embeddedFiles, ...embeddedAssets,
 ];
+function publishedReleaseVersion(changelog, reference) {
+  const published = reference.match(/^## Current published standalone release: v(\d+\.\d+\.\d+)\s*$/m)?.[1];
+  assert.ok(published, 'the download reference must explicitly identify the published release');
+  const entry = changelog.split(/^## /m).find((section) => section.startsWith(`[${published}] - `));
+  assert.ok(entry, 'the published version must have a dated changelog entry');
+  assert.match(entry, /^\[[\d.]+\] - \d{4}-\d{2}-\d{2}\s*$/m);
+  assert.doesNotMatch(entry, /^(?:\*\*)?(?:Hotfix|Release) candidate\b/im, 'a candidate is not a publication record');
+  return published;
+}
 const withoutCode = (text) => text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\s*$/gm, '');
 const slug = (text) => text.toLowerCase().replace(/<\/?[a-z][a-z0-9]*(?:\s[^>]*)?>/g, '').replace(/[^\p{L}\p{N}_ -]/gu, '').replace(/ /g, '-');
 
@@ -52,6 +61,32 @@ test('CI/CD guide preserves readable punctuation and copyable result labels', ()
     '- **[Graders Guide](../graders/)** — Set up scoring rules',
     '- **[Examples](https://github.com/microsoft/waza/tree/main/examples)** — Real eval setups',
   ].join('\n'));
+});
+
+test('init and CI documentation states credential and artifact boundaries', () => {
+  for (const path of ['docs/GUIDE.md', 'site/src/content/docs/guides/ci-cd.mdx',
+    'site/src/content/docs/reference/cli.mdx']) {
+    const text = read(path).replace(/\s+/g, ' ');
+    for (const warning of [
+      'Program graders and other eval code inherit COPILOT_GITHUB_TOKEN.',
+      'Their output can appear in results.json and uploaded artifacts retained for 30 days.',
+      'Waza does not redact secrets from these outputs or artifacts.',
+      'GitHub log masking does not protect artifacts.',
+      'Store WAZA_COPILOT_TOKEN only in a protected waza-agent environment.',
+      'destination repository, create this environment and select only the default branch for deployment, require reviewers',
+      'verify those settings before adding WAZA_COPILOT_TOKEN.',
+      'Where independent approval is required, prevent self-review and disable admin bypass where available.',
+      'GitHub auto-creates an unknown referenced environment with no protection rules or secrets.',
+      "The workflow's if/ref condition is not the protection boundary: a modified branch workflow can remove it.",
+      'Do not define a same-named repository or organization secret.',
+      'If the environment secret is missing, GitHub can silently use that broader-scoped secret.',
+      "Protection availability depends on the repository's visibility and GitHub plan.",
+      'Required reviewers are unavailable for private repositories on GitHub Free, Pro, or Team.',
+      'Do not enable the credentialed job if the recommended branch restrictions or required reviewers cannot be configured.',
+    ]) {
+      assert.ok(text.includes(warning), `${path}: missing ${warning}`);
+    }
+  }
 });
 
 const runnerCommands = [
@@ -606,6 +641,14 @@ test('release articles are linked from Releases and retain their existing screen
   assert.match(article, /Fixture-backed native-profile view/);
 });
 
+test('the unpublished hotfix article stays out of shared release navigation', () => {
+  const article = read('site/src/content/docs/releases/v0-42-1.mdx');
+  assert.match(article, /^\*\*Release candidate, November 23, 2026\.\*\*/m);
+  assert.match(article, /Publication and package verification\s+are pending/);
+  assert.doesNotMatch(read('site/astro.config.mjs'), /Waza v0\.42\.1.*releases\/v0-42-1/);
+  assert.doesNotMatch(read('site/src/content/docs/reference/releases.mdx'), /v0\.42\.1: close the dogfood loop/);
+});
+
 test('v0.41.0 article is a published release record with its limits', () => {
   const article = read('site/src/content/docs/releases/v0-41-0.mdx');
   const text = article.replace(/\s+/g, ' ');
@@ -648,8 +691,6 @@ test('v0.42.0 published article retains production integration limits', () => {
   assert.match(article, /^title: "Waza v0\.42\.0: verifiable production integration"$/m);
   assert.match(visible, /\*\*Released November 21, 2026\.\*\*/);
   assert.doesNotMatch(visible, /publication pending|\*\*Draft|preview|is pending/i);
-  assert.match(read('version.txt'), /^0\.42\.0\s*$/);
-  assert.match(read('extension.yaml'), /^version: 0\.42\.0$/m);
   const changelog = read('CHANGELOG.md');
   const candidate = changelog.split('## [0.42.0] - 2026-11-21')[1]?.split('## [0.41.0]')[0];
   assert.ok(candidate, 'candidate must own the folded Unreleased entries');
@@ -1086,10 +1127,10 @@ test('extension installation guidance identifies the current registry version', 
 });
 
 test('release entry points agree on published versions and the current runner result writer', () => {
-  const release = read('CHANGELOG.md').match(/^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/m);
-  assert.ok(release, 'a dated release entry, not post-tag synchronization metadata, identifies the published version');
-  const published = release[1];
-  assert.match(read('version.txt').trim(), /^\d+\.\d+\.\d+$/);
+  const published = publishedReleaseVersion(read('CHANGELOG.md'), read('site/src/content/docs/reference/releases.mdx'));
+  const sourceVersion = read('version.txt').trim();
+  assert.match(sourceVersion, /^\d+\.\d+\.\d+$/);
+  assert.equal(read('extension.yaml').match(/^version: (\S+)\s*$/m)?.[1], sourceVersion);
   const readme = read('README.md').replace(/\s+/g, ' ');
   assert.equal(readme.match(/published standalone CLI is `v([^`]+)`/)?.[1], published);
   assert.equal(
@@ -1316,8 +1357,7 @@ function taggedBuildVersions(text) {
 }
 
 test('current onboarding uses matching published source tags and build stamps', () => {
-  const published = read('CHANGELOG.md').match(/^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$/m)?.[1];
-  assert.ok(published);
+  const published = publishedReleaseVersion(read('CHANGELOG.md'), read('site/src/content/docs/reference/releases.mdx'));
   for (const path of ['README.md', 'docs/GUIDE.md', 'site/src/content/docs/quick-start.mdx',
     'site/src/content/docs/getting-started.mdx', 'site/src/content/docs/reference/releases.mdx']) {
     assert.ok(taggedBuildVersions(read(path)).includes(published), `${path} must show the published release`);
@@ -1334,6 +1374,21 @@ test('current onboarding uses matching published source tags and build stamps', 
   assert.deepEqual(taggedBuildVersions(historical), ['0.40.0']);
   assert.throws(() => taggedBuildVersions(historical.replace('VERSION=0.40.0', 'VERSION=0.41.0')));
   assert.throws(() => taggedBuildVersions(historical.replace(' VERSION=0.40.0', '')));
+});
+
+test('a dated candidate cannot replace the verified published download version', () => {
+  const changelog = read('CHANGELOG.md');
+  const reference = read('site/src/content/docs/reference/releases.mdx');
+  const published = publishedReleaseVersion(changelog, reference);
+  const [major, minor, patch] = published.split('.').map(Number);
+  const candidate = `${major}.${minor}.${patch + 1}`;
+  const staged = `## [${candidate}] - 2026-11-23\n\nHotfix candidate; qualification and publication are pending.\n\n${changelog}`;
+  assert.equal(publishedReleaseVersion(staged, reference), published);
+  const promoted = reference.replace(
+    `## Current published standalone release: v${published}`,
+    `## Current published standalone release: v${candidate}`,
+  );
+  assert.throws(() => publishedReleaseVersion(staged, promoted), /a candidate is not a publication record/);
 });
 
 function assertSchemaAttribution(text, sourceWriter) {

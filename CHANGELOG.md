@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-11-23
+
+Hotfix candidate; qualification and publication are pending. See the
+[release article](site/src/content/docs/releases/v0-42-1.mdx),
+[repository blog](docs/blog/v0.42.1-hotfix.md) and
+[download reference](site/src/content/docs/reference/releases.mdx) for scope,
+migration and verified publication state.
+
+### Fixed
+
+- Task generation uses returned execution events rather than requiring a
+  home-directory session `events.jsonl`; unsuccessful or missing execution
+  responses fail explicitly before creating a task (#1109).
+- `new skill --output-dir` honors the selected scaffold destination instead
+  of discovering and writing into an ancestor workspace (#1089).
+- azd extension examples use the supported `new eval` command instead of the
+  nonexistent `generate` command (#1110).
+- `tokens count` and `tokens profile` reject unsupported output formats
+  instead of silently succeeding (#1088, #1108).
+- Development reports consume scaffolded trigger examples (#1090, #1107).
+- Generated CI pins a standalone release, action commit SHAs and Ubuntu
+  24.04; pull requests run offline preflight and live agent execution requires
+  an explicit manual default-branch dispatch and configured environment (#947).
+  Standalone skill scaffolds share this policy; mock results and missing or
+  unknown executor identities cannot pass the agent gate.
+- Go CI capture preserves terminal test evidence despite spinner carriage
+  returns; Windows snapshot purity checks compare public filesystem properties.
+- Candidate qualification reads the version from its exact reviewed source
+  metadata instead of hard-coding the previous release.
+
+### Changed
+
+- Updated `go-jose/v4` from 4.1.4 to 4.1.6 for GHSA-mgcc-cww5-fp2q (#1103).
+  The dependency now has a default 4096-bit RSA key-size limit and removes
+  `RandReader`; affected embedders should review upstream migration notes.
+
 ## [0.42.0] - 2026-11-21
 
 The [standalone release](https://github.com/microsoft/waza/releases/tag/v0.42.0)
@@ -1315,7 +1351,8 @@ pip install waza
 - YAML escaping for regex patterns with backslashes
 - Progress bar now shows 100% on completion
 
-[Unreleased]: https://github.com/microsoft/waza/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/microsoft/waza/compare/v0.42.1...HEAD
+[0.42.1]: https://github.com/microsoft/waza/compare/v0.42.0...v0.42.1
 [0.42.0]: https://github.com/microsoft/waza/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/microsoft/waza/compare/v0.40.1...v0.41.0
 [0.38.6]: https://github.com/microsoft/waza/compare/azd-ext-microsoft-azd-waza_0.38.5...azd-ext-microsoft-azd-waza_0.38.6

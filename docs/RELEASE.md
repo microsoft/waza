@@ -5,6 +5,16 @@ validation contract is `.github/workflows/release-validation.yml`; the reusable
 qualification contract is `.github/workflows/release-qualification.yml`.
 Every publisher must use the exact source SHA that completed qualification.
 
+## v0.42.1 dogfood hotfix
+
+The [hotfix article](../site/src/content/docs/releases/v0-42-1.mdx) tracks the
+candidate fixes and migration guidance. Keep its publication status, the
+changelog, README and site download reference consistent with verified release
+state. Existing generated CI files are not automatically rewritten by an
+upgrade. Qualify the final merged source before tagging, then validate the
+actual published binaries and extension archives; a same-source rebuild does
+not establish that the distributed packages ran.
+
 The tag workflow retains GitHub's success-only dependency conditions for each
 builder and publisher. Required validation and evidence-verification steps may
 not be skipped or tolerate failures; workflow regression controls exercise those
@@ -52,6 +62,17 @@ them offline, and uploads the evidence and workflow-linked assurance package
 only to that workflow run. This candidate path has read-only repository
 permissions plus attestation permissions; it creates no version tag, GitHub
 Release assets, or public registry image.
+
+Candidate admission, tag admission and runner-image publication use the same
+version check (`.github/scripts/release_version_check.sh`). The supported
+profile is `major.minor.patch` (unsigned 64-bit components, no leading zeroes)
+with an optional dot-separated alphanumeric prerelease such as `0.42.1-rc.1`;
+numeric prerelease identifiers also cannot have leading zeroes. Build metadata
+(`+build.2`) and internal prerelease hyphens are not supported by this shared
+candidate/tag profile. Versions are limited to 127 ASCII bytes: the publisher
+uses the unchanged `v`-prefixed version as an OCI tag, which forbids `+` and is
+limited to 128 bytes. Qualification does not admit a broader version syntax
+than publication.
 
 Qualification consumes the exact-source dashboard artifact produced by release
 validation and rechecks its manifest and installed output before building. It

@@ -2,6 +2,8 @@
 package preflight
 
 import (
+	"slices"
+
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/schemaloader"
 )
@@ -58,15 +60,29 @@ type TaskPlan struct {
 }
 
 type Report struct {
-	Kind          string       `json:"kind"`
-	SchemaVersion string       `json:"schemaVersion"`
-	Source        string       `json:"source"`
-	Executor      string       `json:"executor"`
-	Complete      bool         `json:"complete"`
-	Tasks         []TaskPlan   `json:"tasks"`
-	Capabilities  []Capability `json:"capabilities"`
-	Dependencies  []Dependency `json:"dependencies"`
-	Diagnostics   []Diagnostic `json:"diagnostics"`
+	Kind           string       `json:"kind"`
+	SchemaVersion  string       `json:"schemaVersion"`
+	Source         string       `json:"source"`
+	Executor       string       `json:"executor"`
+	Complete       bool         `json:"complete"`
+	Tasks          []TaskPlan   `json:"tasks"`
+	Capabilities   []Capability `json:"capabilities"`
+	Dependencies   []Dependency `json:"dependencies"`
+	Diagnostics    []Diagnostic `json:"diagnostics"`
+	inputPaths     []string
+	untrackedPaths bool
+}
+
+// ResolutionPaths returns the local input paths examined by Inspect. False
+// means some declared paths could not be tracked, so aliases must stay separate.
+// This bookkeeping is not part of the serialized preflight report.
+func (r *Report) ResolutionPaths() ([]string, bool) {
+	return slices.Clone(r.inputPaths), !r.untrackedPaths
+}
+
+func (r *Report) inputPath(path string) string {
+	r.inputPaths = append(r.inputPaths, path)
+	return path
 }
 
 // Failed applies only to preflight. It does not change evaluation exit policy.
@@ -84,11 +100,15 @@ func (r *Report) schemaFailureState(err error) State {
 	_, external := schemaloader.ClassifyError(err)
 	if external {
 		r.Complete = false
+		r.untrackedPaths = true
 	}
 	return state
 }
 
 func (r *Report) add(code string, state State, source, task, requirement, message, remediation string) {
+	if code == "schema.external_reference" {
+		r.untrackedPaths = true
+	}
 	severity := "info"
 	if state == Invalid {
 		severity = "error"

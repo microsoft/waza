@@ -1,6 +1,8 @@
 package preflight
 
 import (
+	"errors"
+	"fmt"
 	"os"
 
 	"github.com/microsoft/waza/internal/execution"
@@ -20,14 +22,25 @@ func inspectBoundaryPolicy(r *Report, task *models.TestCase, spec *models.EvalSp
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
+		r.untrackedPaths = true
 		r.add("boundary.discovery", Unresolved, source, task.TestID, "", "Effective agent discovery base is unavailable.", "Use an accessible working directory before evaluating requested boundary intent.")
 		r.Complete = false
 		return
 	}
-	agentPath, frontmatter, err := execution.ResolveAgentDefinition(append([]string{cwd}, paths...), spec.SkillName)
+	agentPath, frontmatter, err := execution.ResolveAgentDefinitionOffline(append([]string{cwd}, paths...), spec.SkillName)
 	if err != nil {
-		r.add("boundary.agent", Invalid, source, task.TestID, "", "Selected agent definition cannot be parsed.", "Correct the selected .agent.md frontmatter; discovery follows runtime precedence.")
+		r.untrackedPaths = true
+		message := fmt.Sprintf("Selected agent definition cannot be read or parsed: %v", err)
+		var parseErr *execution.AgentDefinitionParseError
+		if errors.As(err, &parseErr) {
+			// Parser errors can quote frontmatter values; report only the file.
+			message = fmt.Sprintf("Selected agent definition %q has invalid frontmatter.", parseErr.Path)
+		}
+		r.add("boundary.agent", Invalid, source, task.TestID, "", message, "Correct the selected .agent.md frontmatter and use regular readable definition files; discovery follows runtime precedence.")
 		return
+	}
+	if agentPath != "" {
+		r.inputPath(agentPath)
 	}
 	if frontmatter == nil || frontmatter.Tools == nil {
 		return

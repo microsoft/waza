@@ -375,10 +375,45 @@ service first:
 ```bash
 waza preflight evals/code-explainer/eval.yaml --context-dir evals/code-explainer/fixtures
 waza preflight evals/code-explainer/eval.yaml --format json > preflight.json
+waza preflight --workspace
+waza preflight --workspace --skills-dir skills --evals-dir evals --eval-file eval.yaml
 ```
 
 Preflight verifies only local schemas/configuration, task discovery/IDs, paths,
 locked cached graders, mock matching, references, and static capability support.
+Workspace mode uses the configured skill/evaluation paths and the same native
+evaluation discovery and filename precedence as other workspace commands, and
+also inspects target-free evaluations, such as scenarios, stored directly in the
+evaluations directory or one of its immediate subdirectories.
+Relative configured paths resolve from the project configuration directory;
+workspace-mode path and filename flags override those settings. `--skills-dir`
+also selects the root used to inspect required skills; it does not change the
+configuration used by a later `waza run`. Explicit eval-level directories and
+disabled skill discovery retain precedence.
+If neither skills nor evals are discovered, workspace mode exits 2 with a
+`workspace.empty` diagnostic naming the discovery root. In JSON mode, stdout
+remains an empty report array and the structured diagnostic goes to stderr.
+An admitted skill without an eval retains the empty-report success behavior.
+Implicit `.github/skills` discovery starts at the invocation directory, not the
+configuration root. If a nested invocation would miss a skill candidate in the
+configuration root's `.github/skills`, preflight exits 2 and names that root.
+Run from the project root or preflight an explicit eval. Empty directories and
+unrelated resources do not trigger this error.
+Workspace preflight exits 2 for unavailable symlinks encountered during
+discovery. Configured eval filenames take precedence over `eval.yaml`; an
+unselected dangling fallback is ignored, including in child suites.
+Native workspace detection does not follow symlinked skill-scan
+roots or skill directories; preflight reports those unsupported paths instead
+of reporting an empty inventory. Resolvable resource links without discoverable
+skills and resolvable eval symlinks remain supported. Discovery errors go to
+stderr; reports for independently discovered evaluations remain on stdout in
+the selected format.
+During workspace discovery, linked-directory probes inspect definition
+metadata without reading it. On supported Unix hosts, Waza requests a
+nonblocking open and checks the opened definition is regular. Windows and
+other hosts cannot guarantee a nonblocking open if a path is replaced
+concurrently. These checks do not authenticate paths, guarantee stable
+content, or protect later skill loads.
 Valid unmatched task globs are optional when other patterns discover tasks.
 CSV paths must be lexically within the eval directory and remain within it
 after resolving symlinks;
@@ -534,7 +569,20 @@ Initialize a waza project with directory structure.
 - `--no-skill` — Skip the first-skill creation prompt
 - `--skills-dir` — Override detection/defaults with a project-relative skills path
 - `--evals-dir` — Override detection/defaults with a project-relative evals path
+- With an existing `.waza.yaml`, generating `.github/workflows/eval.yml` rejects `--skills-dir` or `--evals-dir` values that differ from its `paths`, so CI validates the same roots that runs use
 - `--results-dir` — Set the results path recorded in newly created configuration
+
+When generating a workflow, configured skill and eval paths take precedence over
+auto-detected paths; symlinks in those paths must be relative and stay inside
+the project so they can work in a relocated checkout. A symlinked skills root,
+even a relative link within the project, makes the generated offline preflight
+exit 2; use a regular directory. Existing workflows are preserved. On Windows, macOS, and Linux,
+project and missing-eval scaffold writes use a rooted handle to reject symlink
+escapes. Filesystem mounts and the separate `new skill` flow are not constrained
+by this. Existing files are preserved, but a failed scaffold can leave partial
+output. In-project eval roots get a `.gitkeep` even when populated; commit it
+(unignore or force-add it if necessary) unless another tracked file preserves
+the directory.
 
 **What it creates:**
 - `skills/` — Skill definitions directory
@@ -548,16 +596,40 @@ Existing project files, including `.waza.yaml` and the workflow, are not
 overwritten. The results path is configured but its directory is not created
 by the scaffold.
 
-**Review the generated CI workflow before enabling it.** Its default
-`pull_request` trigger targets `main` and changes under `evals/**` or `skills/**`;
-custom path flags do not update those filters. It grants `contents: read`,
-installs the extension using the mutable
-`https://raw.githubusercontent.com/microsoft/waza/main/registry.json` source,
-runs `azd waza run --output-dir ./results`, and uploads results for 30 days.
-This is not release pinning or runtime authentication: select a trusted pinned
-release source and configure authentication separately. `init` does not
-configure credentials or grant PRs access to secrets. Preserve fork-PR and
-untrusted-input safeguards described in the
+**Review the generated CI workflow before enabling it.** Its PR path runs
+offline preflight using a pinned standalone Waza release, action commit SHAs
+and Ubuntu 24.04. It runs from the project root and fails if no skills or evals
+are discovered. Custom path flags do not update its path filters.
+
+Live evaluations require a manual default-branch dispatch with `run-agent=true`.
+Configure the `waza-agent` environment and its `WAZA_COPILOT_TOKEN` secret,
+passed to the runtime as `COPILOT_GITHUB_TOKEN`.
+
+**Credential and artifact warning:** Program graders and other eval code
+inherit COPILOT_GITHUB_TOKEN. Their output can appear in results.json and
+uploaded artifacts retained for 30 days. Waza does not redact secrets from these
+outputs or artifacts. GitHub log masking does not protect artifacts.
+
+Store WAZA_COPILOT_TOKEN only in a protected waza-agent environment. In the
+destination repository, create this environment and select only the default
+branch for deployment, require reviewers, then verify those settings before
+adding WAZA_COPILOT_TOKEN. Where independent approval is required, prevent
+self-review and disable admin bypass where available. GitHub auto-creates an
+unknown referenced environment with no protection rules or secrets. The workflow's
+if/ref condition is not the protection boundary: a modified branch workflow
+can remove it.
+
+Protection availability depends on the repository's visibility and GitHub plan.
+Required reviewers are unavailable for private repositories on GitHub Free,
+Pro, or Team. Do not enable the credentialed job if the recommended branch
+restrictions or required reviewers cannot be configured.
+
+Do not define a same-named repository or organization secret. If the environment
+secret is missing, GitHub can silently use that broader-scoped secret.
+
+Model calls can incur charges. `init` does not configure credentials or grant
+PRs access to secrets, and it preserves existing workflow files. Keep the
+fork-PR and untrusted-input safeguards described in the
 [CI/CD guide](../site/src/content/docs/guides/ci-cd.mdx).
 
 **Example:**
@@ -577,6 +649,10 @@ Create a new skill with its evaluation suite. In interactive mode, the wizard co
 
 An explicit output directory bounds workspace discovery for the scaffold.
 Without `--output-dir`, existing ancestor workspace discovery is unchanged.
+Standalone scaffolds share `init`'s pinned, offline-default CI policy. The
+manual agent gate rejects mock results and missing or unknown executor identity.
+Standalone repair validates generated CI paths before replacing a malformed
+`SKILL.md`, preserving its original contents when that configuration is rejected.
 
 **Modes:**
 
@@ -629,6 +705,15 @@ The generated task includes inferred validators based on:
 - `--timeout` — Prompt execution timeout (default: `5m`)
 - `--overwrite` — Replace output file if it already exists
 - `--root` — Root directory used for skill discovery
+
+Without `.waza.yaml`, default skill paths resolve from `--root`, not the caller's
+working directory. `.waza.yaml` is located from the current working directory
+(walking up its parents), not from `--root`; a configuration file under `--root`
+is consulted only when it is also found from the working directory. When
+configuration is found, its configured or default skill paths remain relative to
+that configuration file's directory and may therefore be outside `--root`.
+`--root` selects discovery inputs and the SDK source directory; it is not an
+isolation boundary for skills the SDK can load.
 
 **Examples:**
 ```bash
@@ -766,6 +851,8 @@ Files other than `SKILL.md` are rejected.
 
 These target forms also work with `--copilot` for a non-mutating recommendations
 report and `--scaffold-triggers` to generate `tests/trigger_tests.yaml`.
+The recommendations report reads those scaffolded trigger examples alongside
+existing eval cases; scaffolding alone does not execute them.
 Multiple positional arguments remain workspace skill names; use `--all` to
 process every skill in the workspace.
 

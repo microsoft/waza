@@ -177,8 +177,54 @@ evidence, not verification of a commit or successful worktree creation.
 
 Legacy suites and scenarios with an explicit target also receive the same
 read-only `.waza.yaml` workspace skill-directory defaults as `waza run` when eval
-directories are omitted. Explicit eval directories take precedence. Disabled
-scenario discovery does not inspect or inject ambient project skills.
+directories are omitted. With `--workspace --skills-dir`, preflight instead uses
+the selected root for required-skill discovery; this does not change a later
+`waza run`. Explicit eval directories take precedence. Disabled scenario
+discovery does not inspect or inject ambient project skills.
+
+Workspace preflight exits 2 when a discovery symlink is unavailable, except for
+an unselected fallback manifest. Configured eval filenames take precedence over
+`eval.yaml`; a dangling fallback is ignored when the configured eval is
+selected, including in child suites. Native
+workspace detection does not follow symlinked skill-scan roots or skill
+directories; preflight reports those unsupported paths rather than returning an
+empty inventory. A symlinked skills root, including an in-project relative link,
+produces `skill discovery root ... is a symlink` and exits 2. The generated
+offline CI preflight step also fails; use a regular skills directory.
+Resolvable resource links without discoverable skills and
+resolvable eval symlinks remain supported. An unrelated unavailable link inside
+a fixture is not itself a discovery failure. When discovery fails, reports for
+independently discovered evaluations are still written to stdout in the selected
+format; the error is written to stderr and the command exits 2.
+
+Workspace mode inspects each distinct eval path before deduplicating aliases.
+Aliases collapse only when their tracked local inputs and reported results
+agree after resolving links. Parent-relative task, skill-directory, and mock
+fixture paths can keep two aliases separate; description text cannot.
+Declarations whose paths are not fully tracked offline, such as hooks or
+program graders, keep their alias reports separate rather than assuming
+equivalence. This bookkeeping adds no fields to the JSON report.
+
+When no skills or evaluations are discovered, workspace mode exits 2 with a
+`workspace.empty` diagnostic naming the discovery root. JSON mode writes an
+empty report array to stdout and the structured diagnostic to stderr. A discovered
+skill without an eval retains the empty-report success behavior.
+Implicit `.github/skills` discovery starts at the invocation directory, not the
+configuration root. If a nested invocation would miss a skill candidate in the
+configuration root's `.github/skills`, preflight exits 2 and names that root.
+Run from the project root or preflight an explicit eval. Empty directories and
+unrelated resources do not trigger this error. Generated CI invokes preflight
+from the project root.
+
+During workspace discovery, linked-directory probes inspect definition
+metadata without reading it. Required-skill preflight reports unreadable or
+non-regular skill and agent definitions as invalid. On supported Unix hosts,
+Waza requests a nonblocking open and checks the opened definition is regular.
+Windows and other hosts cannot guarantee a nonblocking open if a path is
+replaced concurrently. These checks do not authenticate paths, guarantee stable
+content, or protect later skill loads.
+The regular-file reader is specific to offline validation; runtime required-skill
+discovery retains its existing file-reader and warn/skip behavior.
 
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a
 nonempty `scenario`. Existing v1 suites retain their version/default/discovery

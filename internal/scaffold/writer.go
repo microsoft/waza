@@ -2,8 +2,10 @@ package scaffold
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +81,9 @@ func (inv *Inventory) Fprint(w io.Writer) {
 // FileWriter creates files and directories that don't exist, skipping
 // those that do. It records an inventory of outcomes for each entry.
 type FileWriter struct {
-	baseDir string
+	baseDir            string
+	beforeRootedCreate func(string)
+	openRootedFile     func(*os.Root, string) (io.WriteCloser, error)
 }
 
 // NewFileWriter creates a FileWriter rooted at baseDir.
@@ -91,6 +95,19 @@ func NewFileWriter(baseDir string) *FileWriter {
 // Write processes each entry: creates missing files/directories and
 // skips existing ones. Returns a structured Inventory of outcomes.
 func (fw *FileWriter) Write(entries []FileEntry) (*Inventory, error) {
+	return fw.write(entries, nil)
+}
+
+// WriteRooted confines newly created entries to root, which must be opened at
+// baseDir and remain open for the operation. Existing entries are not changed.
+func (fw *FileWriter) WriteRooted(root *os.Root, entries []FileEntry) (*Inventory, error) {
+	if root == nil {
+		return nil, errors.New("rooted scaffold writer requires an open project root")
+	}
+	return fw.write(entries, root)
+}
+
+func (fw *FileWriter) write(entries []FileEntry, root *os.Root) (*Inventory, error) {
 	inv := &Inventory{BaseDir: fw.baseDir}
 
 	for _, entry := range entries {
@@ -100,6 +117,16 @@ func (fw *FileWriter) Write(entries []FileEntry) (*Inventory, error) {
 		item.RelPath = entry.Path
 		if rel, err := filepath.Rel(fw.baseDir, entry.Path); err == nil {
 			item.RelPath = rel
+		}
+
+		if root != nil {
+			outcome, err := fw.writeRootedEntry(root, entry)
+			if err != nil {
+				return nil, err
+			}
+			item.Outcome = outcome
+			inv.Items = append(inv.Items, item)
+			continue
 		}
 
 		if entry.IsDir {
@@ -145,4 +172,98 @@ func (fw *FileWriter) Write(entries []FileEntry) (*Inventory, error) {
 	}
 
 	return inv, nil
+}
+
+func (fw *FileWriter) writeRootedEntry(root *os.Root, entry FileEntry) (FileOutcome, error) {
+	rel, err := filepath.Rel(fw.baseDir, entry.Path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return OutcomeSkipped, fmt.Errorf("scaffold path %s is outside project directory %s", entry.Path, fw.baseDir)
+	}
+	info, err := os.Stat(entry.Path)
+	switch {
+	case err == nil:
+		if entry.IsDir != info.IsDir() {
+			if entry.IsDir {
+				return OutcomeSkipped, fmt.Errorf("path %s exists but is not a directory", entry.Path)
+			}
+			return OutcomeSkipped, fmt.Errorf("path %s exists but is a directory", entry.Path)
+		}
+		return OutcomeSkipped, nil
+	case !errors.Is(err, fs.ErrNotExist):
+		return OutcomeSkipped, fmt.Errorf("failed to stat %s: %w", entry.Path, err)
+	case !entry.IsDir && entry.Content == "":
+		return OutcomeSkipped, nil
+	}
+
+	name, err := fw.rootedCreationName(entry.Path)
+	if err != nil {
+		return OutcomeSkipped, err
+	}
+	if fw.beforeRootedCreate != nil {
+		fw.beforeRootedCreate(entry.Path)
+	}
+	if err := root.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return OutcomeSkipped, fmt.Errorf("failed to create directory for %s: %w", entry.Path, err)
+	}
+	if entry.IsDir {
+		if err := root.Mkdir(name, 0o755); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				info, statErr := root.Stat(name)
+				if statErr == nil && info.IsDir() {
+					return OutcomeSkipped, nil
+				}
+			}
+			return OutcomeSkipped, fmt.Errorf("failed to create %s: %w", entry.Path, err)
+		}
+		return OutcomeCreated, nil
+	}
+
+	open := fw.openRootedFile
+	if open == nil {
+		open = func(root *os.Root, name string) (io.WriteCloser, error) {
+			return root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		}
+	}
+	file, err := open(root, name)
+	if err != nil {
+		return OutcomeSkipped, fmt.Errorf("failed to create %s without overwriting: %w", entry.Path, err)
+	}
+	n, writeErr := file.Write([]byte(entry.Content))
+	if writeErr == nil && n != len(entry.Content) {
+		writeErr = io.ErrShortWrite
+	}
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
+		return OutcomeSkipped, fmt.Errorf("failed to write or close %s; partial output may remain: %w", entry.Path, err)
+	}
+	return OutcomeCreated, nil
+}
+
+// rootedCreationName resolves existing ancestors to support absolute in-root
+// symlinks. Root still enforces containment when the path is actually created.
+func (fw *FileWriter) rootedCreationName(path string) (string, error) {
+	base, err := filepath.EvalSymlinks(fw.baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolving project directory %s: %w", fw.baseDir, err)
+	}
+	parent, suffix := filepath.Dir(path), filepath.Base(path)
+	for {
+		resolved, err := filepath.EvalSymlinks(parent)
+		if err == nil {
+			rel, relErr := filepath.Rel(base, resolved)
+			if relErr != nil || !filepath.IsLocal(rel) {
+				return "", fmt.Errorf("scaffold path %s resolves outside project directory %s", path, fw.baseDir)
+			}
+			return filepath.Join(rel, suffix), nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("resolving scaffold parent for %s: %w", path, err)
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return "", fmt.Errorf("resolving scaffold parent for %s: %w", path, err)
+		}
+		suffix = filepath.Join(filepath.Base(parent), suffix)
+		parent = next
+	}
 }

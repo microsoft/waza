@@ -118,10 +118,18 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 			}()
 
 			var skillPaths []string
+			var sourceDir string
 
 			taskList.AddTask(ux.TaskOptions{
 				Title: "Discovering skills",
 				Action: func(spf ux.SetProgressFunc) (ux.TaskState, error) {
+					absRoot, err := filepath.Abs(rootDir)
+					if err != nil {
+						return ux.Error, fmt.Errorf("resolving root directory: %w", err)
+					}
+					// The engine otherwise falls back to the process working directory.
+					sourceDir = absRoot
+
 					ctx, err := detectContext(rootDir, configDetectOptions()...)
 
 					if err != nil {
@@ -145,6 +153,7 @@ func newTaskFromPromptCmd(options *newTaskFromPromptCmdOptions) *cobra.Command {
 					resp, err := engine.Execute(execCtx, &execution.ExecutionRequest{
 						ModelID:    model,
 						Message:    prompt,
+						SourceDir:  sourceDir,
 						SkillPaths: skillPaths,
 					})
 					cancel()

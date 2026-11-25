@@ -38,11 +38,14 @@ func inspectGraders(r *Report, configs []models.GraderConfig, source, task, fixt
 		}
 		switch p := g.Parameters.(type) {
 		case models.InlineScriptGraderParameters:
+			r.untrackedPaths = true
 			r.add("grader.subprocess", Unresolved, source, task, "", "Inline-script interpreter and assertions were not executed.", "Verify the interpreter and assertion semantics explicitly outside preflight.")
 		case models.ProgramGraderParameters:
+			r.untrackedPaths = true
 			r.Dependencies = append(r.Dependencies, Dependency{Kind: "grader", Name: g.Identifier, Mode: "subprocess", State: Unresolved, TaskID: task})
 			r.add("grader.subprocess", Unresolved, source, task, "", "Program grader was not run; executable availability and effects are unresolved.", "Review the executable and run it explicitly outside preflight.")
 		case models.PromptGraderParameters:
+			r.untrackedPaths = true
 			if p.Rubric != "" {
 				if _, err := graders.ResolveRubric(p.Rubric); err != nil {
 					r.add("grader.rubric", Invalid, source, task, "", "Grader rubric cannot be resolved or parsed locally.", "Use an existing built-in rubric or a valid local rubric file (relative paths resolve from cwd).")
@@ -51,6 +54,7 @@ func inspectGraders(r *Report, configs []models.GraderConfig, source, task, fixt
 			r.Dependencies = append(r.Dependencies, Dependency{Kind: "grader", Name: g.Identifier, Mode: "model", State: Unresolved, TaskID: task})
 			r.add("grader.model", Unresolved, source, task, "", "Model-backed grader was not executed.", "Verify judge availability and inspect the eventual grading evidence.")
 		case models.TriggerHeuristicGraderParameters:
+			r.untrackedPaths = true
 			if err := graders.ValidateTriggerSource(p); err != nil {
 				r.add("grader.trigger_source", Invalid, source, task, "", "Trigger grader skill data is unreadable, malformed, or has no usable trigger keywords.", "Use a readable local SKILL.md file or skill directory at the runtime path (relative paths resolve from cwd).")
 			}
@@ -59,7 +63,7 @@ func inspectGraders(r *Report, configs []models.GraderConfig, source, task, fixt
 			location := filepath.Join(fixtures, "preflight-inline-schema.json")
 			if doc == nil {
 				location = p.SchemaFile
-				data, err := os.ReadFile(location)
+				data, err := os.ReadFile(r.inputPath(location))
 				if err != nil || json.Unmarshal(data, &doc) != nil {
 					r.add("grader.schema_file", Invalid, source, task, "", "Grader schema file is unreadable or is not a JSON object.", "Use a readable JSON schema at the runtime-resolved path (relative schema_file resolves from cwd).")
 					continue
@@ -76,6 +80,11 @@ func inspectGraders(r *Report, configs []models.GraderConfig, source, task, fixt
 				}
 				if expected.Snapshot != "" {
 					path, err := graders.ResolveSnapshotPath(p.ContextDir, expected.Snapshot)
+					if err == nil {
+						r.inputPath(path)
+					} else {
+						r.untrackedPaths = true
+					}
 					if err != nil {
 						r.add("grader.snapshot", Invalid, source, task, "", "Snapshot path cannot be resolved within its runtime context.", "Use a readable snapshot within the configured grader context, including resolved symlinks.")
 					} else if _, statErr := os.Lstat(path); p.UpdateSnapshots && errors.Is(statErr, os.ErrNotExist) {

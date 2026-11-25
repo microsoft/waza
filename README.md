@@ -158,6 +158,12 @@ The source URL above follows `main`. The v0.42.0 registry update is tracked in
 The registry's six URLs and SHA-256 values match the published archives; this
 does not prove execution on all platforms. Publication and registry
 synchronization are separate gates; check the installed version.
+
+The [v0.42.1 hotfix candidate](site/src/content/docs/releases/v0-42-1.mdx)
+addresses dogfood reports around task generation, explicit scaffold destinations,
+token formats, trigger reports and generated CI. The
+[repository blog post](docs/blog/v0.42.1-hotfix.md) explains the upgrade
+considerations. It is not yet a publication record.
 For supported commands, for example:
 
 ```bash
@@ -616,6 +622,8 @@ Inspect eval setup **offline and agent-free** before execution:
 waza preflight eval.yaml
 waza preflight eval.yaml --format json > preflight.json
 waza preflight eval.yaml --strict
+waza preflight --workspace
+waza preflight --workspace --evals-dir evals --eval-file eval.yaml
 ```
 
 Checks schemas, discovered task IDs, local resources/instructions, grader
@@ -624,6 +632,39 @@ and static executor capabilities. It does not initialize an engine, execute
 graders/hooks, launch subprocesses or mock/live servers, fetch dependencies, or
 contact services (including update checks). Credentials and external resulting
 state remain unresolved.
+`--workspace` discovers each skill and resolves its evaluation using the
+project's configured paths, native layout conventions, and filename precedence.
+It also inspects target-free evaluations, such as scenarios, stored directly
+in the evaluations directory or one of its immediate subdirectories.
+Relative configured paths resolve from the project configuration directory;
+`--skills-dir`, `--evals-dir`, and `--eval-file` override the corresponding
+settings in workspace mode. `--skills-dir` also selects the root used to inspect
+required skills when discovery is enabled and no eval-level directories are
+specified; it does not change the configuration used by a later `waza run`.
+If neither skills nor evals are discovered, workspace preflight exits 2 with
+`workspace.empty` and the discovery root. JSON mode writes an empty report
+array to stdout and the structured diagnostic to stderr. A discovered skill
+without an eval retains the empty-report success behavior.
+Implicit `.github/skills` discovery starts at the invocation directory, not
+the configuration root. When a nested invocation would miss a skill candidate
+in the configuration root's `.github/skills`, preflight exits 2 and names that
+root; run from the project root or preflight an explicit eval. Empty directories
+and unrelated resources do not trigger this error.
+Workspace preflight exits 2 for unavailable symlinks encountered during
+discovery rather than reporting an empty inventory. Configured eval filenames
+take precedence over `eval.yaml`; an unselected dangling fallback is ignored,
+including in child suites. Native workspace discovery
+does not follow symlinked skill-scan roots or skill directories; preflight
+reports those unsupported paths. Resolvable resource links without discoverable
+skills and resolvable eval symlinks remain supported. On a discovery error,
+reports for independently discovered evaluations still appear on stdout; the
+error appears on stderr.
+During workspace discovery, linked-directory probes inspect definition
+metadata without reading it. On supported Unix hosts, Waza requests a
+nonblocking open and checks the opened definition is regular. Windows and
+other hosts cannot guarantee a nonblocking open if a path is replaced
+concurrently. These checks do not authenticate paths, guarantee stable
+content, or protect later skill loads.
 Eager schema matchers are guarded before decoding; external schema prerequisites
 remain unresolved and leave the affected inventory incomplete.
 This also covers grader schema files and MCP tool input schemas encountered
@@ -683,6 +724,18 @@ child processes.
 
 Initialize a waza project workspace with separated `skills/` and `evals/` directories. Idempotent — creates only missing files.
 
+When generating a workflow, existing `.waza.yaml` skill and eval paths take
+precedence over discovery; symlinks in those paths must be relative and stay
+inside the project. A symlinked skills root, including an in-project relative
+link, causes generated CI preflight to exit 2; use a regular directory.
+On Windows,
+macOS, and Linux, project and missing-eval
+scaffold writes use a rooted handle to reject symlink escapes; filesystem mounts
+and the separate `new skill` flow are not constrained by this. A failed scaffold
+can leave partial output. In-project eval roots get a `.gitkeep` even when
+populated; commit it (unignore or force-add it if necessary) unless another
+tracked file preserves the directory.
+
 | Flag | Description |
 |------|-------------|
 | `--no-skill` | Skip the first-skill creation prompt |
@@ -690,9 +743,15 @@ Initialize a waza project workspace with separated `skills/` and `evals/` direct
 Creates:
 - `skills/` — Skill definitions directory
 - `evals/` — Evaluation suites directory
-- `.github/workflows/eval.yml` — CI/CD pipeline for running evals on PR
+- `.github/workflows/eval.yml` — CI/CD pipeline for offline preflight on PRs
 - `.gitignore` — Waza-specific exclusions
 - `README.md` — Getting started guide for your project
+
+Before enabling generated live CI, review the
+[credential and artifact warning](https://microsoft.github.io/waza/guides/ci-cd/):
+eval code inherits the Copilot credential, and uploaded results are not
+secret-redacted. Create and verify the protected `waza-agent` environment before
+adding its secret; the workflow's ref condition does not configure that protection.
 
 **Example:**
 ```bash
@@ -838,7 +897,7 @@ Run a prompt through Copilot and generate a task YAML with inferred validators b
 | `--tags <a,b,...>` | Comma-separated tags to attach to the generated task |
 | `--timeout <duration>` | Max time for prompt execution (default: `5m`) |
 | `--overwrite` | Overwrite the output task file if it already exists |
-| `--root <dir>` | Root directory used for skill discovery (default: `.`) |
+| `--root <dir>` | Root directory used for skill discovery (default: `.`). `.waza.yaml` is still located from the working directory, and its configured skill paths stay relative to that file. |
 
 **Example:**
 ```bash

@@ -44,9 +44,9 @@ const runtimeInputs = Object.freeze([
   'internal/agentevent', 'internal/commandmock', 'internal/config', 'internal/copilotevents',
   'internal/embedded', 'internal/evidence', 'internal/execution', 'internal/executionbudget', 'internal/faultsequence', 'internal/fixtureliterals',
   'internal/graders', 'internal/hooks', 'internal/judgeevidence', 'internal/jsonutil',
-  'internal/models', 'internal/pathadmission', 'internal/projectconfig', 'internal/requirements',
+  'internal/models', 'internal/pathadmission', 'internal/projectconfig', 'internal/requirements', 'internal/rootedfile',
   'internal/scaffold', 'internal/schemaloader', 'internal/skill', 'internal/snapshot',
-  'internal/statistics', 'internal/template', 'internal/testutil/copilotfake', 'internal/tokens', 'internal/usagetelemetry', 'internal/utils', 'schemas',
+  'internal/statistics', 'internal/template', 'internal/testutil/copilotfake', 'internal/tokens', 'internal/usagetelemetry', 'internal/utils', 'internal/workspace', 'schemas',
 ]);
 
 function requireValue(condition, message) {

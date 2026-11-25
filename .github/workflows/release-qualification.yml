@@ -81,16 +81,19 @@ jobs:
             git fetch --no-tags origin refs/heads/main
             test "$(git rev-parse origin/main)" = "$EVENT_SHA"
             stage=candidate
-            version=0.42.0
+            version="$(git show "$EVENT_SHA:version.txt")"
           else
             test "$EVENT_NAME" = "push"
             test "$RELEASE_STAGE" = released
-            [[ "$EVENT_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+([-.+][A-Za-z0-9.-]+)?$ ]]
+            [[ "$EVENT_REF" == refs/tags/v* ]]
             test "$SOURCE_SHA" = "$EVENT_SHA"
-            test "$(git rev-parse "${EVENT_REF}^{commit}")" = "$EVENT_SHA"
             version="${EVENT_REF#refs/tags/v}"
             test "$VERSION_INPUT" = "$version"
             stage=released
+          fi
+          bash .github/scripts/release_version_check.sh "$version"
+          if [ "$stage" = released ]; then
+            test "$(git rev-parse "${EVENT_REF}^{commit}")" = "$EVENT_SHA"
           fi
           printf 'source_sha=%s\nversion=%s\nrelease_stage=%s\n' \
             "$EVENT_SHA" "$version" "$stage" >> "$GITHUB_OUTPUT"

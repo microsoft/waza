@@ -541,7 +541,7 @@ func resolveSpecPaths(args []string) ([]skillSpecPath, error) {
 		arg := args[0]
 		// If it looks like a path, use directly
 		if workspace.LooksLikePath(arg) {
-			return []skillSpecPath{{evalSpecPath: arg}}, nil
+			return []skillSpecPath{standaloneSkillSpecPath(arg)}, nil
 		}
 		// Treat as skill name
 		wsCtx, err := resolveWorkspace(args)
@@ -586,6 +586,35 @@ func resolveSpecPaths(args []string) ([]skillSpecPath, error) {
 	}
 
 	return paths, nil
+}
+
+// standaloneSkillSpecPath loads the owning skill for an explicit eval inside a
+// single-skill workspace, which has no configured skills folder to discover it.
+func standaloneSkillSpecPath(evalPath string) skillSpecPath {
+	wsCtx, err := resolveWorkspace(nil)
+	if err != nil {
+		return skillSpecPath{evalSpecPath: evalPath}
+	}
+	return standaloneSkillSpecPathInWorkspace(evalPath, wsCtx)
+}
+
+func standaloneSkillSpecPathInWorkspace(evalPath string, wsCtx *workspace.WorkspaceContext) skillSpecPath {
+	sp := skillSpecPath{evalSpecPath: evalPath}
+	if wsCtx == nil || wsCtx.Type != workspace.ContextSingleSkill || len(wsCtx.Skills) != 1 {
+		return sp
+	}
+
+	absEval, err := filepath.Abs(evalPath)
+	if err != nil {
+		return sp
+	}
+	skill := wsCtx.Skills[0]
+	rel, err := filepath.Rel(skill.Dir, absEval)
+	if err != nil || !filepath.IsLocal(rel) {
+		return sp
+	}
+	sp.skillDir = skill.Dir
+	return sp
 }
 
 func printSkillRunSummary(results []skillRunResult) {

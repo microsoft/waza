@@ -33,16 +33,23 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
+      - name: Check out version admission
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Determine Version
         id: version
+        shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-
-          # Validate semver format (major.minor.patch with optional pre-release)
-          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$'; then
-            echo "::error::Invalid semver: $VERSION"
+          set -euo pipefail
+          if [[ "$GITHUB_REF_NAME" != v* ]]; then
+            printf '::error::Release ref must start with v (for example v1.2.3): %s\n' "$GITHUB_REF_NAME" >&2
             exit 1
           fi
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          bash .github/scripts/release_version_check.sh "$VERSION"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"

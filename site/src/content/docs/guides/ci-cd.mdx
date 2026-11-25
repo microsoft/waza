@@ -79,13 +79,53 @@ The `waza init` command generates a workflow starting point:
 waza init my-project
 ```
 
-This creates `.github/workflows/eval.yml`. Its default PR filters target `main`
-and changes to `evals/**` or `skills/**`; installation uses the mutable
-`main/registry.json`, not a pinned release. It does not configure runtime
-credentials or grant PRs access to secrets. Review the
-[init reference](../../reference/cli/#waza-init), adapt the filters and release
-source, and review authentication and the [security guidance](#8-secure-secrets)
-for your trust model before enabling real evaluations.
+This creates `.github/workflows/eval.yml` with a pinned standalone Waza
+release, commit-pinned actions and Ubuntu 24.04. The default PR path runs
+offline workspace preflight using native skill/evaluation discovery; it does
+not make model calls. Review the
+[init reference](../../reference/cli/#waza-init) and adapt its path filters.
+Standalone `waza new skill` scaffolds use the same policy with their generated
+evaluation filenames.
+
+The offline step runs from the project root and exits 2 if it finds no skills or
+evals. A symlinked skills root, even a relative link inside the project, is
+rejected by workspace preflight; use a regular directory or the generated step
+will fail.
+
+Live execution is a separate manual default-branch dispatch with
+`run-agent=true`. Configure the `waza-agent` environment, its approval policy
+and the `WAZA_COPILOT_TOKEN` secret, which the workflow passes as
+`COPILOT_GITHUB_TOKEN`.
+
+**Credential and artifact warning:** Program graders and other eval code
+inherit COPILOT_GITHUB_TOKEN. Their output can appear in results.json and
+uploaded artifacts retained for 30 days. Waza does not redact secrets from these
+outputs or artifacts. GitHub log masking does not protect artifacts.
+
+Store WAZA_COPILOT_TOKEN only in a protected waza-agent environment. In the
+destination repository, create this environment and select only the default
+branch for deployment, require reviewers, then verify those settings before
+adding WAZA_COPILOT_TOKEN. Where independent approval is required, prevent
+self-review and disable admin bypass where available. GitHub auto-creates an
+unknown referenced environment with no protection rules or secrets. The workflow's
+if/ref condition is not the protection boundary: a modified branch workflow
+can remove it.
+
+Protection availability depends on the repository's visibility and GitHub plan.
+Required reviewers are unavailable for private repositories on GitHub Free,
+Pro, or Team. Do not enable the credentialed job if the recommended branch
+restrictions or required reviewers cannot be configured. See
+[GitHub's environment protection availability](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
+
+Do not define a same-named repository or organization secret. If the environment
+secret is missing, GitHub can silently use that broader-scoped secret.
+
+Dispatching opts into agent execution and potential model
+charges. `init` does not create credentials, grant PRs access to secrets or
+rewrite existing workflows. Review the [security guidance](#8-secure-secrets)
+before enabling live execution.
+The agent gate rejects mock results and missing or unknown executor identities;
+a successful mock run is not evidence of agent execution.
 
 For a hand-written pipeline, continue with the
 [complete example](#complete-example-multi-model-testing-on-pr). The repository

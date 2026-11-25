@@ -3,6 +3,7 @@ package preflight
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,6 +28,12 @@ import (
 type Options struct {
 	// ContextDir follows run's CLI resolution: relative to the process cwd.
 	ContextDir string
+	// DefaultSkillPaths mirrors run's caller-supplied workspace skill defaults,
+	// such as the owning skill of an evaluation in a standalone skill workspace.
+	DefaultSkillPaths []string
+	// WorkspaceSkillsDir overrides configured workspace discovery when nonempty.
+	// Callers resolve it to an absolute path before inspection.
+	WorkspaceSkillsDir string
 }
 
 // Inspect performs local reads only. It does not construct an engine or grader,
@@ -37,18 +44,21 @@ func Inspect(evalPath string, opts Options) *Report {
 		Kind: ReportKind, SchemaVersion: "1.0", Source: evalPath, Complete: true,
 		Tasks: []TaskPlan{}, Capabilities: []Capability{}, Dependencies: []Dependency{}, Diagnostics: []Diagnostic{},
 	}
-	data, err := os.ReadFile(evalPath)
+	data, err := os.ReadFile(r.inputPath(evalPath))
 	if err != nil {
+		r.untrackedPaths = true
 		r.add("eval.read", Invalid, evalPath, "", "", "Eval file is not readable.", "Supply an existing readable eval YAML file.")
 		r.Complete = false
 		return r
 	}
 	base, err := filepath.Abs(filepath.Dir(evalPath))
 	if err != nil {
+		r.untrackedPaths = true
 		r.add("eval.path", Invalid, evalPath, "", "", "Eval directory cannot be resolved.", "Use a valid local eval path.")
 		r.Complete = false
 		return r
 	}
+	r.inputPath(base)
 	triggerSpec, triggerErr := trigger.Discover(base)
 	if triggerErr != nil {
 		r.add("trigger.configuration", Invalid, filepath.Join(base, "trigger_tests.yaml"), "", "",
@@ -70,15 +80,21 @@ func Inspect(evalPath string, opts Options) *Report {
 	if opts.ContextDir != "" {
 		contextDir, err = filepath.Abs(opts.ContextDir)
 		if err != nil {
+			r.untrackedPaths = true
 			r.add("context.path", Invalid, evalPath, "", "", "Context directory cannot be resolved.", "Supply an existing local context directory.")
 			r.Complete = false
 			return r
 		}
 	}
+	r.inputPath(contextDir)
 	inspectLockedGraders(r, spec, evalPath)
-	applyWorkspaceSkillDefaults(r, spec)
+	applyWorkspaceSkillDefaults(r, spec, opts)
+	for _, path := range utils.ResolvePaths(spec.Config.FilteredSkillPaths(), base) {
+		r.inputPath(path)
+	}
 	if err := orchestration.ValidateRequiredSkillConfiguration(spec, base); err != nil {
-		r.add("skill.required", Invalid, evalPath, "", "", "Required skills are missing or cannot be parsed in configured eval-level directories.", "Configure readable skill_directories containing every required_skills declaration; runtime discovery precedence is preserved.")
+		r.untrackedPaths = true
+		r.add("skill.required", Invalid, evalPath, "", "", fmt.Sprintf("Required skills are missing or cannot be parsed in configured eval-level directories: %v", err), "Configure readable skill_directories containing every required_skills declaration; runtime discovery precedence is preserved.")
 	}
 	inspectCapabilities(r, spec)
 	inspectGraders(r, spec.Graders, evalPath, "", contextDir)
@@ -120,6 +136,7 @@ func Inspect(evalPath string, opts Options) *Report {
 			// The existing runner uses task context_dir as supplied, relative to cwd.
 			fixtures, err = filepath.Abs(task.ContextRoot)
 			if err != nil {
+				r.untrackedPaths = true
 				r.add("context.path", Invalid, source, task.TestID, "", "Task context directory cannot be resolved.", "Use a valid context_dir path.")
 				r.Complete = false
 			}
@@ -129,6 +146,7 @@ func Inspect(evalPath string, opts Options) *Report {
 			Enabled: task.Active == nil || *task.Active, ContextDir: fixtures,
 			Requirements: resolveRequirements(r, task, spec, source),
 		}
+		r.inputPath(fixtures)
 		r.Tasks = append(r.Tasks, plan)
 		inspectTask(r, task, spec, source, base, fixtures)
 	}
@@ -147,8 +165,14 @@ func Inspect(evalPath string, opts Options) *Report {
 // could not be decoded, so live-server inspection still accounts for them.
 func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.TestCase, []string, [][]models.MCPMockConfig) {
 	if spec.TasksFrom != "" {
+		path := spec.TasksFrom
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(base, path)
+		}
+		r.inputPath(path)
 		tasks, err := dataset.LoadTasks(spec, base, time.Unix(0, 0).UTC())
 		if err != nil {
+			r.untrackedPaths = true
 			r.add("tasks.csv", Invalid, r.Source, "", "", "CSV dataset could not be selected or rendered.", "Check tasks_from containment, CSV headers/rows, range bounds, and template variables.")
 			r.Complete = false
 			return nil, nil, nil
@@ -167,21 +191,33 @@ func discoverTasks(r *Report, spec *models.EvalSpec, base string) ([]*models.Tes
 	var sources []string
 	var blockedMocks [][]models.MCPMockConfig
 	for _, pattern := range spec.Tasks {
-		matches, err := filepath.Glob(filepath.Join(base, pattern))
+		matches, err := filepath.Glob(r.inputPath(filepath.Join(base, pattern)))
 		if err != nil {
+			r.untrackedPaths = true
 			r.add("tasks.pattern", Invalid, r.Source, "", "", "A task pattern is malformed.", "Use valid glob syntax; at least one task must be discovered across all patterns.")
 			r.Complete = false
 			continue
 		}
 		for _, path := range matches {
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(r.inputPath(path))
 			if err != nil {
+				r.untrackedPaths = true
 				r.add("task.read", Invalid, path, "", "", "Task file is not readable.", "Use readable YAML task files, not directories.")
 				r.Complete = false
 				continue
 			}
 			for range validation.ValidateTaskBytes(data) {
 				r.add("task.schema", Invalid, path, "", "", "Task does not match the embedded schema.", "Check id, name, inputs, grader configuration, and requirement metadata against schemas/task.schema.json.")
+			}
+			var declared struct {
+				Inputs struct {
+					PromptFile string `yaml:"prompt_file"`
+				} `yaml:"inputs"`
+			}
+			if err := yaml.Unmarshal(data, &declared); err != nil {
+				r.untrackedPaths = true
+			} else if declared.Inputs.PromptFile != "" {
+				r.inputPath(filepath.Join(filepath.Dir(path), declared.Inputs.PromptFile))
 			}
 			faultErr := models.ValidateTaskFaultSources(data, spec.SchemaVersion)
 			task, err := models.ParseTestCaseOffline(data, path, graders.ValidateConfig)
@@ -298,6 +334,7 @@ func inspectCapabilities(r *Report, spec *models.EvalSpec) {
 		r.add("runtime.mcp", Unsupported, r.Source, "", "", "Configured MCP dependencies require an executor with MCP support.", "Use copilot-sdk for MCP execution.")
 	}
 	if len(spec.Hooks.BeforeRun)+len(spec.Hooks.AfterRun)+len(spec.Hooks.BeforeTask)+len(spec.Hooks.AfterTask) > 0 {
+		r.untrackedPaths = true
 		r.Dependencies = append(r.Dependencies, Dependency{Kind: "hooks", Name: "lifecycle", Mode: "subprocess", State: Unresolved})
 		r.add("hooks.execution", Unresolved, r.Source, "", "", "Lifecycle hooks were not executed.", "Review hook executables and their effects before running the eval.")
 	}
@@ -325,6 +362,7 @@ func inspectMCP(r *Report, spec *models.EvalSpec, base string, taskMocks [][]mod
 		if mocked[name] || models.MCPMockReplacedByEveryTask(name, taskMocks) {
 			continue
 		}
+		r.untrackedPaths = true
 		state := Unresolved
 		config, ok := spec.Config.ServerConfigs[name].(map[string]any)
 		if !ok {
@@ -404,9 +442,17 @@ func inspectMCPInputSchemas(r *Report, cfg *mcpmock.Config, base, source, taskID
 // inspectMCPMock verifies one eval or task MCP mock offline. Eval mocks pass an
 // empty taskID; task mocks are reported against their task file and identity.
 func inspectMCPMock(r *Report, spec *models.EvalSpec, mock models.MCPMockConfig, base, source, taskID string) {
+	if mock.Fixtures != "" {
+		path := mock.Fixtures
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(base, path)
+		}
+		r.inputPath(path)
+	}
 	state := Verified
 	cfg, err := mcpmock.FromEvalConfigOfflineWithVersion(mock, base, spec.SchemaVersion)
 	if err != nil {
+		r.untrackedPaths = true
 		state = r.schemaFailureState(err)
 		r.add("mock.mcp", state, source, taskID, "", "MCP mock fixtures or matching configuration could not be verified.", "Check fixture files, tool responses, regexes, and self-contained match_schema references.")
 		addMixedExternalDiagnostic(r, err, source)
@@ -425,6 +471,7 @@ func inspectLockedGraders(r *Report, spec *models.EvalSpec, path string) {
 	if len(refs) == 0 {
 		return
 	}
+	r.untrackedPaths = true
 	lock, err := models.LoadLockfile(filepath.Join(filepath.Dir(path), models.LockfileName))
 	if err != nil {
 		r.add("grader.lock", Invalid, path, "", "", "Remote graders require a readable valid waza.lock.", "Run waza get explicitly while online to create immutable pins; preflight never fetches.")
@@ -507,7 +554,11 @@ func inspectTask(r *Report, task *models.TestCase, spec *models.EvalSpec, source
 			checkFile(r, filepath.Join(fixtures, path), source, task.TestID, "instruction.file")
 		}
 	}
+	if path, ok := task.Stimulus.Metadata["fixture"].(string); ok && path != "" {
+		r.inputPath(filepath.Join(base, path))
+	}
 	if _, err := orchestration.LoadContextFixtureResources(task, base); err != nil {
+		r.untrackedPaths = true
 		r.add("context.fixture", Invalid, source, task.TestID, "", "inputs.context.fixture cannot be loaded within the eval directory.", "Use a readable relative fixture file or directory; resolved symlinks must remain within the eval directory.")
 	}
 	if task.ContextRoot != "" {
@@ -621,24 +672,30 @@ func safeWorkspacePath(path string) bool {
 }
 
 func checkFile(r *Report, path, source, task, code string) {
+	r.inputPath(path)
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
+		r.untrackedPaths = true
 		r.add(code, Invalid, source, task, "", "A required local file is missing or is not a regular file.", "Check the referenced path and its resolution base; preflight does not create fixtures.")
 		return
 	}
 	file, err := os.Open(path)
 	if err != nil {
+		r.untrackedPaths = true
 		r.add(code, Invalid, source, task, "", "A required local file is not readable.", "Grant read access to the referenced local file.")
 		return
 	}
 	if err := file.Close(); err != nil {
+		r.untrackedPaths = true
 		r.add(code, Invalid, source, task, "", "A required local file could not be closed after inspection.", "Check filesystem access and retry.")
 	}
 }
 
 func checkDirectory(r *Report, path, source, task, code string) {
+	r.inputPath(path)
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
+		r.untrackedPaths = true
 		r.add(code, Invalid, source, task, "", "A required local directory is missing or is not a directory.", "Check the configured path and its resolution base.")
 	}
 }

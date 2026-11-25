@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/url"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/utils"
+	"github.com/microsoft/waza/internal/workspace"
 )
 
 // errFirstEventTimeout is the cancellation cause used when a session produces no
@@ -1775,16 +1777,40 @@ func buildSkillSystemMessageChecked(skillDirs []string, skillName string, inject
 // ResolveAgentDefinition uses the same selection and SKILL.md precedence as
 // system-message injection, including nested directories and fallback names.
 func ResolveAgentDefinition(skillDirs []string, skillName string) (string, *skill.AgentFrontmatter, error) {
-	sd, err := findSkillDefinition(skillDirs, skillName)
+	return resolveAgentDefinition(skillDirs, skillName, runtimeDefinitionReader)
+}
+
+// ResolveAgentDefinitionOffline applies ResolveAgentDefinition precedence for
+// static inspection, but reads only regular definitions and reports any
+// unreadable SKILL.md instead of blocking or falling back to agent files.
+func ResolveAgentDefinitionOffline(skillDirs []string, skillName string) (string, *skill.AgentFrontmatter, error) {
+	return resolveAgentDefinition(skillDirs, skillName, offlineDefinitionReader)
+}
+
+func resolveAgentDefinition(skillDirs []string, skillName string, reader definitionReader) (string, *skill.AgentFrontmatter, error) {
+	sd, err := findSkillDefinitionWithReader(skillDirs, skillName, true, reader)
 	if err != nil || sd == nil || !skill.IsAgentFile(sd.Path) {
 		return "", nil, err
 	}
 	fm, _, err := skill.ParseAgentFrontmatter(sd.Content)
 	if err != nil {
-		return "", nil, fmt.Errorf("parsing agent %q: %w", sd.Path, err)
+		return "", nil, &AgentDefinitionParseError{Path: sd.Path, Err: err}
 	}
 	return sd.Path, fm, nil
 }
+
+// AgentDefinitionParseError reports malformed agent frontmatter. Err may quote
+// frontmatter values, so reports that must not disclose them should use Path.
+type AgentDefinitionParseError struct {
+	Path string
+	Err  error
+}
+
+func (e *AgentDefinitionParseError) Error() string {
+	return fmt.Sprintf("parsing agent %q: %v", e.Path, e.Err)
+}
+
+func (e *AgentDefinitionParseError) Unwrap() error { return e.Err }
 
 // ResolveSkillDefinitionPath returns the SKILL.md or agent file selected for
 // skillName with the same discovery used for system-message injection.
@@ -1807,13 +1833,29 @@ func findSkillDefinition(skillDirs []string, skillName string) (*skillDefinition
 	return findSkillDefinitionWithLogging(skillDirs, skillName, true)
 }
 
+// definitionReader reads a definition file. strictSkill reports every SKILL.md
+// read error other than absence instead of falling back to agent files.
+type definitionReader struct {
+	read        func(string) ([]byte, error)
+	strictSkill bool
+}
+
+var (
+	runtimeDefinitionReader = definitionReader{read: os.ReadFile}
+	offlineDefinitionReader = definitionReader{read: workspace.ReadSkillDefinition, strictSkill: true}
+)
+
 func findSkillDefinitionWithLogging(skillDirs []string, skillName string, logRaw bool) (*skillDefinition, error) {
+	return findSkillDefinitionWithReader(skillDirs, skillName, logRaw, runtimeDefinitionReader)
+}
+
+func findSkillDefinitionWithReader(skillDirs []string, skillName string, logRaw bool, reader definitionReader) (*skillDefinition, error) {
 	if skillName == "" {
 		return nil, nil
 	}
 	for _, dir := range skillDirs {
 		// Check direct SKILL.md in this directory
-		sd, err := loadSkillDefinitionWithLogging(dir, logRaw, skillName)
+		sd, err := loadSkillDefinitionWithReader(dir, logRaw, reader, skillName)
 		if err != nil {
 			return nil, err
 		}
@@ -1840,7 +1882,7 @@ func findSkillDefinitionWithLogging(skillDirs []string, skillName string, logRaw
 			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" {
 				continue
 			}
-			sd, err := loadSkillDefinitionWithLogging(filepath.Join(dir, name), logRaw, skillName)
+			sd, err := loadSkillDefinitionWithReader(filepath.Join(dir, name), logRaw, reader, skillName)
 			if err != nil {
 				return nil, err
 			}
@@ -1916,10 +1958,13 @@ func buildInstructionSystemMessage(instructions []InstructionFile) string {
 	return sb.String()
 }
 
-func loadSkillDefinitionWithLogging(dir string, logRaw bool, selectedName ...string) (*skillDefinition, error) {
+func loadSkillDefinitionWithReader(dir string, logRaw bool, reader definitionReader, selectedName ...string) (*skillDefinition, error) {
 	// Try SKILL.md first (existing behavior)
 	skillPath := filepath.Join(dir, "SKILL.md")
-	data, err := os.ReadFile(skillPath)
+	data, err := reader.read(skillPath)
+	if err != nil && reader.strictSkill && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("reading skill %q: %w", skillPath, err)
+	}
 	if err == nil {
 		content := string(data)
 		name, desc := parseSkillFrontmatter(content)
@@ -1941,14 +1986,14 @@ func loadSkillDefinitionWithLogging(dir string, logRaw bool, selectedName ...str
 	for _, entry := range entries {
 		if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
 			agentPath := filepath.Join(dir, entry.Name())
-			agentData, readErr := os.ReadFile(agentPath)
+			agentData, readErr := reader.read(agentPath)
 			if readErr != nil {
 				return nil, fmt.Errorf("reading agent %q: %w", agentPath, readErr)
 			}
 			content := string(agentData)
 			fm, _, parseErr := skill.ParseAgentFrontmatter(content)
 			if parseErr != nil {
-				return nil, fmt.Errorf("parsing agent %q: %w", agentPath, parseErr)
+				return nil, &AgentDefinitionParseError{Path: agentPath, Err: parseErr}
 			}
 			name, desc := fm.Name, fm.Description
 			if name == "" {

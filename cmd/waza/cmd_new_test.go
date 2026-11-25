@@ -663,7 +663,10 @@ func TestNewCommand_StandaloneCIWorkflowContent(t *testing.T) {
 	require.NoError(t, err)
 	content := string(data)
 
-	assert.Contains(t, content, "name: Eval Code Analyzer")
+	assert.Contains(t, content, "name: Validate and Evaluate Skills")
+	assert.Contains(t, content, "Offline configuration inventory (not an evaluation)")
+	assert.Contains(t, content, "WAZA_VERSION: '0.42.1'")
+	assert.NotContains(t, content, "/main/")
 	assert.Contains(t, content, "waza run")
 }
 

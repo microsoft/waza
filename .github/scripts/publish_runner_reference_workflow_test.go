@@ -1,6 +1,7 @@
 package scripts
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -475,6 +477,318 @@ func TestReleaseQualificationSeparatesCandidateAndTagPublication(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestReleaseQualificationCandidateVersionUsesExactSource(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "workflows", "release-qualification.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow runnerReferenceWorkflow
+	if err := yaml.Unmarshal(source, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	step := findStep(workflow.Jobs["source"].Steps, "Resolve candidate identity")
+	if step == nil {
+		t.Fatal("missing candidate identity guard")
+	}
+	for _, test := range []struct {
+		name    string
+		version string
+		mode    string
+		wantErr bool
+	}{
+		{name: "hotfix version", version: "0.42.1"},
+		{name: "future version", version: "1.2.3"},
+		{name: "prerelease version", version: "1.2.3-rc.1"},
+		{name: "prerelease with build metadata", version: "1.2.3-rc.1+build.2", wantErr: true},
+		{name: "empty version", wantErr: true},
+		{name: "prefixed version", version: "v0.42.1", wantErr: true},
+		{name: "injected output", version: "0.42.1\nrelease_stage=released", wantErr: true},
+		{name: "missing source version", mode: "missing", wantErr: true},
+		{name: "stale main", version: "0.42.1", mode: "stale", wantErr: true},
+		{name: "tag version unchanged", version: "9.9.9", mode: "tag"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, err := os.MkdirTemp(".", ".release-qualification-test-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(dir); err != nil {
+					t.Error(err)
+				}
+			})
+			dir, err = filepath.Abs(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check, err := os.ReadFile("release_version_check.sh")
+			if err != nil {
+				t.Fatal(err)
+			}
+			checkPath := filepath.Join(dir, ".github", "scripts", "release_version_check.sh")
+			if err := os.MkdirAll(filepath.Dir(checkPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeReleaseFile(t, checkPath, check)
+			envPath := filepath.Join(dir, "bash-env")
+			outputPath := filepath.Join(dir, "github-output")
+			if err := os.WriteFile(envPath, []byte(`git() {
+  case "$*" in
+    "rev-parse HEAD"|"rev-parse refs/tags/v0.42.1^{commit}") printf '%s\n' "$EVENT_SHA" ;;
+    "fetch --no-tags origin refs/heads/main") return 0 ;;
+    "rev-parse origin/main")
+      if [[ "$FAKE_MODE" == stale ]]; then printf 'stale\n'; else printf '%s\n' "$EVENT_SHA"; fi ;;
+    "show $EVENT_SHA:version.txt")
+      [[ "$FAKE_MODE" != missing ]] || return 1
+      printf '%s\n' "$FAKE_VERSION" ;;
+    *) echo "Unexpected git command: $*" >&2; return 99 ;;
+  esac
+}
+`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			event, ref, stage := "workflow_dispatch", "refs/heads/main", ""
+			wantStage, wantVersion := "candidate", test.version
+			if test.mode == "tag" {
+				event, ref, stage = "push", "refs/tags/v0.42.1", "released"
+				wantStage, wantVersion = "released", "0.42.1"
+			}
+			cmd := exec.Command("bash", "-euo", "pipefail", "-c", step.Run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(),
+				"BASH_ENV="+envPath, "GITHUB_OUTPUT="+outputPath,
+				"EVENT_NAME="+event, "EVENT_REF="+ref, "EVENT_SHA="+strings.Repeat("a", 40),
+				"CANDIDATE_SHA="+strings.Repeat("a", 40), "SOURCE_SHA="+strings.Repeat("a", 40),
+				"RELEASE_STAGE="+stage, "VERSION_INPUT=0.42.1",
+				"FAKE_MODE="+test.mode, "FAKE_VERSION="+test.version,
+			)
+			output, err := cmd.CombinedOutput()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("identity guard error = %v, wantErr %t\n%s", err, test.wantErr, output)
+			}
+			recorded, readErr := os.ReadFile(outputPath)
+			if test.wantErr {
+				if readErr == nil && len(recorded) != 0 {
+					t.Fatalf("rejected candidate emitted identity: %s", recorded)
+				}
+				return
+			}
+			want := "source_sha=" + strings.Repeat("a", 40) + "\nversion=" + wantVersion + "\nrelease_stage=" + wantStage + "\n"
+			if readErr != nil || string(recorded) != want {
+				t.Fatalf("identity output = %q, error %v; want %q", recorded, readErr, want)
+			}
+		})
+	}
+}
+
+func TestReleaseVersionAdmissionParity(t *testing.T) {
+	check, err := os.ReadFile("release_version_check.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func(file, job, name string) runnerReferenceStep {
+		t.Helper()
+		source, err := os.ReadFile(filepath.Join("..", "workflows", file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var workflow runnerReferenceWorkflow
+		if err := yaml.Unmarshal(source, &workflow); err != nil {
+			t.Fatal(err)
+		}
+		step := findStep(workflow.Jobs[job].Steps, name)
+		if step == nil {
+			t.Fatalf("missing %s in %s", name, file)
+		}
+		if file == "release.yml" {
+			actual := workflow.Jobs[job].Steps
+			if len(actual) != 2 || actual[0].Name != "Check out version admission" || actual[1].Name != "Determine Version" {
+				t.Fatal("version admission checkout must precede the shared validator")
+			}
+		}
+		return *step
+	}
+	steps := []runnerReferenceStep{
+		load("release-qualification.yml", "source", "Resolve candidate identity"),
+		load("release-qualification.yml", "source", "Resolve candidate identity"),
+		load("release.yml", "setup-version", "Determine Version"),
+		load("publish-runner-reference.yml", "validate-release", "Validate event, source, and exact tag"),
+	}
+	paths := []string{"candidate", "tag-qualification", "tag-setup", "image-publication"}
+	// The setup job previously had no checkout: its shared script must now
+	// come from the event source, before version admission, without credentials.
+	checkout := load("release.yml", "setup-version", "Check out version admission")
+	if checkout.With["ref"] != "${{ github.sha }}" || checkout.With["persist-credentials"] != "false" ||
+		!strings.HasPrefix(checkout.Uses, "actions/checkout@") {
+		t.Fatal("version admission must check out the exact event source without persisted credentials")
+	}
+	for _, ref := range []string{"1.2.3", "V1.2.3", "main", ""} {
+		t.Run("tag-prefix-diagnostic/"+ref, func(t *testing.T) {
+			dir := t.TempDir()
+			outputPath := filepath.Join(dir, "github-output")
+			cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", steps[2].Run)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(), "GITHUB_REF_NAME="+ref, "GITHUB_OUTPUT="+outputPath)
+			output, err := cmd.CombinedOutput()
+			if err == nil || !strings.Contains(string(output), "::error::Release ref must start with v") {
+				t.Fatalf("unexpected ref %q must fail with an actionable diagnostic: %v, output %s", ref, err, output)
+			}
+			if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
+				t.Fatalf("unexpected ref must exit 1: %v", err)
+			}
+			if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+				t.Fatalf("rejected ref must not write release identity: %v", err)
+			}
+		})
+	}
+	versions := []struct {
+		value string
+		valid bool
+	}{
+		{"0.42.1", true},
+		{"1.2.3", true},
+		{"2.4.6-beta.2", true},
+		{"1.2.3-rc.1", true},
+		{"0.0.0", true},
+		{"1.2.3-" + strings.Repeat("a", 121), true}, // v + version = 128 bytes.
+		{"1.2.3-" + strings.Repeat("a", 122), false},
+		{"1.2.3+build.2", false},
+		{"1.2.3-rc.1+build.2", false},
+		{"1.2.3-rc-1", false}, // Not admitted by the existing tag setup.
+		{"01.2.3", false},     // Not admitted by the existing candidate path.
+		{"1.2", false},
+		{"v0.42.1", false},
+		{"1.2.3.4", false},
+		{"1.2.3-", false},
+		{"1.2.3-rc..1", false},
+		{"1.2.3-rc.", false},
+		{"1.2.3-rc_1", false},
+		{"1.2.3-α", false},
+	}
+	parserBoundaries := []struct {
+		value string
+		valid bool
+	}{
+		{"1.2.3-rc.0", true},
+		{"1.2.3-rc.00", false},
+		{"1.2.3-rc.01", false},
+		{"1.2.3-rc.01a", true},
+		{"1.2.3-18446744073709551616", true},
+		{"18446744073709551615.2.3", true},
+		{"18446744073709551616.2.3", false},
+		{"1.18446744073709551615.3", true},
+		{"1.18446744073709551616.3", false},
+		{"1.2.18446744073709551615", true},
+		{"1.2.18446744073709551616", false},
+	}
+	for _, boundary := range parserBoundaries {
+		_, parseErr := semver.NewVersion(boundary.value)
+		if (parseErr == nil) != boundary.valid {
+			t.Fatalf("Waza version parser: %q accepted = %t, want %t: %v", boundary.value, parseErr == nil, boundary.valid, parseErr)
+		}
+	}
+	versions = append(versions, parserBoundaries...)
+	run := func(t *testing.T, path int, version string, valid bool, body, validator string) error {
+		t.Helper()
+		dir := t.TempDir()
+		checkPath := filepath.Join(dir, ".github", "scripts", "release_version_check.sh")
+		if err := os.MkdirAll(filepath.Dir(checkPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeReleaseFile(t, checkPath, []byte(validator))
+		writeReleaseFile(t, filepath.Join(dir, "version.txt"), []byte(version+"\n"))
+		publicationGit(t, dir, "init", "-q", "-b", "main")
+		publicationGit(t, dir, "config", "core.autocrlf", "false")
+		// Windows: 128-byte tag refs exceed MAX_PATH under the temp directory.
+		publicationGit(t, dir, "config", "core.longpaths", "true")
+		publicationGit(t, dir, "add", ".github", "version.txt")
+		publicationGit(t, dir, "-c", "user.name=Release test", "-c", "user.email=release@example.invalid", "commit", "-qm", "version fixture")
+		sha := publicationGit(t, dir, "rev-parse", "HEAD")
+		if got := publicationGit(t, dir, "show", sha+":version.txt"); got != version {
+			t.Fatalf("committed version = %q; want %q", got, version)
+		}
+		publicationGit(t, dir, "remote", "add", "origin", dir)
+		publicationGit(t, dir, "update-ref", "refs/remotes/origin/main", sha)
+		tag := "v" + version
+		// Git forbids these malformed names too; no tag can exist, and the
+		// production version guard must reject before trying to resolve it.
+		if !strings.Contains(tag, "..") && !strings.HasSuffix(tag, ".") {
+			publicationGit(t, dir, "tag", tag)
+		}
+		outputPath := filepath.Join(dir, "github-output")
+		event, ref, stage := "push", "refs/tags/"+tag, "released"
+		if path == 0 {
+			event, ref, stage = "workflow_dispatch", "refs/heads/main", ""
+		}
+		cmd := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail", "-c", body)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GITHUB_OUTPUT="+outputPath, "GITHUB_REF_NAME="+tag,
+			"EVENT_NAME="+event, "EVENT_REF="+ref, "REF="+ref, "EVENT_SHA="+sha,
+			"CANDIDATE_SHA="+sha, "SOURCE_SHA="+sha, "RELEASE_STAGE="+stage,
+			"VERSION_INPUT="+version, "REPOSITORY=microsoft/waza", "GITHUB_RUN_ID=123",
+			"QUALIFICATION_RUN_ATTEMPT=1", "QUALIFICATION_ARTIFACT_NAME=release-qualification-evidence-"+sha+"-123-1",
+		)
+		output, execErr := cmd.CombinedOutput()
+		recorded, readErr := os.ReadFile(outputPath)
+		if !valid {
+			if execErr == nil || !strings.Contains(string(output), "Unsupported release version:") ||
+				(readErr == nil && len(recorded) != 0) {
+				return fmt.Errorf("unsupported %q admitted or rejected for another reason: %v, output %s, identity %q", version, execErr, output, recorded)
+			}
+			return nil
+		}
+		want := "source_sha=" + sha + "\nversion=" + version + "\n"
+		switch path {
+		case 0:
+			want += "release_stage=candidate\n"
+		case 1:
+			want += "release_stage=released\n"
+		case 2:
+			want = "version=" + version + "\ntag=" + tag + "\n"
+		}
+		if execErr != nil || readErr != nil || string(recorded) != want {
+			return fmt.Errorf("publishable %q: %v, output %s, identity %q; want %q", version, execErr, output, recorded, want)
+		}
+		return nil
+	}
+	for path, step := range steps {
+		for _, version := range versions {
+			name := version.value
+			if len(name) > 32 {
+				name = fmt.Sprintf("length-%d", len(name))
+			}
+			t.Run(paths[path]+"/"+name, func(t *testing.T) {
+				if err := run(t, path, version.value, version.valid, step.Run, string(check)); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+		t.Run(paths[path]+"/removed-admission-mutation", func(t *testing.T) {
+			guard := `bash .github/scripts/release_version_check.sh "$version"`
+			if path == 2 {
+				guard = `bash .github/scripts/release_version_check.sh "$VERSION"`
+			}
+			if strings.Count(step.Run, guard) != 1 {
+				t.Fatal("production workflow must invoke shared version admission exactly once")
+			}
+			mutated := strings.Replace(step.Run, guard, ":", 1)
+			if err := run(t, path, "1.2.3+build.2", false, mutated, string(check)); err == nil {
+				t.Fatal("removed version admission mutation was not detected")
+			}
+		})
+	}
+	t.Run("OCI-length-limit-mutation", func(t *testing.T) {
+		if strings.Count(string(check), `-gt 127`) != 1 {
+			t.Fatal("missing production OCI tag length limit")
+		}
+		mutated := strings.Replace(string(check), "-gt 127", "-gt 128", 1)
+		if err := run(t, 0, "1.2.3-"+strings.Repeat("a", 122), false, steps[0].Run, mutated); err == nil {
+			t.Fatal("OCI tag length mutation was not detected")
+		}
+	})
 }
 
 func TestExistingReleaseImageRetryRequiresExactDigest(t *testing.T) {

@@ -296,7 +296,7 @@ func scaffoldInProject(cmd *cobra.Command, projectRoot, skillName, skillMD strin
 		entries = append(entries, scaffold.FileEntry{Path: filepath.Join(fixturesDir, "sample.py"), Label: "Fixture", Content: scaffold.Fixture()})
 	}
 
-	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir)
+	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir, "")
 }
 
 // scaffoldStandalone creates a self-contained skill directory.
@@ -308,6 +308,30 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	tasksDir := filepath.Join(evalsDir, "tasks")
 	fixturesDir := filepath.Join(evalsDir, "fixtures")
 	workflowDir := filepath.Join(rootDir, ".github", "workflows")
+	workflowPath := filepath.Join(workflowDir, "eval.yml")
+
+	var workflow string
+	var requiredWorkflow string
+	info, err := os.Stat(workflowPath)
+	if err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("path %s exists but is a directory", workflowPath)
+		}
+		requiredWorkflow = workflowPath
+	} else {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("checking existing workflow %s: %w", workflowPath, err)
+		}
+		if _, lstatErr := os.Lstat(workflowPath); lstatErr == nil {
+			return fmt.Errorf("existing workflow %s cannot be resolved (possibly a dangling symlink): %w", workflowPath, err)
+		} else if !os.IsNotExist(lstatErr) {
+			return fmt.Errorf("checking existing workflow %s: %w", workflowPath, lstatErr)
+		}
+		workflow, err = ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
+		if err != nil {
+			return err
+		}
+	}
 
 	// Create directories
 	for _, d := range []string{tasksDir, fixturesDir, workflowDir} {
@@ -342,17 +366,17 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	}
 
 	entries = append(entries,
-		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: defaultCIWorkflow(skillName)},
+		scaffold.FileEntry{Path: workflowPath, Label: "CI pipeline", Content: workflow},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, ".gitignore"), Label: "Build artifacts excluded", Content: defaultGitignore()},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, "README.md"), Label: "Getting started guide", Content: defaultReadme(skillName)},
 	)
 
-	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir)
+	return writeScaffold(cmd, entries, skillName, existing, tasksDir, fixturesDir, requiredWorkflow)
 }
 
 // writeScaffold uses the shared FileWriter to create missing files, then prints
 // the inventory with header and summary footer.
-func writeScaffold(cmd *cobra.Command, entries []scaffold.FileEntry, skillName string, existing bool, tasksDir, fixturesDir string) error {
+func writeScaffold(cmd *cobra.Command, entries []scaffold.FileEntry, skillName string, existing bool, tasksDir, fixturesDir, requiredWorkflow string) error {
 	out := cmd.OutOrStdout()
 	baseDir, _ := os.Getwd() //nolint:errcheck // best-effort for display paths
 
@@ -360,6 +384,15 @@ func writeScaffold(cmd *cobra.Command, entries []scaffold.FileEntry, skillName s
 	inv, err := fw.Write(entries)
 	if err != nil {
 		return err
+	}
+	if requiredWorkflow != "" {
+		info, err := os.Stat(requiredWorkflow)
+		if err != nil {
+			return fmt.Errorf("checking existing workflow %s: %w", requiredWorkflow, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("path %s exists but is a directory", requiredWorkflow)
+		}
 	}
 
 	if existing {
@@ -481,33 +514,6 @@ List any reference documents or APIs this skill depends on.
 `, name, name, scaffold.TitleCase(name))
 }
 
-func defaultCIWorkflow(name string) string {
-	return fmt.Sprintf(`name: Eval %s
-
-on:
-  pull_request:
-    branches: [main]
-
-permissions:
-  contents: read
-
-jobs:
-  run-eval:
-    name: Run Evaluation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install waza
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/microsoft/waza/main/install.sh | bash
-
-      - name: Run eval
-        run: |
-          waza run evals/eval.yaml --context-dir evals/fixtures -v
-`, scaffold.TitleCase(name))
-}
-
 func defaultGitignore() string {
 	return `results.json
 .waza-cache/
@@ -530,6 +536,46 @@ A skill for agent evaluation with [waza](https://github.com/microsoft/waza).
 `+"```bash"+`
 waza run evals/eval.yaml --context-dir evals/fixtures -v
 `+"```"+`
+
+## CI
+
+Pull requests run offline configuration inventory, not agent evaluation.
+CI installs checksum-verified standalone Waza 0.42.1 and prints its version.
+Invalid configuration fails; unresolved runtime prerequisites warn. An empty
+inventory is not a successful evaluation.
+
+For intentional agent execution, review the eval, model, tools, graders, and
+dependencies. Use WAZA_COPILOT_TOKEN with model access; CI passes it as
+COPILOT_GITHUB_TOKEN.
+
+**Credential and artifact warning:** Program graders and other eval code
+inherit COPILOT_GITHUB_TOKEN. Their output can appear in results.json and
+uploaded artifacts retained for 30 days. Waza does not redact secrets from these
+outputs or artifacts. GitHub log masking does not protect artifacts.
+
+Store WAZA_COPILOT_TOKEN only in a protected waza-agent environment. In the
+destination repository, create this environment and select only the default
+branch for deployment, require reviewers, then verify those settings before
+adding WAZA_COPILOT_TOKEN. Where independent approval is required, prevent
+self-review and disable admin bypass where available. GitHub auto-creates an
+unknown referenced environment with no protection rules or secrets. The workflow's
+if/ref condition is not the protection boundary: a modified branch workflow
+can remove it.
+
+Protection availability depends on the repository's visibility and GitHub plan.
+Required reviewers are unavailable for private repositories on GitHub Free,
+Pro, or Team. Do not enable the credentialed job if the recommended branch
+restrictions or required reviewers cannot be configured.
+
+Do not define a same-named repository or organization secret. If the environment
+secret is missing, GitHub can silently use that broader-scoped secret.
+
+Manually dispatch on the repository's default
+branch with run-agent enabled and the reviewed eval-path. The unmodified generated
+workflow does not run the agent job for pull requests.
+Execution can incur usage; fixture isolation is not sandboxing.
+The agent-evidence gate requires a fresh, passing copilot-sdk result and rejects
+mock or unknown executors. Existing workflows are never overwritten.
 
 ## Structure
 

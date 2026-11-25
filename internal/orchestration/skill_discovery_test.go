@@ -1,14 +1,77 @@
 package orchestration
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/microsoft/waza/internal/config"
+	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRequiredSkillDiscoverySelectsRuntimeAndOfflineReaders(t *testing.T) {
+	for _, filename := range []string{"SKILL.md", "reviewed.agent.md"} {
+		t.Run(filename, func(t *testing.T) {
+			dir := t.TempDir()
+			good := filepath.Join(dir, "good")
+			bad := filepath.Join(dir, "bad")
+			require.NoError(t, os.MkdirAll(good, 0o700))
+			require.NoError(t, os.MkdirAll(bad, 0o700))
+			content := []byte("---\nname: required\ndescription: Required definition\n---\nBody\n")
+			require.NoError(t, os.WriteFile(filepath.Join(good, filename), content, 0o600))
+			path := filepath.Join(bad, filename)
+			if filename == "SKILL.md" {
+				require.NoError(t, os.Mkdir(path, 0o700))
+			} else {
+				require.NoError(t, os.Mkdir(filepath.Join(bad, "directory"), 0o700))
+				if err := os.Symlink("directory", path); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+			}
+			parse := parseSkillName
+			if filename != "SKILL.md" {
+				parse = parseAgentName
+			}
+			_, err := parse(path)
+			var pathErr *os.PathError
+			require.ErrorAs(t, err, &pathErr, "runtime parsers must retain os.ReadFile errors")
+			spec := &models.EvalSpec{Config: models.Config{
+				SkillPaths: []string{good, bad}, RequiredSkills: []string{"required"},
+			}}
+			runner := NewEvalRunner(config.NewEvalConfig(spec, config.WithSpecDir(dir)), nil)
+			warnings, err := os.CreateTemp(dir, "runtime-warnings")
+			require.NoError(t, err)
+			runtimeErr := func() error {
+				stderr := os.Stderr
+				os.Stderr = warnings
+				defer func() { os.Stderr = stderr }()
+				return runner.validateRequiredSkills()
+			}()
+			require.NoError(t, warnings.Close())
+			require.NoError(t, runtimeErr, "runtime discovery still warns and skips unreadable definitions")
+			warningBytes, err := os.ReadFile(warnings.Name())
+			require.NoError(t, err)
+			require.Contains(t, string(warningBytes), pathErr.Error(), "the production caller must retain the runtime reader's warning")
+			err = ValidateRequiredSkillConfiguration(spec, dir)
+			var readErr *definitionReadError
+			require.ErrorAs(t, err, &readErr)
+			require.Equal(t, path, readErr.path)
+			require.Contains(t, []string{
+				"assurance: input must be a regular file",
+				fmt.Sprintf("skill definition %q is not a regular file", path),
+			}, readErr.err.Error(), "offline admission must specifically reject the non-regular definition")
+
+			require.NoError(t, os.Remove(path))
+			require.NoError(t, os.WriteFile(path, []byte("---\nname: alternative\ndescription: Alternative definition\n---\nBody\n"), 0o600))
+			require.NoError(t, runner.validateRequiredSkills())
+			require.NoError(t, ValidateRequiredSkillConfiguration(spec, dir), "regular definition controls must pass both callers")
+		})
+	}
+}
 
 func TestDiscoverSkills(t *testing.T) {
 	// Create a temporary directory for testing
