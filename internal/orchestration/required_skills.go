@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -10,12 +11,20 @@ import (
 
 // ValidateRequiredSkillConfiguration uses runtime declaration discovery without
 // initializing an engine. Malformed definitions are warned and skipped like
-// runtime discovery, without exposing their parsing payloads.
+// runtime discovery, without exposing their parsing payloads. Read failures
+// are returned so offline validation cannot hide an unreadable definition.
 func ValidateRequiredSkillConfiguration(spec *models.EvalSpec, baseDir string) error {
 	return validateRequiredSkillConfiguration(spec, baseDir, func(paths []string) (map[string]string, error) {
-		return discoverSkillsWithReporter(paths, func(path string, _ error) {
+		var readErrors []error
+		discovered, err := discoverSkillsWithReporter(paths, func(path string, err error) {
+			var readErr *definitionReadError
+			if errors.As(err, &readErr) {
+				readErrors = append(readErrors, err)
+				return
+			}
 			slog.Warn("skipping malformed definition during required-skill discovery; correct its frontmatter", "path", path)
 		})
+		return discovered, errors.Join(err, errors.Join(readErrors...))
 	})
 }
 

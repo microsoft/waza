@@ -395,8 +395,10 @@ If neither skills nor evals are discovered, workspace mode exits 2 with a
 remains an empty report array and the structured diagnostic goes to stderr.
 An admitted skill without an eval retains the empty-report success behavior.
 Implicit `.github/skills` discovery starts at the invocation directory, not the
-configuration root; use the project root to include its implicit skills. Other
-discovered entries do not prove that the project-root directory was inspected.
+configuration root. If a nested invocation would miss a skill candidate in the
+configuration root's `.github/skills`, preflight exits 2 and names that root.
+Run from the project root or preflight an explicit eval. Empty directories and
+unrelated resources do not trigger this error.
 Workspace preflight exits 2 for unavailable symlinks encountered during
 discovery. Native workspace detection does not follow symlinked skill-scan
 roots or skill directories; preflight reports those unsupported paths instead

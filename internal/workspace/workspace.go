@@ -526,7 +526,7 @@ func validateSkippedSkillLink(path string, recursive bool) error {
 	if !info.IsDir() {
 		return nil
 	}
-	containsSkill, err := linkedDirectoryContainsSkill(path, recursive)
+	containsSkill, err := directoryContainsSkill(path, recursive, true)
 	if err != nil {
 		return err
 	}
@@ -536,7 +536,17 @@ func validateSkippedSkillLink(path string, recursive bool) error {
 	return nil
 }
 
-func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
+// SkillScanRootHasCandidates checks for skill definitions without reading their
+// contents, using the same exclusions as recursive workspace discovery.
+func SkillScanRootHasCandidates(path string) (bool, error) {
+	exists, err := skillScanRootExists(path, true)
+	if err != nil || !exists {
+		return false, err
+	}
+	return directoryContainsSkill(path, true, false)
+}
+
+func directoryContainsSkill(path string, recursive, includeRoot bool) (bool, error) {
 	type scanKey struct {
 		path        string
 		includeRoot bool
@@ -621,7 +631,7 @@ func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
 		})
 		return found, err
 	}
-	return scan(path, true)
+	return scan(path, includeRoot)
 }
 
 func inspectSkillDirectory(dir string, validateSymlinks, optionalAncestor bool) (SkillInfo, bool, error) {
@@ -633,7 +643,7 @@ func inspectSkillDirectory(dir string, validateSymlinks, optionalAncestor bool) 
 		if definition == "" {
 			return SkillInfo{}, false, nil
 		}
-		data, err := readSkillDefinition(definition)
+		data, err := ReadSkillDefinition(definition)
 		if err != nil {
 			return SkillInfo{}, false, fmt.Errorf("reading skill definition %q: %w", definition, err)
 		}
@@ -735,7 +745,7 @@ func tryParseSkill(dir string) (SkillInfo, bool) {
 
 // parseAgentNameFromFile reads an .agent.md file and extracts the agent name.
 func parseAgentNameFromFile(path string) string {
-	data, err := readSkillDefinition(path)
+	data, err := ReadSkillDefinition(path)
 	if err != nil {
 		return ""
 	}
@@ -900,17 +910,17 @@ func shouldSkipSkillScanDir(name string) bool {
 
 // parseSkillName reads a SKILL.md file and extracts the skill name from frontmatter.
 func parseSkillName(path string) (string, error) {
-	data, err := readSkillDefinition(path)
+	data, err := ReadSkillDefinition(path)
 	if err != nil {
 		return "", fmt.Errorf("reading skill file: %w", err)
 	}
 	return parseDefinitionName(path, data)
 }
 
-// Supported Unix systems request a nonblocking open and validate the opened
-// descriptor. Windows and other platforms cannot guarantee a nonblocking open
-// after concurrent path replacement; none of these reads authenticate content.
-func readSkillDefinition(path string) (data []byte, err error) {
+// ReadSkillDefinition reads only a regular opened file. Supported Unix systems
+// request a nonblocking open; Windows and other platforms cannot guarantee one
+// after concurrent path replacement. This does not authenticate file content.
+func ReadSkillDefinition(path string) (data []byte, err error) {
 	file, err := openSkillDefinition(path)
 	if err != nil {
 		return nil, err

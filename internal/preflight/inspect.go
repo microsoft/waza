@@ -3,6 +3,7 @@ package preflight
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -84,7 +85,7 @@ func Inspect(evalPath string, opts Options) *Report {
 	inspectLockedGraders(r, spec, evalPath)
 	applyWorkspaceSkillDefaults(r, spec, opts)
 	if err := orchestration.ValidateRequiredSkillConfiguration(spec, base); err != nil {
-		r.add("skill.required", Invalid, evalPath, "", "", "Required skills are missing or cannot be parsed in configured eval-level directories.", "Configure readable skill_directories containing every required_skills declaration; runtime discovery precedence is preserved.")
+		r.add("skill.required", Invalid, evalPath, "", "", fmt.Sprintf("Required skills are missing or cannot be parsed in configured eval-level directories: %v", err), "Configure readable skill_directories containing every required_skills declaration; runtime discovery precedence is preserved.")
 	}
 	inspectCapabilities(r, spec)
 	inspectGraders(r, spec.Graders, evalPath, "", contextDir)

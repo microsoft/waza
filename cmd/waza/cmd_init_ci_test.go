@@ -1595,14 +1595,169 @@ func TestInitCI_WorkspaceDeduplicatesLocalSkillEvalThroughAliasedRoot(t *testing
 	require.Contains(t, string(diagnostics), broken)
 }
 
+func TestInitCI_WorkspaceLinkedManifestsUseContainingDirectories(t *testing.T) {
+	for _, taskState := range []string{"valid", "invalid", "missing"} {
+		t.Run(taskState, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			initCIAddSkill(t, dir, "reviewed")
+			manifest := filepath.FromSlash(initCIWriteEvalAt(t, dir, "shared-eval.yml", ""))
+			evals := filepath.Join(dir, "evals")
+			first := filepath.Join(evals, "a")
+			second := filepath.Join(evals, "b")
+			for _, evalDir := range []string{first, second} {
+				require.NoError(t, os.MkdirAll(filepath.Join(evalDir, "fixtures"), 0o700))
+				target, err := filepath.Rel(evalDir, manifest)
+				require.NoError(t, err)
+				if err := os.Symlink(target, filepath.Join(evalDir, "eval.yaml")); err != nil {
+					t.Skipf("file symlink unavailable: %v", err)
+				}
+			}
+			firstInfo, err := os.Stat(filepath.Join(first, "eval.yaml"))
+			require.NoError(t, err)
+			secondInfo, err := os.Stat(filepath.Join(second, "eval.yaml"))
+			require.NoError(t, err)
+			require.True(t, os.SameFile(firstInfo, secondInfo), "both manifests must resolve to the same file")
+			if err := os.Symlink("a", filepath.Join(evals, "a-alias")); err != nil {
+				t.Skipf("directory symlink unavailable: %v", err)
+			}
+			validTask := []byte("id: valid-task\nname: Task\ninputs: {prompt: ready}\n")
+			require.NoError(t, os.WriteFile(filepath.Join(first, "task.yaml"), validTask, 0o600))
+			switch taskState {
+			case "valid":
+				require.NoError(t, os.WriteFile(filepath.Join(second, "task.yaml"), validTask, 0o600))
+			case "invalid":
+				require.NoError(t, os.WriteFile(filepath.Join(second, "task.yaml"), []byte("id: [bad]\nname: Task\ninputs: {prompt: ready}\n"), 0o600))
+			}
+
+			outputPath := filepath.Join(dir, "preflight-output")
+			errorPath := filepath.Join(dir, "preflight-error")
+			out, runErr := initCIShell(t, dir, `waza preflight --workspace --format json >"$OUTPUT" 2>"$ERRORS"`, map[string]string{
+				"OUTPUT": filepath.ToSlash(outputPath), "ERRORS": filepath.ToSlash(errorPath), "WAZA_INIT_CI_MODE": "reject",
+			})
+			if taskState == "valid" {
+				require.NoError(t, runErr, out)
+			} else {
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, runErr, &exitErr, out)
+				require.Equal(t, 1, exitErr.ExitCode(), out)
+			}
+			output, err := os.ReadFile(outputPath)
+			require.NoError(t, err)
+			var reports []*preflight.Report
+			require.NoError(t, json.Unmarshal(output, &reports), string(output))
+			require.Len(t, reports, 2, "distinct resource bases must remain separate, while directory aliases deduplicate")
+			require.Equal(t, filepath.Join(first, "eval.yaml"), reports[0].Source)
+			require.Equal(t, filepath.Join(second, "eval.yaml"), reports[1].Source)
+			require.False(t, reports[0].Failed(false))
+			require.Equal(t, taskState != "valid", reports[1].Failed(false))
+			require.Len(t, reports[0].Tasks, 1)
+			if taskState == "valid" {
+				require.Len(t, reports[1].Tasks, 1)
+			} else {
+				want := "task.schema"
+				if taskState == "missing" {
+					want = "tasks.empty"
+				}
+				var found bool
+				for _, diagnostic := range reports[1].Diagnostics {
+					found = found || diagnostic.Code == want && diagnostic.State == preflight.Invalid
+				}
+				require.True(t, found, "%s", output)
+			}
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+		})
+	}
+}
+
+func TestInitCI_WorkspaceLinkedDirectoryUsesRelativeParent(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid=%t", invalid), func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, validateCLIIsolation(dir))
+			initCIAddSkill(t, dir, "reviewed")
+			skillDir := filepath.Join(dir, "skills", "reviewed")
+			eval := filepath.FromSlash(initCIWriteEvalAt(t, skillDir, "eval.yaml", ""))
+			spec, err := os.ReadFile(eval)
+			require.NoError(t, err)
+			updated := strings.Replace(string(spec), "tasks: [task.yaml]", "tasks: [../tasks/task.yaml]", 1)
+			require.NotEqual(t, string(spec), updated, "fixture must use a parent-relative task")
+			require.NoError(t, os.WriteFile(eval, []byte(updated), 0o600))
+
+			evalsDir := filepath.Join(dir, "evals")
+			alias := filepath.Join(evalsDir, "linked")
+			require.NoError(t, os.MkdirAll(evalsDir, 0o700))
+			target, err := filepath.Rel(evalsDir, skillDir)
+			require.NoError(t, err)
+			if err := os.Symlink(target, alias); err != nil {
+				t.Skipf("directory symlink unavailable: %v", err)
+			}
+			actualInfo, err := os.Stat(eval)
+			require.NoError(t, err)
+			aliasEval := filepath.Join(alias, "eval.yaml")
+			aliasInfo, err := os.Stat(aliasEval)
+			require.NoError(t, err)
+			require.True(t, os.SameFile(actualInfo, aliasInfo), "fixture must use the same physical manifest")
+
+			validTask := []byte("id: valid-task\nname: Task\ninputs: {prompt: ready}\n")
+			invalidTask := []byte("id: [bad]\nname: Task\ninputs: {prompt: ready}\n")
+			for _, taskDir := range []string{filepath.Join(dir, "skills", "tasks"), filepath.Join(evalsDir, "tasks")} {
+				require.NoError(t, os.MkdirAll(taskDir, 0o700))
+				task := validTask
+				if invalid && taskDir == filepath.Join(evalsDir, "tasks") {
+					task = invalidTask
+				}
+				require.NoError(t, os.WriteFile(filepath.Join(taskDir, "task.yaml"), task, 0o600))
+			}
+
+			outputPath := filepath.Join(dir, "preflight-output")
+			errorPath := filepath.Join(dir, "preflight-error")
+			out, runErr := initCIShell(t, dir, `waza preflight --workspace --format json >"$OUTPUT" 2>"$ERRORS"`, map[string]string{
+				"OUTPUT": filepath.ToSlash(outputPath), "ERRORS": filepath.ToSlash(errorPath), "WAZA_INIT_CI_MODE": "reject",
+			})
+			if invalid {
+				var exitErr *exec.ExitError
+				require.ErrorAs(t, runErr, &exitErr, out)
+				require.Equal(t, 1, exitErr.ExitCode(), out)
+			} else {
+				require.NoError(t, runErr, out)
+			}
+			output, err := os.ReadFile(outputPath)
+			require.NoError(t, err)
+			var reports []*preflight.Report
+			require.NoError(t, json.Unmarshal(output, &reports), string(output))
+			require.Len(t, reports, 2, "relative parent paths resolve differently through the directory alias")
+			require.Equal(t, eval, reports[0].Source)
+			require.Equal(t, aliasEval, reports[1].Source)
+			require.False(t, reports[0].Failed(false))
+			require.Equal(t, invalid, reports[1].Failed(false))
+			if invalid {
+				var found bool
+				for _, diagnostic := range reports[1].Diagnostics {
+					found = found || diagnostic.Code == "task.schema" && diagnostic.State == preflight.Invalid
+				}
+				require.True(t, found, "%s", output)
+			}
+			require.NoFileExists(t, filepath.Join(dir, "runtime-invoked"))
+		})
+	}
+}
+
 func TestInitCI_WorkspacePreflightEmptyInventoryFailsClosed(t *testing.T) {
-	run := func(t *testing.T, cwd string) ([]*preflight.Report, []byte, int) {
+	run := func(t *testing.T, cwd string, skillsOverride ...string) ([]*preflight.Report, []byte, int) {
 		t.Helper()
 		outputPath := filepath.Join(cwd, "preflight-output")
 		errorPath := filepath.Join(cwd, "preflight-error")
-		out, err := initCIShell(t, cwd, `waza preflight --workspace --format json >"$OUTPUT" 2>"$ERRORS"`, map[string]string{
+		script := `waza preflight --workspace --format json >"$OUTPUT" 2>"$ERRORS"`
+		env := map[string]string{
 			"OUTPUT": filepath.ToSlash(outputPath), "ERRORS": filepath.ToSlash(errorPath), "WAZA_INIT_CI_MODE": "reject",
-		})
+		}
+		if len(skillsOverride) > 0 {
+			require.Len(t, skillsOverride, 1)
+			script = `waza preflight --workspace --format json --skills-dir "$OVERRIDE" >"$OUTPUT" 2>"$ERRORS"`
+			env["OVERRIDE"] = filepath.ToSlash(skillsOverride[0])
+		}
+		out, err := initCIShell(t, cwd, script, env)
 		code := 0
 		if err != nil {
 			var exitErr *exec.ExitError
@@ -1651,29 +1806,69 @@ func TestInitCI_WorkspacePreflightEmptyInventoryFailsClosed(t *testing.T) {
 		require.True(t, reports[0].Failed(false))
 		require.Equal(t, "eval.schema", reports[0].Diagnostics[0].Code)
 	})
-	t.Run("nested empty inventory fails", func(t *testing.T) {
+	t.Run("nested uninspected implicit root fails closed", func(t *testing.T) {
 		reports, diagnostics, code := run(t, nested)
-		assertEmpty(t, nested, reports, diagnostics, code)
+		require.Equal(t, ExitError, code, string(diagnostics))
+		require.Empty(t, reports)
+		require.Contains(t, string(diagnostics), fmt.Sprintf("%q", filepath.Join(dir, ".github", "skills")))
+		require.Contains(t, string(diagnostics), "project root")
+	})
+	t.Run("selected implicit root is inspected", func(t *testing.T) {
+		for _, override := range []string{filepath.Join("..", ".github", "skills"), filepath.Join(dir, ".github", "skills")} {
+			reports, diagnostics, code := run(t, nested, override)
+			require.Equal(t, 1, code, string(diagnostics))
+			require.Len(t, reports, 1)
+			require.Equal(t, rootEval, reports[0].Source)
+			require.True(t, reports[0].Failed(false))
+			require.Equal(t, "eval.schema", reports[0].Diagnostics[0].Code)
+			require.NotContains(t, string(diagnostics), "not inspected")
+		}
 	})
 	t.Run("nested configured skill eval remains invalid", func(t *testing.T) {
 		initCIAddSkill(t, dir, "configured")
 		configuredEval := filepath.Join(dir, "skills", "configured", "eval.yaml")
 		require.NoError(t, os.WriteFile(configuredEval, []byte("config: [invalid]\n"), 0o600))
 		reports, diagnostics, code := run(t, nested)
-		require.Equal(t, 1, code, string(diagnostics))
+		require.Equal(t, ExitError, code, string(diagnostics))
 		require.Len(t, reports, 1)
 		require.Equal(t, configuredEval, reports[0].Source)
 		require.True(t, reports[0].Failed(false))
 		require.Equal(t, "eval.schema", reports[0].Diagnostics[0].Code)
+		require.Contains(t, string(diagnostics), fmt.Sprintf("%q", filepath.Join(dir, ".github", "skills")))
 	})
-	t.Run("valid admitted skill and eval pass", func(t *testing.T) {
+	t.Run("valid configured skill cannot mask uninspected implicit root", func(t *testing.T) {
 		configured := filepath.Join(dir, "skills", "configured")
 		eval := filepath.FromSlash(initCIWriteEvalAt(t, configured, "eval.yaml", ""))
+		reports, diagnostics, code := run(t, nested)
+		require.Equal(t, ExitError, code, string(diagnostics))
+		require.Len(t, reports, 1)
+		require.Equal(t, eval, reports[0].Source)
+		require.False(t, reports[0].Failed(false))
+		require.Contains(t, string(diagnostics), fmt.Sprintf("%q", filepath.Join(dir, ".github", "skills")))
+		require.Contains(t, string(diagnostics), "project root")
+	})
+	t.Run("valid admitted skill and eval pass when implicit root is absent", func(t *testing.T) {
+		require.NoError(t, os.Remove(rootEval))
+		require.NoError(t, os.Remove(filepath.Join(skillDir, "SKILL.md")))
+		require.NoError(t, os.Remove(skillDir))
+		require.NoError(t, os.Remove(filepath.Dir(skillDir)))
+		configured := filepath.Join(dir, "skills", "configured")
+		eval := filepath.Join(configured, "eval.yaml")
 		reports, diagnostics, code := run(t, nested)
 		require.Equal(t, 0, code, string(diagnostics))
 		require.Len(t, reports, 1)
 		require.Equal(t, eval, reports[0].Source)
 		require.False(t, reports[0].Failed(false))
+	})
+	t.Run("empty and unrelated implicit root passes", func(t *testing.T) {
+		resource := filepath.Join(dir, ".github", "skills", "resources")
+		require.NoError(t, os.MkdirAll(resource, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(resource, "README.md"), []byte("not a skill\n"), 0o600))
+		reports, diagnostics, code := run(t, nested)
+		require.Equal(t, 0, code, string(diagnostics))
+		require.Len(t, reports, 1)
+		require.False(t, reports[0].Failed(false))
+		require.Empty(t, diagnostics)
 	})
 	t.Run("admitted skill without an eval retains empty report behavior", func(t *testing.T) {
 		standalone := t.TempDir()

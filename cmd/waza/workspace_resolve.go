@@ -10,6 +10,7 @@ import (
 )
 
 type projectWorkspaceDetectPaths struct {
+	configDir string
 	skillsDir string
 	evalsDir  string
 	evalFile  string
@@ -34,6 +35,7 @@ func loadProjectWorkspaceDetectPaths(root string) (projectWorkspaceDetectPaths, 
 	}
 
 	return projectWorkspaceDetectPaths{
+		configDir: cfg.Dir,
 		skillsDir: resolveDir(cfg.Paths.Skills),
 		evalsDir:  resolveDir(cfg.Paths.Evals),
 		evalFile:  cfg.Files.EvalFile,

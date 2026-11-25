@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/microsoft/waza/internal/skill"
+	"github.com/microsoft/waza/internal/workspace"
 )
 
 // discoverSkills scans the provided directories for SKILL.md and .agent.md
@@ -74,9 +75,9 @@ func discoverSkillsWithReporter(directories []string, warn func(string, error)) 
 
 // parseSkillName reads a SKILL.md file and extracts the skill name from frontmatter.
 func parseSkillName(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := readSkillDefinition(path)
 	if err != nil {
-		return "", fmt.Errorf("reading file: %w", err)
+		return "", err
 	}
 
 	var s skill.Skill
@@ -89,9 +90,9 @@ func parseSkillName(path string) (string, error) {
 
 // parseAgentName reads an .agent.md file and extracts the agent name from frontmatter.
 func parseAgentName(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := readSkillDefinition(path)
 	if err != nil {
-		return "", fmt.Errorf("reading file: %w", err)
+		return "", err
 	}
 
 	fm, _, err := skill.ParseAgentFrontmatter(string(data))
@@ -105,6 +106,25 @@ func parseAgentName(path string) (string, error) {
 		name = strings.TrimSuffix(base, ".agent.md")
 	}
 	return name, nil
+}
+
+type definitionReadError struct {
+	path string
+	err  error
+}
+
+func (e *definitionReadError) Error() string {
+	return fmt.Sprintf("reading skill definition %q: %v", e.path, e.err)
+}
+
+func (e *definitionReadError) Unwrap() error { return e.err }
+
+func readSkillDefinition(path string) ([]byte, error) {
+	data, err := workspace.ReadSkillDefinition(path)
+	if err != nil {
+		return nil, &definitionReadError{path: path, err: err}
+	}
+	return data, nil
 }
 
 // validateRequiredSkills checks that all required skills are discovered.

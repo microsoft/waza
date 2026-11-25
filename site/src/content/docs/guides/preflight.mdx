@@ -199,15 +199,18 @@ When no skills or evaluations are discovered, workspace mode exits 2 with a
 empty report array to stdout and the structured diagnostic to stderr. A discovered
 skill without an eval retains the empty-report success behavior.
 Implicit `.github/skills` discovery starts at the invocation directory, not the
-configuration root. Run from the project root to include its implicit skills;
-finding other entries does not prove that directory was inspected. Generated CI
-invokes preflight from the project root.
+configuration root. If a nested invocation would miss a skill candidate in the
+configuration root's `.github/skills`, preflight exits 2 and names that root.
+Run from the project root or preflight an explicit eval. Empty directories and
+unrelated resources do not trigger this error. Generated CI invokes preflight
+from the project root.
 
 During workspace discovery, linked-directory probes inspect definition
-metadata without reading it. On supported Unix hosts, Waza requests a
-nonblocking open and checks the opened definition is regular. Windows and
-other hosts cannot guarantee a nonblocking open if a path is replaced
-concurrently. These checks do not authenticate paths, guarantee stable
+metadata without reading it. Required-skill preflight reports unreadable or
+non-regular skill and agent definitions as invalid. On supported Unix hosts,
+Waza requests a nonblocking open and checks the opened definition is regular.
+Windows and other hosts cannot guarantee a nonblocking open if a path is
+replaced concurrently. These checks do not authenticate paths, guarantee stable
 content, or protect later skill loads.
 
 Scenario-bearing evals require exact explicit `schemaVersion: "2.0"` with a

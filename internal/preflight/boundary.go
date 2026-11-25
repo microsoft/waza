@@ -1,6 +1,7 @@
 package preflight
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/microsoft/waza/internal/execution"
@@ -24,9 +25,9 @@ func inspectBoundaryPolicy(r *Report, task *models.TestCase, spec *models.EvalSp
 		r.Complete = false
 		return
 	}
-	agentPath, frontmatter, err := execution.ResolveAgentDefinition(append([]string{cwd}, paths...), spec.SkillName)
+	agentPath, frontmatter, err := execution.ResolveAgentDefinitionOffline(append([]string{cwd}, paths...), spec.SkillName)
 	if err != nil {
-		r.add("boundary.agent", Invalid, source, task.TestID, "", "Selected agent definition cannot be parsed.", "Correct the selected .agent.md frontmatter; discovery follows runtime precedence.")
+		r.add("boundary.agent", Invalid, source, task.TestID, "", fmt.Sprintf("Selected agent definition cannot be read or parsed: %v", err), "Correct the selected .agent.md frontmatter and use regular readable definition files; discovery follows runtime precedence.")
 		return
 	}
 	if frontmatter == nil || frontmatter.Tools == nil {

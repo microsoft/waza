@@ -8,11 +8,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/microsoft/waza/internal/preflight"
 	"github.com/microsoft/waza/internal/projectconfig"
 	"github.com/microsoft/waza/internal/workspace"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func newPreflightCommand() *cobra.Command {
@@ -39,6 +41,9 @@ reports those unsupported paths instead of returning an empty inventory.
 Resolvable resource links are allowed when they contain no discoverable skills.
 If discovery fails, reports for independently discovered evaluations are still
 printed; errors are written to stderr and the command exits 2.
+From a nested directory, an uninspected skill candidate in the configuration
+root's implicit .github/skills also causes exit 2; run from the project root or
+preflight an explicit eval.
 
 Never starts an agent, model, subprocess, mock server, live service, or update
 check. Verified means a static check, not a satisfied requirement, enforced
@@ -203,6 +208,29 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 	wsCtx, err := workspace.DetectContext(absRoot, detectOptions...)
 	partialContext := err != nil && wsCtx != nil
 	var discoveryErrors []error
+	if paths.configDir != "" {
+		configInfo, configErr := os.Stat(paths.configDir)
+		rootInfo, rootErr := os.Stat(absRoot)
+		if configErr != nil || rootErr != nil {
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("checking workspace discovery roots: %w", errors.Join(configErr, rootErr)))
+		} else if !os.SameFile(configInfo, rootInfo) {
+			implicitRoot := filepath.Join(paths.configDir, ".github", "skills")
+			scanned := false
+			if wsCtx != nil && filepath.Clean(wsCtx.Root) == absRoot && wsCtx.Type != workspace.ContextSingleSkill {
+				implicitInfo, implicitErr := os.Stat(implicitRoot)
+				selectedInfo, selectedErr := os.Stat(paths.skillsDir)
+				scanned = implicitErr == nil && selectedErr == nil && os.SameFile(implicitInfo, selectedInfo)
+			}
+			if !scanned {
+				candidates, scanErr := workspace.SkillScanRootHasCandidates(implicitRoot)
+				if scanErr != nil {
+					discoveryErrors = append(discoveryErrors, fmt.Errorf("checking implicit skill root %q: %w", implicitRoot, scanErr))
+				} else if candidates {
+					discoveryErrors = append(discoveryErrors, fmt.Errorf("implicit skill root %q contains skills not inspected from %q; run from the project root or pass an explicit eval path", implicitRoot, absRoot))
+				}
+			}
+		}
+	}
 	if err != nil {
 		discoveryErrors = append(discoveryErrors, fmt.Errorf("discovering workspace skills: %w", err))
 		if wsCtx == nil {
@@ -228,7 +256,7 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 		if _, ok := seen[path]; ok {
 			return true
 		}
-		canonical, err := canonicalPath(path)
+		canonical, err := evalResolutionIdentity(path)
 		if err != nil {
 			discoveryErrors = append(discoveryErrors, fmt.Errorf("resolving evaluation path %q: %w", path, err))
 		} else {
@@ -304,6 +332,68 @@ func inspectWorkspacePreflight(root string, overrides workspacePreflightOverride
 		}
 	}
 	return workspacePreflightInventory{reports: reports, root: absRoot, skills: skillCount}, errors.Join(discoveryErrors...)
+}
+
+// evalResolutionIdentity identifies the physical files an eval's relative
+// resources resolve to. Relative references are cleaned lexically against the
+// eval directory before symlinks resolve, so a reference with n leading ".."
+// segments names the nth lexical ancestor; equal canonical ancestor chains up
+// to the deepest such reference resolve identically.
+func evalResolutionIdentity(path string) (string, error) {
+	dir := filepath.Dir(path)
+	canonicalDir, err := canonicalPath(dir)
+	if err != nil {
+		return "", err
+	}
+	parts := []string{filepath.Join(canonicalDir, filepath.Base(path))}
+	depth := evalParentReferenceDepth(path)
+	for level := 0; depth < 0 || level < depth; level++ {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+		canonicalAncestor, err := canonicalPath(dir)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, canonicalAncestor)
+	}
+	return strings.Join(parts, "\x00"), nil
+}
+
+// evalParentReferenceDepth conservatively over-approximates how many lexical
+// ancestors any relative reference in the manifest can reach by counting
+// leading ".." segments in every scalar. It returns -1, meaning every
+// ancestor, when the manifest cannot be read safely.
+func evalParentReferenceDepth(path string) int {
+	data, err := workspace.ReadSkillDefinition(path)
+	if err != nil {
+		return -1
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return 0
+	}
+	depth := 0
+	var walk func(*yaml.Node)
+	walk = func(node *yaml.Node) {
+		if node.Kind == yaml.ScalarNode && !filepath.IsAbs(node.Value) {
+			n := 0
+			for _, segment := range strings.Split(filepath.ToSlash(filepath.Clean(filepath.FromSlash(node.Value))), "/") {
+				if segment != ".." {
+					break
+				}
+				n++
+			}
+			depth = max(depth, n)
+		}
+		for _, child := range node.Content {
+			walk(child)
+		}
+	}
+	walk(&root)
+	return depth
 }
 
 // separatedWorkspaceEvals lists evaluation files directly under the evals root
