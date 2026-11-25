@@ -27,6 +27,7 @@ summarizes the dogfood lessons and upgrade considerations.
 | [Scaffolded trigger examples #1090](https://github.com/microsoft/waza/issues/1090), [PR #1107](https://github.com/microsoft/waza/pull/1107) | Include generated trigger examples in the development report rather than leaving the scaffold disconnected from evaluation. |
 | [Generated CI #947](https://github.com/microsoft/waza/issues/947) | Pin generated automation and make live agent execution an explicit choice rather than a surprising default. |
 | [Dependency patch PR #1103](https://github.com/microsoft/waza/pull/1103) | Update `go-jose/v4` from 4.1.4 to 4.1.6 for GHSA-mgcc-cww5-fp2q. |
+| [Copilot SDK v2 #1117](https://github.com/microsoft/waza/issues/1117), [PR #1118](https://github.com/microsoft/waza/pull/1118) | Proposed: move from `github.com/github/copilot-sdk/go` v1.0.34 and bundled CLI 1.0.112 to `github.com/microsoft/copilot-sdk/go/v2` v2.0.1 and bundled CLI 1.0.114, preserving result and policy contracts; deprecated `models --json` billing fields are no longer available. |
 
 The source comparison and final changelog will identify the merged patch scope.
 An open issue or pull request in this table is not evidence that a fix has
@@ -50,6 +51,41 @@ gate rather than being accepted as agent evidence.
 The `go-jose` patch adds a default 4096-bit RSA key-size limit and removes
 `RandReader`. Embedders using larger keys or that dependency API should review
 the upstream migration notes before upgrading.
+
+### Proposed Copilot SDK v2 migration
+
+The SDK migration in [PR #1118](https://github.com/microsoft/waza/pull/1118)
+is open and may change before merge. As proposed, Waza keeps launching the
+bundled Copilot CLI as a separate process rather than adopting the v2 SDK's
+in-process default, and it still refuses to fall back to a CLI found on `PATH`.
+A custom Copilot CLI supplied through `COPILOT_CLI_PATH` must speak protocol 4.
+In the proposal, protocol-3 runtimes, including CLI 1.0.85, fail at startup
+before a session is created. Use the bundled runtime or a protocol-4 CLI.
+
+For prompt graders with `evidence_context`, an override must identify the pinned
+embedded executable. Owned native execution rejects any nonempty
+`COPILOT_CLI_PATH` override; clear the variable to use the embedded runtime in
+either case.
+
+`waza models --json` is not fully unchanged: the formerly optional, deprecated
+`billing.tokenPrices.cachePrice`, `billing.tokenPrices.contextMax`,
+`billing.tokenPrices.longContext.cachePrice` and
+`billing.tokenPrices.longContext.contextMax` fields are absent from the v2 SDK.
+Scripts that read them must adapt: the v1 SDK points consumers to
+`cacheReadPrice` and `maxPromptTokens`, respectively, when available. Those
+fields are optional too.
+
+The [migration PR](https://github.com/microsoft/waza/pull/1118) reports local
+guarded Go and compatibility tests, lint and cross-compilation checks on
+earlier revisions. At an earlier PR head
+`2a2d29c7465ef6c9c7d1d50649abbc248064f23b`, the
+[Windows Go CI job](https://github.com/microsoft/waza/actions/runs/45300281018/job/138130813320)
+ran guarded tests on a merge of the proposal and its base; the
+[Ubuntu evaluation](https://github.com/microsoft/waza/actions/runs/45300280939/job/138130812629)
+used a mock engine. Neither establishes an authenticated Windows model
+evaluation at that head; a source-bound record for that specific evaluation has
+not been verified. Live evidence and full platform validation on the final
+integrated source, plus checks of the distributed packages, remain pending.
 
 ## What verification establishes
 
