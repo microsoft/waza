@@ -548,8 +548,7 @@ func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
 		}
 		visited[key] = true
 		if !recursive {
-			_, found, err := inspectSkillDirectory(resolved, true, false)
-			return found, err
+			return probeSkillDirectory(resolved)
 		}
 		if includeRoot {
 			apmRoot := filepath.Join(resolved, ".apm", "skills")
@@ -577,7 +576,7 @@ func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
 				if current != resolved && shouldSkipSkillScanDir(entry.Name()) {
 					return fs.SkipDir
 				}
-				_, isSkill, err := inspectSkillDirectory(current, true, false)
+				isSkill, err := probeSkillDirectory(current)
 				if err != nil {
 					return err
 				}
@@ -615,72 +614,95 @@ func linkedDirectoryContainsSkill(path string, recursive bool) (bool, error) {
 }
 
 func inspectSkillDirectory(dir string, validateSymlinks, optionalAncestor bool) (SkillInfo, bool, error) {
+	if proceed, err := validateSkillDefinitionLinks(dir, validateSymlinks, optionalAncestor); err != nil || !proceed {
+		return SkillInfo{}, false, err
+	}
+	info, ok := tryParseSkill(dir)
+	return info, ok, nil
+}
+
+// probeSkillDirectory reports whether dir has a skill definition using
+// metadata only, so linked-directory checks never read definition contents.
+func probeSkillDirectory(dir string) (bool, error) {
+	if _, err := validateSkillDefinitionLinks(dir, true, false); err != nil {
+		return false, err
+	}
+	_, ok := findSkillDefinition(dir)
+	return ok, nil
+}
+
+func validateSkillDefinitionLinks(dir string, validateSymlinks, optionalAncestor bool) (bool, error) {
 	if validateSymlinks {
 		skillPath := filepath.Join(dir, "SKILL.md")
 		if err := ValidateDiscoveryPath(skillPath); err != nil {
-			return SkillInfo{}, false, err
+			return false, err
 		}
 		if !isFile(skillPath) {
 			entries, err := os.ReadDir(dir)
 			if optionalAncestor && errors.Is(err, fs.ErrPermission) {
 				// Ancestors are optional ownership probes in native discovery.
-				return SkillInfo{}, false, nil
+				return false, nil
 			}
 			if err != nil {
-				return SkillInfo{}, false, fmt.Errorf("reading skill directory %q: %w", dir, err)
+				return false, fmt.Errorf("reading skill directory %q: %w", dir, err)
 			}
 			for _, entry := range entries {
 				if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
 					if err := ValidateDiscoveryPath(filepath.Join(dir, entry.Name())); err != nil {
-						return SkillInfo{}, false, err
+						return false, err
 					}
 					break
 				}
 			}
 		}
 	}
-	info, ok := tryParseSkill(dir)
-	return info, ok, nil
+	return true, nil
+}
+
+// findSkillDefinition locates the regular SKILL.md or .agent.md file in dir
+// without reading it. SKILL.md takes priority over .agent.md.
+func findSkillDefinition(dir string) (string, bool) {
+	skillPath := filepath.Join(dir, "SKILL.md")
+	if isFile(skillPath) {
+		return skillPath, true
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !skill.IsAgentFile(entry.Name()) {
+			continue
+		}
+		agentPath := filepath.Join(dir, entry.Name())
+		if isFile(agentPath) {
+			return agentPath, true
+		}
+	}
+	return "", false
 }
 
 // tryParseSkill checks if dir contains SKILL.md or .agent.md and parses it.
 // SKILL.md takes priority over .agent.md.
 func tryParseSkill(dir string) (SkillInfo, bool) {
-	// Check SKILL.md first
-	skillPath := filepath.Join(dir, "SKILL.md")
-	if isFile(skillPath) {
-		name, err := parseSkillName(skillPath)
-		if err != nil || name == "" {
-			name = filepath.Base(dir)
-		}
-		return SkillInfo{
-			Name:      name,
-			Dir:       dir,
-			SkillPath: skillPath,
-		}, true
-	}
-
-	// Fall back to .agent.md files
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+	definition, ok := findSkillDefinition(dir)
+	if !ok {
 		return SkillInfo{}, false
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() && skill.IsAgentFile(entry.Name()) {
-			agentPath := filepath.Join(dir, entry.Name())
-			name := parseAgentNameFromFile(agentPath)
-			if name == "" {
-				name = filepath.Base(dir)
-			}
-			return SkillInfo{
-				Name:      name,
-				Dir:       dir,
-				SkillPath: agentPath,
-			}, true
-		}
+	var name string
+	if filepath.Base(definition) == "SKILL.md" {
+		name, _ = parseSkillName(definition) //nolint:errcheck // unparsable frontmatter falls back to the directory name
+	} else {
+		name = parseAgentNameFromFile(definition)
 	}
-
-	return SkillInfo{}, false
+	if name == "" {
+		name = filepath.Base(dir)
+	}
+	return SkillInfo{
+		Name:      name,
+		Dir:       dir,
+		SkillPath: definition,
+	}, true
 }
 
 // parseAgentNameFromFile reads an .agent.md file and extracts the agent name.
@@ -854,7 +876,7 @@ func parseSkillName(path string) (string, error) {
 // isFile returns true if path exists and is a regular file.
 func isFile(path string) bool {
 	fi, err := os.Stat(path)
-	return err == nil && !fi.IsDir()
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // isDir returns true if path exists and is a directory.

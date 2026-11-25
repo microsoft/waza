@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -309,9 +311,30 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	fixturesDir := filepath.Join(evalsDir, "fixtures")
 	workflowDir := filepath.Join(rootDir, ".github", "workflows")
 
-	workflow, err := ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
-	if err != nil {
-		return err
+	workflowPath := filepath.Join(workflowDir, "eval.yml")
+	_, workflowStatErr := os.Lstat(workflowPath)
+	if workflowStatErr != nil && !errors.Is(workflowStatErr, fs.ErrNotExist) {
+		return fmt.Errorf("checking generated workflow %s: %w", workflowPath, workflowStatErr)
+	}
+	if workflowStatErr == nil {
+		// FileWriter follows links and rejects a directory, so fail before repair.
+		info, err := os.Stat(workflowPath)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("checking generated workflow %s: %w", workflowPath, err)
+		}
+		if err == nil && info.IsDir() {
+			return fmt.Errorf("path %s exists but is a directory", workflowPath)
+		}
+	}
+	// FileWriter preserves an existing workflow, so only validate one that
+	// will be written, and do so before any repair mutates the skill.
+	var workflow string
+	if errors.Is(workflowStatErr, fs.ErrNotExist) {
+		var err error
+		workflow, err = ciWorkflow("", "evals", files.EvalFile, filepath.Join("evals", files.EvalFile))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Create directories
@@ -347,7 +370,7 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 	}
 
 	entries = append(entries,
-		scaffold.FileEntry{Path: filepath.Join(workflowDir, "eval.yml"), Label: "CI pipeline", Content: workflow},
+		scaffold.FileEntry{Path: workflowPath, Label: "CI pipeline", Content: workflow},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, ".gitignore"), Label: "Build artifacts excluded", Content: defaultGitignore()},
 		scaffold.FileEntry{Path: filepath.Join(rootDir, "README.md"), Label: "Getting started guide", Content: defaultReadme(skillName)},
 	)
