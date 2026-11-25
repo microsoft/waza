@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/controlledcomparison"
 	"github.com/microsoft/waza/internal/releasepolicy"
 	"github.com/stretchr/testify/require"
@@ -33,7 +33,7 @@ func TestNativeFrozenResourcesReachFreshSDKWorkspace(t *testing.T) {
 	calls := 0
 	workspaces := map[string]bool{}
 	setup := func(_ int, client *nativeTestClient) {
-		client.verifyWorkspace = func(config *copilot.SessionConfig) {
+		client.verifyWorkspace = func(config *copilot.CreateSessionOptions) {
 			require.NotEqual(t, base, config.WorkingDirectory)
 			require.False(t, workspaces[config.WorkingDirectory], "each attempt needs a fresh workspace")
 			workspaces[config.WorkingDirectory] = true

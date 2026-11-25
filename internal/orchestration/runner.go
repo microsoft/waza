@@ -35,7 +35,7 @@ import (
 	"github.com/microsoft/waza/internal/usagetelemetry"
 	"github.com/microsoft/waza/internal/utils"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 )
 
 // responderClassifier classifies an agent message into a responder decision

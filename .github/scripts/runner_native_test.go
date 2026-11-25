@@ -146,21 +146,44 @@ func TestRunnerNativeProductionProcess(t *testing.T) {
 					}, entry.EnvironmentKeys, "only the explicit child environment and SDK logging flag may reach the fixture")
 				case "session.create":
 					require.Equal(t, "synthetic-no-provider", entry.Params["model"])
-					require.Equal(t, false, entry.Params["enableSkills"])
-					require.Equal(t, []any{}, entry.Params["availableTools"])
-					require.Empty(t, entry.Params["mcpServers"])
-					require.Empty(t, entry.Params["tools"])
-					for _, field := range []string{
-						"enableConfigDiscovery", "enableFileHooks", "enableOnDemandInstructionDiscovery",
-						"enableSessionStore", "enableHostGitOperations",
-					} {
-						require.Equal(t, false, entry.Params[field], "%s must explicitly disable runtime defaults", field)
+					// SDK v2 nests session options into wire groups.
+					group := func(name string) map[string]any {
+						value, ok := entry.Params[name].(map[string]any)
+						require.True(t, ok, "session.create must carry the %q group", name)
+						return value
 					}
-					require.Equal(t, true, entry.Params["skipCustomInstructions"])
-					require.Equal(t, true, entry.Params["skipEmbeddingRetrieval"])
-					require.Equal(t, map[string]any{"enabled": false}, entry.Params["memory"])
+					require.Equal(t, false, group("skills")["enabled"])
+					tools := group("tools")
+					require.Contains(t, tools, "availableTools")
+					require.Equal(t, []any{}, tools["availableTools"])
+					require.Empty(t, tools["definitions"])
+					if mcp, ok := entry.Params["mcp"].(map[string]any); ok {
+						require.Empty(t, mcp["servers"])
+					}
+					require.Equal(t, false, entry.Params["enableConfigDiscovery"], "enableConfigDiscovery must explicitly disable runtime defaults")
+					for _, field := range []struct{ group, key string }{
+						{"hooks", "enableRepositoryHooks"},
+						{"instructions", "onDemandDiscovery"},
+						{"state", "enableCrossSessionStore"},
+						{"git", "enableHostGitOperations"},
+					} {
+						require.Equal(t, false, group(field.group)[field.key], "%s.%s must explicitly disable runtime defaults", field.group, field.key)
+					}
+					require.Equal(t, true, group("instructions")["skipCustomInstructions"])
+					require.Equal(t, true, group("state")["skipEmbeddingRetrieval"])
+					require.Equal(t, map[string]any{"enabled": false}, group("state")["memory"])
+					for _, legacy := range []string{
+						"enableSkills", "availableTools", "mcpServers", "enableFileHooks",
+						"enableOnDemandInstructionDiscovery", "enableSessionStore", "enableHostGitOperations",
+						"skipCustomInstructions", "skipEmbeddingRetrieval", "memory",
+					} {
+						require.NotContains(t, entry.Params, legacy, "v1 flat field %s must not reach the v2 runtime", legacy)
+					}
 				case "session.options.update":
-					require.Equal(t, true, entry.Params["skipCustomInstructions"])
+					instructions, ok := entry.Params["instructions"].(map[string]any)
+					require.True(t, ok, "session.options.update must carry the instructions group")
+					require.Equal(t, true, instructions["skipCustomInstructions"])
+					require.NotContains(t, entry.Params, "skipCustomInstructions", "v1 flat field must not reach the v2 runtime")
 				case "session.send":
 					require.Equal(t, "hello", entry.Params["prompt"])
 				}

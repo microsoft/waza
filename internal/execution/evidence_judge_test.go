@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
@@ -54,15 +54,15 @@ func evidenceJudgeTestProvider(t *testing.T) {
 	t.Setenv("COPILOT_API_KEY", "synthetic-judge-key")
 }
 
-func evidenceJudgeInvokeGrade(t *testing.T, cfg *copilot.SessionConfig) {
+func evidenceJudgeInvokeGrade(t *testing.T, cfg *copilot.CreateSessionOptions) {
 	t.Helper()
 	const callID = "grade-call"
-	decision, err := cfg.OnPermissionRequest(&copilot.PermissionRequestCustomTool{
+	decision, err := cfg.Permissions.OnRequest(&copilot.PermissionRequestCustomTool{
 		ToolName: "set_waza_grade_pass", ToolCallID: utils.Ptr(callID),
 	}, copilot.PermissionInvocation{SessionID: cfg.SessionID})
 	require.NoError(t, err)
 	require.IsType(t, &rpc.PermissionDecisionApproveOnce{}, decision)
-	result, err := cfg.Tools[0].Handler(copilot.ToolInvocation{
+	result, err := cfg.Tools.Definitions[0].Handler(copilot.ToolInvocation{
 		SessionID: cfg.SessionID, ToolCallID: callID, ToolName: "set_waza_grade_pass",
 	})
 	require.NoError(t, err)
@@ -70,13 +70,13 @@ func evidenceJudgeInvokeGrade(t *testing.T, cfg *copilot.SessionConfig) {
 }
 
 type evidenceJudgeTestPlan struct {
-	catalog                                                                                     []copilot.ModelInfo
+	catalog                                                                                     []copilot.Model
 	startErr, createErr, shutdownErr, historyErr, metricsErr, disconnectErr, deleteErr, stopErr error
 	metrics                                                                                     *rpc.UsageGetMetricsResult
 	shutdown                                                                                    *copilot.SessionShutdownData
-	send                                                                                        func(context.Context, *copilot.SessionConfig) error
+	send                                                                                        func(context.Context, *copilot.CreateSessionOptions) error
 	dirs                                                                                        func(*evidenceJudgeDirs)
-	stop                                                                                        func(*copilot.SessionConfig)
+	stop                                                                                        func(*copilot.CreateSessionOptions)
 	options                                                                                     func(*copilot.ClientOptions)
 }
 
@@ -107,16 +107,14 @@ func evidenceJudgeTestExecutor(t *testing.T, plan evidenceJudgeTestPlan) (*Evide
 		return dirs, err
 	}
 	executor.resolveCLI = func(context.Context, *evidenceJudgeDirs) (string, error) { return "/isolated/native/copilot", nil }
-	var cfg *copilot.SessionConfig
+	var cfg *copilot.CreateSessionOptions
 	executor.newClient = func(options *copilot.ClientOptions) evidenceJudgeClient {
 		require.Equal(t, copilot.ModeEmpty, options.Mode)
-		require.Equal(t, filepath.Join(path, "work"), options.WorkingDirectory)
-		require.Equal(t, filepath.Join(path, "base"), options.BaseDirectory)
-		require.NotNil(t, options.UseLoggedInUser)
-		require.False(t, *options.UseLoggedInUser)
-		require.Nil(t, options.Env)
-		conn, ok := options.Connection.(copilot.StdioConnection)
-		require.True(t, ok)
+		require.NotNil(t, options.GitHub.UseLoggedInUser)
+		require.False(t, *options.GitHub.UseLoggedInUser)
+		conn := spawnedRuntime(t, options)
+		require.Equal(t, filepath.Join(path, "work"), conn.WorkingDirectory)
+		require.Equal(t, filepath.Join(path, "base"), conn.BaseDirectory)
 		require.Equal(t, "/isolated/native/copilot", conn.Path)
 		require.Nil(t, conn.Args)
 		for _, entry := range conn.Env {
@@ -145,7 +143,7 @@ func evidenceJudgeTestExecutor(t *testing.T, plan evidenceJudgeTestPlan) (*Evide
 	if plan.catalog != nil {
 		client.EXPECT().ListModels(gomock.Any()).Return(plan.catalog, nil)
 	}
-	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 		cfg = config
 		if plan.createErr != nil {
 			return nil, plan.createErr
@@ -193,7 +191,7 @@ func evidenceJudgeTestExecutor(t *testing.T, plan evidenceJudgeTestPlan) (*Evide
 func TestEvidenceJudgeHostedReasoningUsesIsolatedCatalog(t *testing.T) {
 	clearCustomProviderEnv(t)
 	t.Setenv("COPILOT_GITHUB_TOKEN", "synthetic-hosted-judge")
-	executor, path := evidenceJudgeTestExecutor(t, evidenceJudgeTestPlan{catalog: []copilot.ModelInfo{reasoningModel("test-model", "low")}})
+	executor, path := evidenceJudgeTestExecutor(t, evidenceJudgeTestPlan{catalog: []copilot.Model{reasoningModel("test-model", "low")}})
 	response, err := executor.Execute(t.Context(), evidenceJudgeTestRequest())
 	require.NoError(t, err)
 	require.True(t, response.Success)
@@ -295,34 +293,36 @@ func TestEvidenceJudgeEffectiveConfigurationAndFinalUsage(t *testing.T) {
 				"actual-model": {TotalNanoAiu: utils.Ptr(0.0), Usage: rpc.UsageMetricsModelMetricUsage{InputTokens: 7, OutputTokens: 3}},
 			},
 		},
-		send: func(_ context.Context, cfg *copilot.SessionConfig) error {
+		send: func(_ context.Context, cfg *copilot.CreateSessionOptions) error {
 			require.Equal(t, "test-model", cfg.Model)
-			require.Equal(t, "low", cfg.ReasoningEffort)
+			require.Equal(t, "low", cfg.Inference.ReasoningEffort)
 			require.Equal(t, filepath.Join(path(), "base"), cfg.ConfigDirectory)
 			require.Equal(t, filepath.Join(path(), "work"), cfg.WorkingDirectory)
 			for _, flag := range []*bool{
-				cfg.EnableConfigDiscovery, cfg.EnableOnDemandInstructionDiscovery, cfg.EnableFileHooks, cfg.EnableHostGitOperations,
-				cfg.EnableSessionStore, cfg.EnableSkills, cfg.EnableExperimentalMode, cfg.EnableSessionTelemetry,
-				cfg.EnableFileChangeTracking, cfg.CoauthorEnabled, cfg.ManageScheduleEnabled, cfg.InfiniteSessions.Enabled,
-				cfg.ToolSearch.Enabled,
+				cfg.EnableConfigDiscovery, cfg.Instructions.OnDemandDiscovery, cfg.Hooks.EnableRepositoryHooks, cfg.Git.EnableHostGitOperations,
+				cfg.State.EnableCrossSessionStore, cfg.Skills.Enabled, cfg.Experiments.EnableExperimentalMode, cfg.GitHub.TelemetryEnabled,
+				cfg.Filesystem.TrackFileChanges, cfg.Git.CoauthorEnabled, cfg.Tools.ManageScheduleEnabled, cfg.State.InfiniteSessions.Enabled,
+				cfg.Tools.Search.Enabled,
 			} {
 				require.NotNil(t, flag)
 				require.False(t, *flag)
 			}
-			require.True(t, *cfg.SkipCustomInstructions)
-			require.True(t, *cfg.SkipEmbeddingRetrieval)
-			require.Equal(t, "in-memory", *cfg.EmbeddingCacheStorage)
+			require.True(t, *cfg.Instructions.SkipCustomInstructions)
+			require.True(t, *cfg.State.SkipEmbeddingRetrieval)
+			require.Equal(t, "in-memory", *cfg.State.EmbeddingCacheStorage)
 			require.Equal(t, "replace", cfg.SystemMessage.Mode)
 			require.Equal(t, evidenceJudgeSystemMessage, cfg.SystemMessage.Content)
-			require.ElementsMatch(t, evidenceJudgeToolNames, cfg.AvailableTools)
-			require.Empty(t, cfg.MCPServers)
-			require.Empty(t, cfg.CustomAgents)
-			require.Empty(t, cfg.SkillDirectories)
-			require.Empty(t, cfg.InstructionDirectories)
-			require.Empty(t, cfg.PluginDirectories)
-			require.Equal(t, "synthetic-judge-key", cfg.Provider.APIKey)
-			require.True(t, cfg.Tools[0].IsTerminal)
-			require.Equal(t, copilot.ToolDeferNever, cfg.Tools[0].Defer)
+			require.ElementsMatch(t, evidenceJudgeToolNames, cfg.Tools.AvailableTools)
+			require.Empty(t, cfg.MCP.Servers)
+			require.Empty(t, cfg.Agents.Definitions)
+			require.NotNil(t, cfg.Agents.LocalDiscoveryOnly)
+			require.True(t, *cfg.Agents.LocalDiscoveryOnly)
+			require.Empty(t, cfg.Skills.Directories)
+			require.Empty(t, cfg.Instructions.Directories)
+			require.Empty(t, cfg.Plugins.Directories)
+			require.Equal(t, "synthetic-judge-key", sessionProvider(t, cfg.Inference, cfg.GitHub).APIKey)
+			require.True(t, cfg.Tools.Definitions[0].IsTerminal)
+			require.Equal(t, copilot.ToolDeferNever, cfg.Tools.Definitions[0].Defer)
 			evidenceJudgeInvokeGrade(t, cfg)
 			return nil
 		},
@@ -359,7 +359,7 @@ func TestEvidenceJudgeFailuresRemainFailuresAfterGrade(t *testing.T) {
 			case "create":
 				plan.createErr = private
 			case "send":
-				plan.send = func(_ context.Context, cfg *copilot.SessionConfig) error {
+				plan.send = func(_ context.Context, cfg *copilot.CreateSessionOptions) error {
 					evidenceJudgeInvokeGrade(t, cfg)
 					return private
 				}
@@ -382,10 +382,10 @@ func TestEvidenceJudgeFailuresRemainFailuresAfterGrade(t *testing.T) {
 					d.closeRoot = func() error { return errors.Join(original(), errors.New("injected close failure")) }
 				}
 			case "no verdict":
-				plan.send = func(context.Context, *copilot.SessionConfig) error { return nil }
+				plan.send = func(context.Context, *copilot.CreateSessionOptions) error { return nil }
 			case "late policy":
-				plan.stop = func(cfg *copilot.SessionConfig) {
-					cfg.OnEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{ToolName: "bash", ToolCallID: "late"}})
+				plan.stop = func(cfg *copilot.CreateSessionOptions) {
+					cfg.Events.OnEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{ToolName: "bash", ToolCallID: "late"}})
 				}
 			}
 			executor, path := evidenceJudgeTestExecutor(t, plan)
@@ -433,7 +433,7 @@ func TestEvidenceJudgeSDKErrorsHidePayloadsAndPreserveCauses(t *testing.T) {
 				plan.createErr = private
 				code = CodeCreate
 			case "send", "aggregate with residue":
-				plan.send = func(_ context.Context, cfg *copilot.SessionConfig) error {
+				plan.send = func(_ context.Context, cfg *copilot.CreateSessionOptions) error {
 					evidenceJudgeInvokeGrade(t, cfg)
 					return private
 				}
@@ -510,7 +510,7 @@ func TestEvidenceJudgeSourceQualifiedPermissionsAndCallbacks(t *testing.T) {
 	evidenceJudgeTestProvider(t)
 	for _, kind := range []string{"builtin", "mcp", "hook", "workflow", "unknown", "nil", "missing id", "wrong session", "qualified spoof", "unapproved callback", "duplicate callback", "mcp event", "subagent event", "callback failure", "parent rejection"} {
 		t.Run(kind, func(t *testing.T) {
-			plan := evidenceJudgeTestPlan{send: func(_ context.Context, cfg *copilot.SessionConfig) error {
+			plan := evidenceJudgeTestPlan{send: func(_ context.Context, cfg *copilot.CreateSessionOptions) error {
 				if kind != "callback failure" && kind != "parent rejection" && kind != "unapproved callback" {
 					evidenceJudgeInvokeGrade(t, cfg)
 				}
@@ -536,23 +536,23 @@ func TestEvidenceJudgeSourceQualifiedPermissionsAndCallbacks(t *testing.T) {
 				case "qualified spoof":
 					permission = &copilot.PermissionRequestCustomTool{ToolName: "builtin:set_waza_grade_pass", ToolCallID: utils.Ptr("spoof")}
 				case "unapproved callback", "duplicate callback":
-					_, err := cfg.Tools[0].Handler(copilot.ToolInvocation{SessionID: cfg.SessionID, ToolCallID: "unapproved", ToolName: "set_waza_grade_pass"})
+					_, err := cfg.Tools.Definitions[0].Handler(copilot.ToolInvocation{SessionID: cfg.SessionID, ToolCallID: "unapproved", ToolName: "set_waza_grade_pass"})
 					require.Error(t, err)
 					return nil
 				case "mcp event":
-					cfg.OnEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{ToolName: "set_waza_grade_pass", MCPServerName: utils.Ptr("evil")}})
+					cfg.Events.OnEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{ToolName: "set_waza_grade_pass", MCPServerName: utils.Ptr("evil")}})
 					return nil
 				case "subagent event":
-					cfg.OnEvent(copilot.SessionEvent{Data: &copilot.SubagentStartedData{}})
+					cfg.Events.OnEvent(copilot.SessionEvent{Data: &copilot.SubagentStartedData{}})
 					return nil
 				case "callback failure", "parent rejection":
 					permission = &copilot.PermissionRequestCustomTool{ToolName: "set_waza_grade_pass", ToolCallID: utils.Ptr("failure")}
 				}
-				decision, err := cfg.OnPermissionRequest(permission, invocation)
+				decision, err := cfg.Permissions.OnRequest(permission, invocation)
 				if kind == "callback failure" {
 					require.NoError(t, err)
 					require.IsType(t, &rpc.PermissionDecisionApproveOnce{}, decision)
-					result, err := cfg.Tools[0].Handler(copilot.ToolInvocation{SessionID: cfg.SessionID, ToolCallID: "failure", ToolName: "set_waza_grade_pass"})
+					result, err := cfg.Tools.Definitions[0].Handler(copilot.ToolInvocation{SessionID: cfg.SessionID, ToolCallID: "failure", ToolName: "set_waza_grade_pass"})
 					require.Error(t, err)
 					require.Equal(t, "failure", result.ResultType)
 				} else {
@@ -588,7 +588,7 @@ func TestEvidenceJudgeCancellationRetainsFinalUsage(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	executor, _ := evidenceJudgeTestExecutor(t, evidenceJudgeTestPlan{
 		shutdown: &copilot.SessionShutdownData{TotalNanoAiu: utils.Ptr(0.0)},
-		send: func(ctx context.Context, cfg *copilot.SessionConfig) error {
+		send: func(ctx context.Context, cfg *copilot.CreateSessionOptions) error {
 			evidenceJudgeInvokeGrade(t, cfg)
 			cancel()
 			return ctx.Err()
@@ -612,13 +612,13 @@ func TestEvidenceJudgeHostedAuthUsesOnlyExplicitCredential(t *testing.T) {
 	t.Setenv("GH_TOKEN", "synthetic-not-selected")
 	t.Setenv("GITHUB_TOKEN", "synthetic-not-selected-either")
 	executor, _ := evidenceJudgeTestExecutor(t, evidenceJudgeTestPlan{
-		catalog: []copilot.ModelInfo{reasoningModel("test-model", "low")},
+		catalog: []copilot.Model{reasoningModel("test-model", "low")},
 		options: func(options *copilot.ClientOptions) {
-			require.Equal(t, "synthetic-explicit-token", options.GitHubToken)
-			require.False(t, *options.UseLoggedInUser)
+			require.Equal(t, "synthetic-explicit-token", options.GitHub.Token)
+			require.False(t, *options.GitHub.UseLoggedInUser)
 		},
-		send: func(_ context.Context, cfg *copilot.SessionConfig) error {
-			require.Nil(t, cfg.Provider)
+		send: func(_ context.Context, cfg *copilot.CreateSessionOptions) error {
+			require.Nil(t, sessionProvider(t, cfg.Inference, cfg.GitHub))
 			evidenceJudgeInvokeGrade(t, cfg)
 			return nil
 		},
@@ -699,10 +699,10 @@ func TestEvidenceJudgeConcurrentExecutionsOwnDistinctClientsAndDirectories(t *te
 		clients.Add(1)
 		client := &evidenceJudgeTestClient{MockCopilotClient: NewMockCopilotClient(control)}
 		session := NewMockCopilotSession(control)
-		var cfg *copilot.SessionConfig
+		var cfg *copilot.CreateSessionOptions
 		client.EXPECT().Start(gomock.Any()).Return(nil)
 		client.EXPECT().Stop().Return(nil)
-		client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+		client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 			cfg = config
 			return session, nil
 		})

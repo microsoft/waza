@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/cache"
 	"github.com/microsoft/waza/internal/config"
 	"github.com/microsoft/waza/internal/execution"
@@ -92,7 +92,7 @@ type setupFailureClient struct {
 	calls atomic.Int32
 }
 
-func (c *setupFailureClient) CreateSession(context.Context, *copilot.SessionConfig) (execution.CopilotSession, error) {
+func (c *setupFailureClient) CreateSession(context.Context, *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
 	c.calls.Add(1)
 	return nil, fmt.Errorf("synthetic setup failure")
 }
@@ -141,7 +141,7 @@ func TestBenchmarkUsageObservesActorStarts(t *testing.T) {
 					NewCopilotClient: func(*copilot.ClientOptions) execution.CopilotClient { return setupClient },
 				}).Build()
 			} else {
-				client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+				client := &copilotfake.Client{Send: func(_ *copilot.CreateSessionOptions, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 					var events []copilot.SessionEvent
 					if tc.turnStart {
 						events = append(events, copilot.SessionEvent{Data: &copilot.AssistantTurnStartData{}})
@@ -210,7 +210,7 @@ func TestBenchmarkUsageExcludesCanceledQueuedTasks(t *testing.T) {
 	var calls atomic.Int32
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+	client := &copilotfake.Client{Send: func(_ *copilot.CreateSessionOptions, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 		calls.Add(1)
 		close(started)
 		<-ctx.Done()
@@ -290,7 +290,7 @@ func TestBenchmarkUsageLaterActorTurn(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"),
 				[]byte("id: synthetic\nname: synthetic\ninputs:\n  prompt: initial\n"+input), 0o600))
 			var calls atomic.Int32
-			client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			client := &copilotfake.Client{Send: func(_ *copilot.CreateSessionOptions, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 				var events []copilot.SessionEvent
 				if calls.Add(1)%2 == 0 {
 					events = append(events, copilot.SessionEvent{Data: &copilot.AssistantTurnStartData{}})
@@ -333,7 +333,7 @@ func TestBenchmarkUsageIgnoresResponderClassifierStarts(t *testing.T) {
 	events := startUsageCollector(t, dir)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"),
 		[]byte("id: synthetic\nname: synthetic\ninputs:\n  prompt: initial\n  responder:\n    instructions: reply\n    max_followups: 1\n"), 0o600))
-	client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+	client := &copilotfake.Client{Send: func(_ *copilot.CreateSessionOptions, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 		return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "synthetic"}}}, nil
 	}}
 	spec := &models.EvalSpec{SpecIdentity: models.SpecIdentity{Name: "synthetic"},
@@ -353,15 +353,15 @@ func TestBenchmarkUsageIgnoresNativeInputResponderStarts(t *testing.T) {
 			cfg, dir := writeUserInputEval(t, task, models.ScenarioSchemaVersion)
 			events := startUsageCollector(t, dir)
 			var actorCalls, responderCalls atomic.Int32
-			client := &copilotfake.Client{Send: func(config *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
-				for _, tool := range config.Tools {
+			client := &copilotfake.Client{Send: func(config *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+				for _, tool := range config.Tools.Definitions {
 					if tool.Name == "responder_reply" || tool.Name == "responder_stop" {
 						responderCalls.Add(1)
 						name, args := "responder_stop", map[string]any{}
 						if strings.Contains(options.Prompt, "Question: Your name?") {
 							name, args = "responder_reply", map[string]any{"answer": "Ada"}
 						}
-						for _, candidate := range config.Tools {
+						for _, candidate := range config.Tools.Definitions {
 							if candidate.Name == name {
 								if _, err := candidate.Handler(copilot.ToolInvocation{ToolName: name, Arguments: args}); err != nil {
 									return nil, err
@@ -372,10 +372,10 @@ func TestBenchmarkUsageIgnoresNativeInputResponderStarts(t *testing.T) {
 					}
 				}
 				actorCalls.Add(1)
-				if config.OnUserInputRequest == nil {
+				if config.Interaction.OnUserInputRequest == nil {
 					return nil, fmt.Errorf("native user-input callback missing")
 				}
-				answer, err := config.OnUserInputRequest(copilot.UserInputRequest{Question: "Your name?"},
+				answer, err := config.Interaction.OnUserInputRequest(copilot.UserInputRequest{Question: "Your name?"},
 					copilot.UserInputInvocation{SessionID: "actor"})
 				if err != nil {
 					return nil, err
@@ -506,7 +506,7 @@ func TestBenchmarkUsageCountBounds(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"),
 					[]byte("id: "+name+"\nname: "+name+"\ninputs:\n  prompt: "+prompt+"\n"), 0o600))
 			}
-			client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			client := &copilotfake.Client{Send: func(_ *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 				var events []copilot.SessionEvent
 				if options.Prompt == "observed" {
 					events = append(events, copilot.SessionEvent{Data: &copilot.AssistantTurnStartData{}})
@@ -528,7 +528,7 @@ type delayedStartClient struct {
 	session chan *delayedStartSession
 }
 
-func (c *delayedStartClient) CreateSession(ctx context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
+func (c *delayedStartClient) CreateSession(ctx context.Context, config *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
 	inner, err := c.Client.CreateSession(ctx, config)
 	if err != nil {
 		return nil, err
@@ -556,7 +556,7 @@ func TestBenchmarkUsageLateCallbackCannotChangeCount(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"),
 		[]byte("id: synthetic\nname: synthetic\ninputs:\n  prompt: synthetic\n"), 0o600))
 	client := &delayedStartClient{session: make(chan *delayedStartSession, 1)}
-	client.Send = func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+	client.Send = func(_ *copilot.CreateSessionOptions, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 		return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "synthetic"}}}, nil
 	}
 	engine := execution.NewCopilotEngineBuilder("actor-model", &execution.CopilotEngineBuilderOptions{
@@ -590,7 +590,7 @@ func TestBenchmarkUsageCallbackRacesCompletion(t *testing.T) {
 		[]byte("id: synthetic\nname: synthetic\ninputs:\n  prompt: synthetic\n"), 0o600))
 	client := &delayedStartClient{session: make(chan *delayedStartSession, 1)}
 	started, release := make(chan struct{}), make(chan struct{})
-	client.Send = func(_ *copilot.SessionConfig, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+	client.Send = func(_ *copilot.CreateSessionOptions, _ copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 		close(started)
 		<-release
 		return []copilot.SessionEvent{{Data: &copilot.AssistantMessageData{Content: "synthetic"}}}, nil

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
@@ -95,13 +95,12 @@ func newResponderRuntimeEngine(t *testing.T, cli, origin string, emptyMode bool)
 				}
 			}
 			no := false
-			options.Connection = copilot.StdioConnection{Path: cli, Env: env}
-			options.WorkingDirectory, options.BaseDirectory = home, home
-			options.UseLoggedInUser = &no
+			options.Runtime = copilot.SpawnedStdioConnection{Path: cli, Env: env, WorkingDirectory: home, BaseDirectory: home}
+			options.GitHub.UseLoggedInUser = &no
 			if emptyMode {
 				options.Mode = copilot.ModeEmpty
 			}
-			options.RequestHandler = &copilot.CopilotRequestHandler{
+			options.Models.RequestHandler = &copilot.CopilotRequestHandler{
 				Transport: transport,
 				OpenWebSocket: func(*copilot.CopilotRequestContext) (copilot.CopilotWebSocketHandler, error) {
 					return nil, fmt.Errorf("responder probe denies WebSockets")

@@ -5,7 +5,7 @@ package embedded
 import (
 	"fmt"
 
-	"github.com/github/copilot-sdk/go/embeddedcli"
+	"github.com/microsoft/copilot-sdk/go/v2/embeddedcli"
 )
 
 // Path installs the embedded Copilot CLI and its runtime assets, if needed.

@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	copilot "github.com/github/copilot-sdk/go"
-	rpc "github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	rpc "github.com/microsoft/copilot-sdk/go/v2/rpc"
 	execution "github.com/microsoft/waza/internal/execution"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -155,7 +155,7 @@ func (m *MockCopilotClient) EXPECT() *MockCopilotClientMockRecorder {
 }
 
 // CreateSession mocks base method.
-func (m *MockCopilotClient) CreateSession(ctx context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
+func (m *MockCopilotClient) CreateSession(ctx context.Context, config *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateSession", ctx, config)
 	ret0, _ := ret[0].(execution.CopilotSession)
@@ -199,10 +199,10 @@ func (mr *MockCopilotClientMockRecorder) GetAuthStatus(ctx any) *gomock.Call {
 }
 
 // ListModels mocks base method.
-func (m *MockCopilotClient) ListModels(ctx context.Context) ([]copilot.ModelInfo, error) {
+func (m *MockCopilotClient) ListModels(ctx context.Context) ([]copilot.Model, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListModels", ctx)
-	ret0, _ := ret[0].([]copilot.ModelInfo)
+	ret0, _ := ret[0].([]copilot.Model)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -214,7 +214,7 @@ func (mr *MockCopilotClientMockRecorder) ListModels(ctx any) *gomock.Call {
 }
 
 // ResumeSessionWithOptions mocks base method.
-func (m *MockCopilotClient) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionConfig) (execution.CopilotSession, error) {
+func (m *MockCopilotClient) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *copilot.ResumeSessionOptions) (execution.CopilotSession, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ResumeSessionWithOptions", ctx, sessionID, config)
 	ret0, _ := ret[0].(execution.CopilotSession)

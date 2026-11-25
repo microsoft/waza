@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/graders"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"

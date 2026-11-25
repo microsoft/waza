@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/embedded"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ import (
 // returns the same instance and Shutdown is idempotent.
 type stubClient struct{ stops int }
 
-func (s *stubClient) CreateSession(context.Context, *copilot.SessionConfig) (CopilotSession, error) {
+func (s *stubClient) CreateSession(context.Context, *copilot.CreateSessionOptions) (CopilotSession, error) {
 	return nil, nil
 }
 func (s *stubClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatusResponse, error) {
@@ -29,11 +29,11 @@ func (s *stubClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatusRespo
 }
 func (s *stubClient) Start(context.Context) error { return nil }
 func (s *stubClient) Stop() error                 { s.stops++; return nil }
-func (s *stubClient) ResumeSessionWithOptions(context.Context, string, *copilot.ResumeSessionConfig) (CopilotSession, error) {
+func (s *stubClient) ResumeSessionWithOptions(context.Context, string, *copilot.ResumeSessionOptions) (CopilotSession, error) {
 	return nil, nil
 }
 func (s *stubClient) DeleteSession(context.Context, string) error { return nil }
-func (s *stubClient) ListModels(context.Context) ([]copilot.ModelInfo, error) {
+func (s *stubClient) ListModels(context.Context) ([]copilot.Model, error) {
 	return nil, nil
 }
 
@@ -247,12 +247,15 @@ func TestSharedClient_UsesEmbeddedCLIPath(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	conn, ok := gotOptions.Connection.(copilot.StdioConnection)
+	conn, ok := gotOptions.Runtime.(copilot.SpawnedStdioConnection)
 	if !ok {
-		t.Fatalf("expected Connection to be a copilot.StdioConnection, got %T", gotOptions.Connection)
+		t.Fatalf("expected Runtime to be a copilot.SpawnedStdioConnection, got %T", gotOptions.Runtime)
 	}
 	if conn.Path != "/cache/copilot-sdk/copilot_1.0.49" {
 		t.Fatalf("expected embedded CLI path, got %q", conn.Path)
+	}
+	if gotOptions.Mode != copilot.ModeCodingAgent {
+		t.Fatalf("Mode = %q, want %q", gotOptions.Mode, copilot.ModeCodingAgent)
 	}
 }
 
@@ -277,9 +280,9 @@ func TestSharedClient_PassesCLIArgs(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	conn, ok := gotOptions.Connection.(copilot.StdioConnection)
+	conn, ok := gotOptions.Runtime.(copilot.SpawnedStdioConnection)
 	if !ok {
-		t.Fatalf("expected Connection to be a copilot.StdioConnection, got %T", gotOptions.Connection)
+		t.Fatalf("expected Runtime to be a copilot.SpawnedStdioConnection, got %T", gotOptions.Runtime)
 	}
 	if !reflect.DeepEqual(conn.Args, cliArgs) {
 		t.Fatalf("expected CLIArgs %v, got %v", cliArgs, conn.Args)
@@ -304,9 +307,9 @@ func TestSharedClientPrependsCommandMocksWithoutDroppingPATH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn, ok := opts.Connection.(copilot.StdioConnection)
+	conn, ok := opts.Runtime.(copilot.SpawnedStdioConnection)
 	if !ok {
-		t.Fatalf("Connection type = %T, want StdioConnection", opts.Connection)
+		t.Fatalf("Runtime type = %T, want SpawnedStdioConnection", opts.Runtime)
 	}
 	var pathValue, mockRoot string
 	for _, value := range conn.Env {
@@ -334,7 +337,7 @@ func TestSharedClient_SeparatesDifferentCLIArgs(t *testing.T) {
 
 	var gotArgs [][]string
 	sharedConstruct = func(opts *copilot.ClientOptions) CopilotClient {
-		conn, ok := opts.Connection.(copilot.StdioConnection)
+		conn, ok := opts.Runtime.(copilot.SpawnedStdioConnection)
 		if !ok {
 			gotArgs = append(gotArgs, nil)
 		} else {
@@ -395,9 +398,9 @@ func TestSharedClient_UsesCOPILOTCLIPathOverride(t *testing.T) {
 	if gotOptions == nil {
 		t.Fatalf("expected shared client to be constructed")
 	}
-	conn, ok := gotOptions.Connection.(copilot.StdioConnection)
+	conn, ok := gotOptions.Runtime.(copilot.SpawnedStdioConnection)
 	if !ok {
-		t.Fatalf("expected Connection to be a copilot.StdioConnection, got %T", gotOptions.Connection)
+		t.Fatalf("expected Runtime to be a copilot.SpawnedStdioConnection, got %T", gotOptions.Runtime)
 	}
 	if conn.Path != cliPath {
 		t.Fatalf("expected COPILOT_CLI_PATH override, got %q", conn.Path)

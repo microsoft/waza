@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/models"
 )
 
@@ -233,8 +233,9 @@ func canonicalPermissionToolName(request copilot.PermissionRequest) (string, boo
 	case *copilot.PermissionRequestWorkflow:
 		return canonicalWorkflowToolName(req.Name), true
 	case *copilot.RawPermissionRequest:
-		// Older external CLIs emit "factory", preserved by the SDK as raw
-		// JSON. Its fields match the renamed workflow type.
+		// Legacy "factory" requests (emitted by protocol-3 CLIs, which SDK v2
+		// now rejects at connect) arrive as raw JSON if a compatible runtime
+		// still sends them. Its fields match the renamed workflow type.
 		if req.Kind() != "factory" {
 			return "", false
 		}

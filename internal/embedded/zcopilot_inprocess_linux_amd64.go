@@ -11,61 +11,61 @@ import (
 	"errors"
 	"io"
 
-	"github.com/github/copilot-sdk/go/embeddedcli"
 	"github.com/klauspost/compress/zstd"
+	"github.com/microsoft/copilot-sdk/go/v2/embeddedcli"
 )
 
-//go:embed zcopilot_1.0.112_linux_amd64.zst
+//go:embed zcopilot_1.0.114_linux_amd64.zst
 var localEmbeddedCopilotCLI []byte
 
-//go:embed zcopilot_1.0.112_linux_amd64.license
+//go:embed zcopilot_1.0.114_linux_amd64.license
 var localEmbeddedCopilotCLILicense []byte
 
-//go:embed zcopilotruntime_1.0.112_linux-x64.so.zst
+//go:embed zcopilotruntime_1.0.114_linux-x64.so.zst
 var localEmbeddedCopilotRuntimeLib []byte
 
-//go:embed zcopilotruntimewrapper_1.0.112_linux-x64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.114_linux-x64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutable []byte
 
-//go:embed zcopilotruntimeassets_1.0.112_linux-x64.tgz
+//go:embed zcopilotruntimeassets_1.0.114_linux-x64.tgz
 var localEmbeddedCopilotRuntimeAssets []byte
 
-//go:embed zcopilot_1.0.112_linuxmusl_amd64.zst
+//go:embed zcopilot_1.0.114_linuxmusl_amd64.zst
 var localEmbeddedCopilotCLILinuxMusl []byte
 
-//go:embed zcopilotruntime_1.0.112_linuxmusl-x64.so.zst
+//go:embed zcopilotruntime_1.0.114_linuxmusl-x64.so.zst
 var localEmbeddedCopilotRuntimeLibLinuxMusl []byte
 
-//go:embed zcopilotruntimewrapper_1.0.112_linuxmusl-x64_copilot-runtime.zst
+//go:embed zcopilotruntimewrapper_1.0.114_linuxmusl-x64_copilot-runtime.zst
 var localEmbeddedCopilotRuntimeExecutableLinuxMusl []byte
 
-//go:embed zcopilotruntimeassets_1.0.112_linuxmusl-x64.tgz
+//go:embed zcopilotruntimeassets_1.0.114_linuxmusl-x64.tgz
 var localEmbeddedCopilotRuntimeAssetsLinuxMusl []byte
 
 func init() {
 	embeddedcli.Setup(embeddedcli.Config{
 		Cli:                            cliReader(),
 		License:                        localEmbeddedCopilotCLILicense,
-		Version:                        "1.0.112",
+		Version:                        "1.0.114",
 		CliHash:                        mustDecodeBase64("Oxk5YfIIyYwPvsVri6SIqN48JXBOk2+xUjl1Ayf1M14="),
 		RuntimeLib:                     runtimeLibReader(),
-		RuntimeLibHash:                 mustDecodeBase64("0zeTuoM9o1OYR0wvbYF3KBIolusZgXzBVKlyDLX/1+A="),
+		RuntimeLibHash:                 mustDecodeBase64("9b4uiPz6Re74+uM6fZ3aJMCyss94BHJcaiZ+hmmD8pk="),
 		RuntimeNode:                    runtimeLibReader(),
-		RuntimeNodeHash:                mustDecodeBase64("0zeTuoM9o1OYR0wvbYF3KBIolusZgXzBVKlyDLX/1+A="),
+		RuntimeNodeHash:                mustDecodeBase64("9b4uiPz6Re74+uM6fZ3aJMCyss94BHJcaiZ+hmmD8pk="),
 		RuntimeExecutable:              runtimeExecutableReader(),
 		RuntimeExecutableHash:          mustDecodeBase64("Oxk5YfIIyYwPvsVri6SIqN48JXBOk2+xUjl1Ayf1M14="),
 		RuntimeAssets:                  bytes.NewReader(localEmbeddedCopilotRuntimeAssets),
-		RuntimeAssetsHash:              mustDecodeBase64("F5L1zfBfEkNkqNscuVtwJSS5oGdNSyPBuw2mu1R6fQU="),
+		RuntimeAssetsHash:              mustDecodeBase64("l2hRodDGlm9nstHsEUFmKxuGv7Q/hN79flVOP6PnIXU="),
 		LinuxMuslCli:                   linuxMuslCLIReader(),
 		LinuxMuslCliHash:               mustDecodeBase64("bc+9qIP3Qjhk5uyYQoT+uhpmT4HuT6Kwt9YEevso6K4="),
 		LinuxMuslRuntimeLib:            linuxMuslRuntimeLibReader(),
-		LinuxMuslRuntimeLibHash:        mustDecodeBase64("3TtrIHGDq4VqBH/Gw1u111REhPr/iqowKmBlz48OU6s="),
+		LinuxMuslRuntimeLibHash:        mustDecodeBase64("S3kmtEQGlav7f7CAptzSO7wj/jw/2whgKpNFQsQn/kw="),
 		LinuxMuslRuntimeNode:           linuxMuslRuntimeLibReader(),
-		LinuxMuslRuntimeNodeHash:       mustDecodeBase64("3TtrIHGDq4VqBH/Gw1u111REhPr/iqowKmBlz48OU6s="),
+		LinuxMuslRuntimeNodeHash:       mustDecodeBase64("S3kmtEQGlav7f7CAptzSO7wj/jw/2whgKpNFQsQn/kw="),
 		LinuxMuslRuntimeExecutable:     linuxMuslRuntimeExecutableReader(),
 		LinuxMuslRuntimeExecutableHash: mustDecodeBase64("bc+9qIP3Qjhk5uyYQoT+uhpmT4HuT6Kwt9YEevso6K4="),
 		LinuxMuslRuntimeAssets:         bytes.NewReader(localEmbeddedCopilotRuntimeAssetsLinuxMusl),
-		LinuxMuslRuntimeAssetsHash:     mustDecodeBase64("snhG3v5lsYkh5IpSuj2o93UHtUBTcY3afFNkgOZGPd0="),
+		LinuxMuslRuntimeAssetsHash:     mustDecodeBase64("lg2wqA8+Rf6tZxLrWi8pkdyzDOUwb6WmW0tr0JPrOjo="),
 	})
 }
 

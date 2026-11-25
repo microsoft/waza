@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	copilot "github.com/github/copilot-sdk/go"
 	"github.com/go-viper/mapstructure/v2"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 )

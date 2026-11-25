@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/copilotevents"
 )
 
@@ -93,10 +93,12 @@ func (e *EvidenceJudgeExecutor) Execute(parent context.Context, req *ExecutionRe
 	}
 	no := false
 	client := e.newClient(&copilot.ClientOptions{
-		Connection:       copilot.StdioConnection{Path: cli, Env: dirs.environment()},
-		WorkingDirectory: dirs.work, BaseDirectory: dirs.base,
-		Mode: copilot.ModeEmpty, LogLevel: "error",
-		GitHubToken: token, UseLoggedInUser: &no,
+		Runtime: copilot.SpawnedStdioConnection{
+			Path: cli, Env: dirs.environment(), WorkingDirectory: dirs.work, BaseDirectory: dirs.base,
+		},
+		Mode:          copilot.ModeEmpty,
+		Observability: copilot.ClientObservabilityOptions{LogLevel: "error"},
+		GitHub:        copilot.ClientGitHubOptions{Token: token, UseLoggedInUser: &no},
 	})
 	var state *evidenceJudgeState
 	defer func() {
@@ -311,7 +313,7 @@ func evidenceJudgeGradeTool(name string) bool {
 	return name == "set_waza_grade_pass" || name == "set_waza_grade_fail"
 }
 
-func evidenceJudgeSessionConfig(req *ExecutionRequest, dirs *evidenceJudgeDirs, provider customProviderConfig, state *evidenceJudgeState) *copilot.SessionConfig {
+func evidenceJudgeSessionConfig(req *ExecutionRequest, dirs *evidenceJudgeDirs, provider customProviderConfig, state *evidenceJudgeState) *copilot.CreateSessionOptions {
 	no, yes, inMemory := false, true, "in-memory"
 	tools := make([]copilot.Tool, len(req.Tools))
 	for i, tool := range req.Tools {
@@ -320,23 +322,36 @@ func evidenceJudgeSessionConfig(req *ExecutionRequest, dirs *evidenceJudgeDirs, 
 		tool.Defer = copilot.ToolDeferNever
 		tools[i] = tool
 	}
-	return &copilot.SessionConfig{
-		SessionID: state.id, Model: req.ModelID, ReasoningEffort: req.ReasoningEffort,
+	github := provider.github()
+	github.TelemetryEnabled = &no
+	model, inference := provider.session(req.ModelID, req.ReasoningEffort)
+	return &copilot.CreateSessionOptions{
+		SessionID: state.id, Model: model, Inference: inference,
 		WorkingDirectory: dirs.work, ConfigDirectory: dirs.config,
-		EnableConfigDiscovery: &no, SkipEmbeddingRetrieval: &yes, EmbeddingCacheStorage: &inMemory,
-		EnableOnDemandInstructionDiscovery: &no, EnableFileHooks: &no,
-		EnableHostGitOperations: &no, EnableSessionStore: &no,
-		EnableSkills: &no, SkipCustomInstructions: &yes,
-		EnableExperimentalMode: &no, EnableSessionTelemetry: &no, EnableFileChangeTracking: &no,
-		CustomAgentsLocalOnly: &yes, CoauthorEnabled: &no, ManageScheduleEnabled: &no,
-		InfiniteSessions: &copilot.InfiniteSessionConfig{Enabled: &no},
-		Memory:           &copilot.MemoryConfiguration{Enabled: false},
-		ToolSearch:       &copilot.ToolSearchConfig{Enabled: &no},
-		SystemMessage:    &copilot.SystemMessageConfig{Mode: "replace", Content: evidenceJudgeSystemMessage},
-		Provider:         provider.sessionConfig(), AvailableTools: append([]string(nil), evidenceJudgeToolNames...),
-		Tools: tools, OnEvent: state.onEvent,
-		OnPermissionRequest: state.permissionHandler(req.PermissionHandler),
-		Hooks:               &copilot.SessionHooks{OnPreToolUse: state.preToolUse},
+		EnableConfigDiscovery: &no,
+		State: copilot.SessionStateOptions{
+			SkipEmbeddingRetrieval: &yes, EmbeddingCacheStorage: &inMemory, EnableCrossSessionStore: &no,
+			InfiniteSessions: &copilot.InfiniteSessionConfig{Enabled: &no},
+			Memory:           &copilot.MemoryConfiguration{Enabled: false},
+		},
+		Instructions: copilot.CreateSessionInstructionOptions{OnDemandDiscovery: &no, SkipCustomInstructions: &yes},
+		Git:          copilot.SessionGitOptions{EnableHostGitOperations: &no, CoauthorEnabled: &no},
+		Skills:       copilot.SessionSkillOptions{Enabled: &no},
+		Experiments:  copilot.SessionExperimentOptions{EnableExperimentalMode: &no},
+		Filesystem:   copilot.CreateSessionFilesystemOptions{TrackFileChanges: &no},
+		Agents:       copilot.SessionAgentOptions{LocalDiscoveryOnly: &yes},
+		GitHub:       github,
+		Tools: copilot.SessionToolOptions{
+			Definitions: tools, AvailableTools: append([]string(nil), evidenceJudgeToolNames...),
+			ManageScheduleEnabled: &no, Search: &copilot.ToolSearchConfig{Enabled: &no},
+		},
+		SystemMessage: &copilot.SystemMessageConfig{Mode: "replace", Content: evidenceJudgeSystemMessage},
+		Events:        copilot.SessionEventOptions{OnEvent: state.onEvent},
+		Permissions:   copilot.SessionPermissionOptions{OnRequest: state.permissionHandler(req.PermissionHandler)},
+		Hooks: copilot.SessionHookOptions{
+			EnableRepositoryHooks: &no,
+			Handlers:              &copilot.SessionHooks{OnPreToolUse: state.preToolUse},
+		},
 	}
 }
 
@@ -451,7 +466,7 @@ func (s *evidenceJudgeState) validateEventLocked(event copilot.SessionEvent) {
 					s.denials = append(s.denials, ToolPolicyDenial{Kind: "event", Reason: "assistant requested a non-grade tool"})
 				}
 			}
-			if data.ParentToolCallID != nil || data.ServerTools != nil {
+			if data.ServerTools != nil {
 				s.denials = append(s.denials, ToolPolicyDenial{Kind: "event", Reason: "unexpected assistant capability source"})
 			}
 		}
@@ -462,11 +477,11 @@ func (s *evidenceJudgeState) validateEventLocked(event copilot.SessionEvent) {
 	case *copilot.ToolExecutionStartData:
 		if data == nil || !evidenceJudgeGradeTool(data.ToolName) || data.MCPServerName != nil ||
 			data.MCPToolName != nil || data.MCPConfigSource != nil || data.MCPConfigServerName != nil ||
-			data.ParentToolCallID != nil || data.ShellToolInfo != nil {
+			data.ShellToolInfo != nil {
 			s.denials = append(s.denials, ToolPolicyDenial{Kind: "event", Reason: "unexpected tool execution source"})
 		}
 	case *copilot.ToolExecutionCompleteData:
-		if data == nil || !data.Success || data.ParentToolCallID != nil || data.ShellExecution != nil || data.MCPMeta != nil {
+		if data == nil || !data.Success || event.AgentID != nil || data.ShellExecution != nil || data.MCPMeta != nil {
 			s.submissionFailed = true
 		}
 	case *copilot.SessionErrorData:

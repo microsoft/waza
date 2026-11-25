@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"gopkg.in/yaml.v3"
 
 	"github.com/microsoft/waza/internal/commandmock"
@@ -180,8 +180,13 @@ type CopilotEngine struct {
 	diagnostics *diagnosticState
 }
 
+// customProviderName names the single BYOK connection built from the
+// COPILOT_* provider environment. SDK v2 resolves unqualified model IDs
+// through Inference.DefaultProvider, so session models stay unqualified.
+const customProviderName = "waza-custom"
+
 type customProviderConfig struct {
-	config *copilot.ProviderConfig
+	config *copilot.NamedProviderConfig
 	host   string
 	err    error
 }
@@ -190,12 +195,43 @@ func (p customProviderConfig) enabled() bool {
 	return p.config != nil && p.err == nil
 }
 
-func (p customProviderConfig) sessionConfig() *copilot.ProviderConfig {
+// session returns the session model selection and inference options. Without
+// a custom provider it carries only the reasoning effort, leaving the session
+// on the default Copilot API path.
+//
+// SDK v2 parses a "/" in a model selection as a provider qualifier, so a
+// custom-provider model name such as "anthropic/claude-sonnet-4" would name
+// an unknown provider. Such names are registered as a provider-local model
+// definition whose WireModel is the original name, and the session selects
+// it by its qualified ID; the provider still receives the configured name.
+func (p customProviderConfig) session(model, reasoningEffort string) (string, copilot.SessionInferenceOptions) {
+	inference := copilot.SessionInferenceOptions{ReasoningEffort: reasoningEffort}
 	if p.config == nil {
-		return nil
+		return model, inference
 	}
 	clone := *p.config
-	return &clone
+	defaultProvider := copilot.String(clone.Name)
+	inference.DefaultProvider = &defaultProvider
+	inference.Providers = []copilot.NamedProviderConfig{clone}
+	if !strings.Contains(model, "/") {
+		return model, inference
+	}
+	localID := strings.ReplaceAll(model, "/", customProviderModelSeparator)
+	inference.Models = []copilot.ProviderModelConfig{{ID: localID, Provider: clone.Name, WireModel: model}}
+	return clone.Name + "/" + localID, inference
+}
+
+// customProviderModelSeparator replaces "/" in provider-local model IDs,
+// which the SDK reserves for provider qualification.
+const customProviderModelSeparator = "__"
+
+// github returns the session GitHub options. A custom provider disables the
+// Copilot API catalog so inference cannot silently fall back to it.
+func (p customProviderConfig) github() copilot.SessionGitHubOptions {
+	if p.config == nil {
+		return copilot.SessionGitHubOptions{}
+	}
+	return copilot.SessionGitHubOptions{Capi: &copilot.CapiSessionOptions{Enabled: copilot.Bool(false)}}
 }
 
 func (p customProviderConfig) applyToUsage(usage *models.UsageStats) {
@@ -230,7 +266,7 @@ func providerFromEnv() customProviderConfig {
 	if err != nil {
 		return customProviderConfig{err: err}
 	}
-	p := &copilot.ProviderConfig{BaseURL: base}
+	p := &copilot.NamedProviderConfig{Name: customProviderName, BaseURL: base}
 	if v := envFirst("COPILOT_PROVIDER", "COPILOT_PROVIDER_TYPE"); v != "" {
 		p.Type = v
 	}
@@ -337,12 +373,12 @@ func NewCopilotEngineBuilder(defaultModelID string, options *CopilotEngineBuilde
 	} else {
 		copilotOptions := &copilot.ClientOptions{
 			// workspace is set at the session level, instead of at the client.
-			LogLevel: "error",
+			Observability: copilot.ClientObservabilityOptions{LogLevel: "error"},
+			Mode:          copilot.ModeCodingAgent,
 
-			// SDK v1.0.0 moved CLIArgs onto the Connection. AutoStart/AutoRestart
-			// are no longer configurable — the SDK starts on demand and restarts
-			// internally. We still call client.Start() explicitly in Initialize().
-			Connection: copilot.StdioConnection{Args: cliArgs},
+			// SDK v2 defaults to in-process hosting; keep the spawned stdio
+			// runtime. We still call client.Start() explicitly in Initialize().
+			Runtime: copilot.SpawnedStdioConnection{Args: cliArgs},
 		}
 		client = options.NewCopilotClient(copilotOptions)
 		ownsClient = true
@@ -472,7 +508,7 @@ func (e *CopilotEngine) Initialize(ctx context.Context) error {
 }
 
 // ListModels returns the available models from the Copilot backend.
-func (e *CopilotEngine) ListModels(ctx context.Context) ([]copilot.ModelInfo, error) {
+func (e *CopilotEngine) ListModels(ctx context.Context) ([]copilot.Model, error) {
 	return e.currentClient().ListModels(ctx)
 }
 
@@ -559,7 +595,7 @@ func validateReasoningEffort(ctx context.Context, client CopilotClient, modelID,
 		if model.ID != modelID {
 			continue
 		}
-		if !model.Capabilities.Supports.ReasoningEffort {
+		if supports := model.Capabilities.Supports; supports == nil || supports.ReasoningEffort == nil || !*supports.ReasoningEffort {
 			return fmt.Errorf("model %q does not support reasoning effort; omit reasoning_effort or select a supporting model with waza models", modelID)
 		}
 		if len(model.SupportedReasoningEfforts) == 0 {
@@ -707,34 +743,40 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 		skipAmbientRetrieval = copilot.Bool(true)
 		memory = &copilot.MemoryConfiguration{Enabled: false}
 	}
+	sessionModel, inference := e.provider.session(modelID, req.ReasoningEffort)
 
 	if req.SessionID == "" {
 		// Create session with updated API
-		session, err = client.CreateSession(ctx, &copilot.SessionConfig{
-			Model:           modelID,
-			ReasoningEffort: req.ReasoningEffort,
-			Tools:           req.Tools,
-
-			OnPermissionRequest: permRequestCallback,
-			OnUserInputRequest:  req.UserInput.Handler(),
-			AvailableTools:      availableTools,
-			Hooks:               sessionHooks,
-
-			SkillDirectories:                   skillDirs,
-			EnableSkills:                       enableSkills,
-			WorkingDirectory:                   workingDir,
-			SystemMessage:                      systemMessage,
-			Streaming:                          streamingPtr(req.Streaming),
-			MCPServers:                         req.MCPServers,
-			Provider:                           e.provider.sessionConfig(),
-			EnableConfigDiscovery:              enableAmbientDiscovery,
-			EnableFileHooks:                    enableAmbientDiscovery,
-			EnableOnDemandInstructionDiscovery: enableAmbientDiscovery,
-			SkipCustomInstructions:             skipAmbientRetrieval,
-			SkipEmbeddingRetrieval:             skipAmbientRetrieval,
-			EnableSessionStore:                 enableAmbientDiscovery,
-			EnableHostGitOperations:            enableAmbientDiscovery,
-			Memory:                             memory,
+		session, err = client.CreateSession(ctx, &copilot.CreateSessionOptions{
+			Model:     sessionModel,
+			Inference: inference,
+			GitHub:    e.provider.github(),
+			Tools: copilot.SessionToolOptions{
+				Definitions:    req.Tools,
+				AvailableTools: availableTools,
+			},
+			Permissions: copilot.SessionPermissionOptions{OnRequest: permRequestCallback},
+			Interaction: copilot.SessionInteractionOptions{OnUserInputRequest: req.UserInput.Handler()},
+			Hooks: copilot.SessionHookOptions{
+				Handlers:              sessionHooks,
+				EnableRepositoryHooks: enableAmbientDiscovery,
+			},
+			Skills:                copilot.SessionSkillOptions{Directories: skillDirs, Enabled: enableSkills},
+			WorkingDirectory:      workingDir,
+			SystemMessage:         systemMessage,
+			Events:                copilot.SessionEventOptions{Streaming: streamingPtr(req.Streaming)},
+			MCP:                   copilot.SessionMCPOptions{Servers: req.MCPServers},
+			EnableConfigDiscovery: enableAmbientDiscovery,
+			Instructions: copilot.CreateSessionInstructionOptions{
+				OnDemandDiscovery:      enableAmbientDiscovery,
+				SkipCustomInstructions: skipAmbientRetrieval,
+			},
+			State: copilot.SessionStateOptions{
+				SkipEmbeddingRetrieval:  skipAmbientRetrieval,
+				EnableCrossSessionStore: enableAmbientDiscovery,
+				Memory:                  memory,
+			},
+			Git: copilot.SessionGitOptions{EnableHostGitOperations: enableAmbientDiscovery},
 		})
 
 		if err != nil {
@@ -745,32 +787,37 @@ func (e *CopilotEngine) execute(ctx context.Context, req *ExecutionRequest, clie
 			return nil, fmt.Errorf("failed to create session: %w", err)
 		}
 	} else {
-		session, err = client.ResumeSessionWithOptions(ctx, req.SessionID, &copilot.ResumeSessionConfig{
-			Model:           modelID,
-			ReasoningEffort: req.ReasoningEffort,
-			Tools:           req.Tools,
-
-			OnPermissionRequest: permRequestCallback,
-			OnUserInputRequest:  req.UserInput.Handler(),
-			AvailableTools:      availableTools,
-			Hooks:               sessionHooks,
-
+		session, err = client.ResumeSessionWithOptions(ctx, req.SessionID, &copilot.ResumeSessionOptions{
+			Model:     sessionModel,
+			Inference: inference,
+			GitHub:    e.provider.github(),
+			Tools: copilot.SessionToolOptions{
+				Definitions:    req.Tools,
+				AvailableTools: availableTools,
+			},
+			Permissions: copilot.SessionPermissionOptions{OnRequest: permRequestCallback},
+			Interaction: copilot.SessionInteractionOptions{OnUserInputRequest: req.UserInput.Handler()},
+			Hooks: copilot.SessionHookOptions{
+				Handlers:              sessionHooks,
+				EnableRepositoryHooks: enableAmbientDiscovery,
+			},
 			// these are the directory for the skill itself.
-			SkillDirectories:                   skillDirs,
-			EnableSkills:                       enableSkills,
-			WorkingDirectory:                   workingDir,
-			SystemMessage:                      systemMessage,
-			Streaming:                          streamingPtr(req.Streaming),
-			MCPServers:                         req.MCPServers,
-			Provider:                           e.provider.sessionConfig(),
-			EnableConfigDiscovery:              enableAmbientDiscovery,
-			EnableFileHooks:                    enableAmbientDiscovery,
-			EnableOnDemandInstructionDiscovery: enableAmbientDiscovery,
-			SkipCustomInstructions:             skipAmbientRetrieval,
-			SkipEmbeddingRetrieval:             skipAmbientRetrieval,
-			EnableSessionStore:                 enableAmbientDiscovery,
-			EnableHostGitOperations:            enableAmbientDiscovery,
-			Memory:                             memory,
+			Skills:                copilot.SessionSkillOptions{Directories: skillDirs, Enabled: enableSkills},
+			WorkingDirectory:      workingDir,
+			SystemMessage:         systemMessage,
+			Events:                copilot.SessionEventOptions{Streaming: streamingPtr(req.Streaming)},
+			MCP:                   copilot.SessionMCPOptions{Servers: req.MCPServers},
+			EnableConfigDiscovery: enableAmbientDiscovery,
+			Instructions: copilot.SessionInstructionOptions{
+				OnDemandDiscovery:      enableAmbientDiscovery,
+				SkipCustomInstructions: skipAmbientRetrieval,
+			},
+			State: copilot.SessionStateOptions{
+				SkipEmbeddingRetrieval:  skipAmbientRetrieval,
+				EnableCrossSessionStore: enableAmbientDiscovery,
+				Memory:                  memory,
+			},
+			Git: copilot.SessionGitOptions{EnableHostGitOperations: enableAmbientDiscovery},
 		})
 
 		if err != nil {

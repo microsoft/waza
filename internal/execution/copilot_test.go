@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -35,7 +35,7 @@ func TestCopilotNoSessionID(t *testing.T) {
 	sessionMock := newSessionMock(ctrl)
 
 	const expectedModel = "this-model-wins"
-	clientMock.EXPECT().ListModels(gomock.Any()).Return([]copilot.ModelInfo{reasoningModel(expectedModel, "high")}, nil)
+	clientMock.EXPECT().ListModels(gomock.Any()).Return([]copilot.Model{reasoningModel(expectedModel, "high")}, nil)
 
 	unregisterCount := 0
 	unregister := func() { unregisterCount++ }
@@ -45,11 +45,11 @@ func TestCopilotNoSessionID(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			OnPermissionRequest: allowAllTools,
-			Model:               expectedModel,
-			ReasoningEffort:     "high",
-			SkillDirectories:    []string{sourceDir},
+		expected: copilot.CreateSessionOptions{
+			Model:       expectedModel,
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
+			Inference:   copilot.SessionInferenceOptions{ReasoningEffort: "high"},
 		},
 	}
 
@@ -95,7 +95,7 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	clientMock := newClientMock(ctrl)
 	sessionMock := newSessionMock(ctrl)
-	clientMock.EXPECT().ListModels(gomock.Any()).Return([]copilot.ModelInfo{reasoningModel("gpt-4o-mini", "high")}, nil)
+	clientMock.EXPECT().ListModels(gomock.Any()).Return([]copilot.Model{reasoningModel("gpt-4o-mini", "high")}, nil)
 
 	sourceDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -103,11 +103,11 @@ func TestCopilotResumeSessionID(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.ResumeSessionConfig{
-			Model:               "gpt-4o-mini",
-			ReasoningEffort:     "high",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
+		expected: copilot.ResumeSessionOptions{
+			Model:       "gpt-4o-mini",
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
+			Inference:   copilot.SessionInferenceOptions{ReasoningEffort: "high"},
 		},
 	}
 
@@ -155,21 +155,21 @@ func TestCopilotCreateSession_AppliesToolPolicyAvailableTools(t *testing.T) {
 	declared := []string{"read", "readFile"}
 	policy := NewToolPolicy(&declared)
 
-	var capturedConfig *copilot.SessionConfig
+	var capturedConfig *copilot.CreateSessionOptions
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			OnPermissionRequest: allowAllTools, // presence-only check; real value is the policy wrapper
-			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
-			AvailableTools:      []string{"builtin:view", "builtin:view"},
-			Hooks:               &copilot.SessionHooks{},
+		expected: copilot.CreateSessionOptions{
+			Model:       "gpt-4o-mini",
+			Hooks:       copilot.SessionHookOptions{Handlers: &copilot.SessionHooks{}},
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
+			Tools:       copilot.SessionToolOptions{AvailableTools: []string{"builtin:view", "builtin:view"}},
 		},
 	}
 
 	clientMock.EXPECT().CreateSession(gomock.Any(), expectedConfig).DoAndReturn(
-		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
+		func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
 			capturedConfig = cfg
 			return sessionMock, nil
 		})
@@ -203,16 +203,16 @@ func TestCopilotCreateSession_AppliesToolPolicyAvailableTools(t *testing.T) {
 	require.Empty(t, resp.ToolPolicyDenials)
 
 	require.NotNil(t, capturedConfig)
-	require.NotNil(t, capturedConfig.OnPermissionRequest)
+	require.NotNil(t, capturedConfig.Permissions.OnRequest)
 
 	// Exercise the wrapped OnPermissionRequest directly: a declared tool
 	// (read) is forwarded/approved, an undeclared one (bash) is rejected.
-	decision, err := capturedConfig.OnPermissionRequest(&copilot.PermissionRequestRead{Path: "/tmp/x"}, copilot.PermissionInvocation{})
+	decision, err := capturedConfig.Permissions.OnRequest(&copilot.PermissionRequestRead{Path: "/tmp/x"}, copilot.PermissionInvocation{})
 	require.NoError(t, err)
 	_, approved := decision.(*rpc.PermissionDecisionApproveOnce)
 	require.True(t, approved)
 
-	decision, err = capturedConfig.OnPermissionRequest(&copilot.PermissionRequestShell{FullCommandText: "ls"}, copilot.PermissionInvocation{})
+	decision, err = capturedConfig.Permissions.OnRequest(&copilot.PermissionRequestShell{FullCommandText: "ls"}, copilot.PermissionInvocation{})
 	require.NoError(t, err)
 	_, rejected := decision.(*rpc.PermissionDecisionReject)
 	require.True(t, rejected)
@@ -228,10 +228,10 @@ func TestCopilotCreateSession_UnrestrictedToolPolicyLeavesAvailableToolsUnset(t 
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			OnPermissionRequest: allowAllTools,
-			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
+		expected: copilot.CreateSessionOptions{
+			Model:       "gpt-4o-mini",
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
 		},
 	}
 
@@ -275,9 +275,9 @@ func TestCopilotExecute_ToolPolicyDenialFailsRun(t *testing.T) {
 	declared := []string{"read"}
 	policy := NewToolPolicy(&declared)
 
-	var capturedConfig *copilot.SessionConfig
+	var capturedConfig *copilot.CreateSessionOptions
 	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
+		func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
 			capturedConfig = cfg
 			return sessionMock, nil
 		})
@@ -288,7 +288,7 @@ func TestCopilotExecute_ToolPolicyDenialFailsRun(t *testing.T) {
 	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ copilot.MessageOptions) (*copilot.SessionEvent, error) {
 			// Simulate the model attempting an undeclared bash call mid-turn.
-			_, err := capturedConfig.OnPermissionRequest(&copilot.PermissionRequestShell{FullCommandText: "curl example.com"}, copilot.PermissionInvocation{})
+			_, err := capturedConfig.Permissions.OnRequest(&copilot.PermissionRequestShell{FullCommandText: "curl example.com"}, copilot.PermissionInvocation{})
 			require.NoError(t, err)
 			return &copilot.SessionEvent{}, nil
 		})
@@ -366,18 +366,23 @@ func TestCopilotCreateSession_PassesCustomProvider(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			Model:               "gpt-4o-mini",
-			ReasoningEffort:     "max",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
-			Provider: &copilot.ProviderConfig{
-				Type:        "openai",
-				BaseURL:     "https://waza-test-resource.openai.azure.com/openai/v1",
-				WireAPI:     "chat_completions",
-				APIKey:      "test-key",
-				BearerToken: "token",
+		expected: copilot.CreateSessionOptions{
+			Model:       "gpt-4o-mini",
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
+			Inference: copilot.SessionInferenceOptions{
+				ReasoningEffort: "max",
+				DefaultProvider: defaultProviderRef(customProviderName),
+				Providers: []copilot.NamedProviderConfig{{
+					Name:        customProviderName,
+					Type:        "openai",
+					BaseURL:     "https://waza-test-resource.openai.azure.com/openai/v1",
+					WireAPI:     "chat_completions",
+					APIKey:      "test-key",
+					BearerToken: "token",
+				}},
 			},
+			GitHub: copilot.SessionGitHubOptions{Capi: &copilot.CapiSessionOptions{Enabled: copilot.Bool(false)}},
 		},
 	}
 
@@ -455,16 +460,21 @@ func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.ResumeSessionConfig{
-			Model:               "gpt-4o-mini",
-			ReasoningEffort:     "max",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
-			Provider: &copilot.ProviderConfig{
-				Type:    "openai",
-				BaseURL: "https://waza-test-resource.openai.azure.com/openai/v1",
-				WireAPI: "responses",
+		expected: copilot.ResumeSessionOptions{
+			Model:       "gpt-4o-mini",
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
+			Inference: copilot.SessionInferenceOptions{
+				ReasoningEffort: "max",
+				DefaultProvider: defaultProviderRef(customProviderName),
+				Providers: []copilot.NamedProviderConfig{{
+					Name:    customProviderName,
+					Type:    "openai",
+					BaseURL: "https://waza-test-resource.openai.azure.com/openai/v1",
+					WireAPI: "responses",
+				}},
 			},
+			GitHub: copilot.SessionGitHubOptions{Capi: &copilot.CapiSessionOptions{Enabled: copilot.Bool(false)}},
 		},
 	}
 
@@ -492,6 +502,72 @@ func TestCopilotResumeSession_PassesCustomProvider(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, resp.Success)
+}
+
+// SDK v2 treats "/" in a session model as a provider qualifier, so a custom
+// provider's slash-containing model name must be registered as a
+// provider-local model whose WireModel is the original name, on both create
+// and resume.
+func TestCopilotCustomProviderSlashModelUsesWireModel(t *testing.T) {
+	t.Setenv("COPILOT_BASE_URL", "https://provider.example/v1")
+	for _, name := range []string{"COPILOT_PROVIDER_BASE_URL", "COPILOT_PROVIDER", "COPILOT_PROVIDER_TYPE", "COPILOT_WIRE_API",
+		"COPILOT_PROVIDER_WIRE_API", "COPILOT_API_KEY", "COPILOT_PROVIDER_API_KEY", "COPILOT_BEARER_TOKEN", "COPILOT_PROVIDER_BEARER_TOKEN"} {
+		t.Setenv(name, "")
+	}
+	const model = "anthropic/claude-sonnet-4"
+	wantModel := customProviderName + "/anthropic__claude-sonnet-4"
+	wantModels := []copilot.ProviderModelConfig{{ID: "anthropic__claude-sonnet-4", Provider: customProviderName, WireModel: model}}
+
+	ctrl := gomock.NewController(t)
+	clientMock := NewMockCopilotClient(ctrl)
+	sessionMock := newSessionMock(ctrl)
+	clientMock.EXPECT().Start(gomock.Any()).Times(1)
+	clientMock.EXPECT().Stop().Times(1)
+	clientMock.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, opts *copilot.CreateSessionOptions) (CopilotSession, error) {
+			require.Equal(t, wantModel, opts.Model)
+			require.Equal(t, defaultProviderRef(customProviderName), opts.Inference.DefaultProvider)
+			require.Equal(t, wantModels, opts.Inference.Models)
+			return sessionMock, nil
+		})
+	clientMock.EXPECT().ResumeSessionWithOptions(gomock.Any(), "session-1", gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, opts *copilot.ResumeSessionOptions) (CopilotSession, error) {
+			require.Equal(t, wantModel, opts.Model)
+			require.Equal(t, defaultProviderRef(customProviderName), opts.Inference.DefaultProvider)
+			require.Equal(t, wantModels, opts.Inference.Models)
+			return sessionMock, nil
+		})
+	sessionMock.EXPECT().Disconnect().Times(2)
+	clientMock.EXPECT().DeleteSession(gomock.Any(), "session-1").Times(1)
+	sessionMock.EXPECT().On(gomock.Any()).Times(6).Return(func() {})
+	sessionMock.EXPECT().SendAndWait(gomock.Any(), gomock.Any()).Times(2).Return(&copilot.SessionEvent{}, nil)
+	sessionMock.EXPECT().SessionID().Return("session-1").Times(2)
+
+	engine := NewCopilotEngineBuilder(model, &CopilotEngineBuilderOptions{
+		NewCopilotClient: func(*copilot.ClientOptions) CopilotClient { return clientMock },
+	}).Build()
+	defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+	require.NoError(t, engine.Initialize(context.Background()))
+
+	sourceDir := t.TempDir()
+	for _, sessionID := range []string{"", "session-1"} {
+		resp, err := engine.Execute(context.Background(), &ExecutionRequest{Message: "hello?", SourceDir: sourceDir, SessionID: sessionID})
+		require.NoError(t, err)
+		require.True(t, resp.Success)
+	}
+}
+
+func TestCustomProviderSessionKeepsPlainModelUnqualified(t *testing.T) {
+	provider := customProviderConfig{config: &copilot.NamedProviderConfig{Name: customProviderName, BaseURL: "https://provider.example/v1"}}
+	model, inference := provider.session("gpt-4o-mini", "")
+	require.Equal(t, "gpt-4o-mini", model)
+	require.Nil(t, inference.Models)
+
+	model, inference = customProviderConfig{}.session("anthropic/claude-sonnet-4", "high")
+	require.Equal(t, "anthropic/claude-sonnet-4", model, "without a custom provider the selection is passed through")
+	require.Nil(t, inference.Models)
+	require.Nil(t, inference.Providers)
+	require.Equal(t, "high", inference.ReasoningEffort)
 }
 
 func TestProviderFromEnv_SanitizesHost(t *testing.T) {
@@ -563,10 +639,10 @@ func TestCopilotSendAndWaitReturnsErrorInResult(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
+		expected: copilot.CreateSessionOptions{
+			Model:       "gpt-4o-mini",
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
 		},
 	}
 
@@ -603,18 +679,18 @@ func TestCopilotReasoningEffortRejection(t *testing.T) {
 		t.Run("session="+sessionID, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			client := newClientMock(ctrl)
-			client.EXPECT().ListModels(gomock.Any()).Return([]copilot.ModelInfo{reasoningModel("gpt-5-mini", "max")}, nil)
+			client.EXPECT().ListModels(gomock.Any()).Return([]copilot.Model{reasoningModel("gpt-5-mini", "max")}, nil)
 			runtimeErr := errors.New("model gpt-5-mini does not support reasoning effort max; choose low, medium, or high")
 			if sessionID == "" {
 				client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
-						require.Equal(t, "max", cfg.ReasoningEffort)
+					func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
+						require.Equal(t, "max", cfg.Inference.ReasoningEffort)
 						return nil, runtimeErr
 					})
 			} else {
 				client.EXPECT().ResumeSessionWithOptions(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
-						require.Equal(t, "max", cfg.ReasoningEffort)
+					func(_ context.Context, _ string, cfg *copilot.ResumeSessionOptions) (CopilotSession, error) {
+						require.Equal(t, "max", cfg.Inference.ReasoningEffort)
 						return nil, runtimeErr
 					})
 			}
@@ -649,9 +725,9 @@ func TestCopilotUnsupportedReasoningEffort_Live(t *testing.T) {
 	require.ErrorContains(t, err, "choose one of low, medium, high")
 }
 
-func reasoningModel(id string, efforts ...string) copilot.ModelInfo {
-	model := copilot.ModelInfo{ID: id, SupportedReasoningEfforts: efforts}
-	model.Capabilities.Supports.ReasoningEffort = true
+func reasoningModel(id string, efforts ...string) copilot.Model {
+	model := copilot.Model{ID: id, SupportedReasoningEfforts: efforts}
+	model.Capabilities.Supports = &copilot.ModelCapabilitiesSupports{ReasoningEffort: copilot.Bool(true)}
 	return model
 }
 
@@ -659,13 +735,13 @@ func TestCopilotReasoningEffortPreflight(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		model   string
-		models  []copilot.ModelInfo
+		models  []copilot.Model
 		listErr error
 		want    string
 	}{
-		{name: "unsupported value", model: "judge", models: []copilot.ModelInfo{reasoningModel("judge", "low")}, want: `does not support reasoning effort "max"; choose one of low`},
-		{name: "unsupported model", model: "judge", models: []copilot.ModelInfo{{ID: "judge"}}, want: "does not support reasoning effort; omit"},
-		{name: "missing metadata", model: "judge", models: []copilot.ModelInfo{reasoningModel("judge")}, want: "has no supported reasoning effort metadata"},
+		{name: "unsupported value", model: "judge", models: []copilot.Model{reasoningModel("judge", "low")}, want: `does not support reasoning effort "max"; choose one of low`},
+		{name: "unsupported model", model: "judge", models: []copilot.Model{{ID: "judge"}}, want: "does not support reasoning effort; omit"},
+		{name: "missing metadata", model: "judge", models: []copilot.Model{reasoningModel("judge")}, want: "has no supported reasoning effort metadata"},
 		{name: "unknown model", model: "judge", want: "unknown model"},
 		{name: "default model", want: "requires an explicit model"},
 		{name: "auto model", model: "auto", want: "requires an explicit model"},
@@ -696,7 +772,7 @@ func TestCopilotReasoningEffortPreflight(t *testing.T) {
 }
 
 func TestCopilotReasoningEffortPreflight_CustomProvider(t *testing.T) {
-	engine := &CopilotEngine{provider: customProviderConfig{config: &copilot.ProviderConfig{BaseURL: "https://provider.example/v1"}, host: "provider.example"}}
+	engine := &CopilotEngine{provider: customProviderConfig{config: &copilot.NamedProviderConfig{Name: customProviderName, BaseURL: "https://provider.example/v1"}, host: "provider.example"}}
 	require.NoError(t, engine.validateReasoningEffort(t.Context(), "custom-model", "max"))
 }
 
@@ -804,62 +880,62 @@ type sessionConfigMatcher struct {
 
 func (m sessionConfigMatcher) Matches(x any) bool {
 	switch tempC := x.(type) {
-	case *copilot.SessionConfig:
+	case *copilot.CreateSessionOptions:
 		c := *tempC
-		expected, ok := m.expected.(copilot.SessionConfig)
+		expected, ok := m.expected.(copilot.CreateSessionOptions)
 		require.True(m.t, ok)
 
 		require.NotEqual(m.t, m.sourceDir, c.WorkingDirectory)
 		require.NotEmpty(m.t, c.WorkingDirectory)
 
-		if expected.OnPermissionRequest == nil {
-			require.Nil(m.t, c.OnPermissionRequest)
+		if expected.Permissions.OnRequest == nil {
+			require.Nil(m.t, c.Permissions.OnRequest)
 		} else {
-			require.NotNil(m.t, c.OnPermissionRequest)
+			require.NotNil(m.t, c.Permissions.OnRequest)
 		}
 
 		c.WorkingDirectory = ""
 
 		// Equal can't compare function ptrs..
-		expected.OnPermissionRequest = nil
-		c.OnPermissionRequest = nil
+		expected.Permissions.OnRequest = nil
+		c.Permissions.OnRequest = nil
 
-		if expected.Hooks != nil {
-			require.NotNil(m.t, c.Hooks)
-			require.NotNil(m.t, c.Hooks.OnPreToolUse)
-			expected.Hooks = nil
-			c.Hooks = nil
+		if expected.Hooks.Handlers != nil {
+			require.NotNil(m.t, c.Hooks.Handlers)
+			require.NotNil(m.t, c.Hooks.Handlers.OnPreToolUse)
+			expected.Hooks.Handlers = nil
+			c.Hooks.Handlers = nil
 		}
 
 		// streamingPtr always returns a non-nil *bool now; when an expected
 		// fixture omits Streaming, treat actual *bool(false) as equivalent.
-		if expected.Streaming == nil && c.Streaming != nil && !*c.Streaming {
-			c.Streaming = nil
+		if expected.Events.Streaming == nil && c.Events.Streaming != nil && !*c.Events.Streaming {
+			c.Events.Streaming = nil
 		}
 
 		require.Equal(m.t, expected, c)
-	case *copilot.ResumeSessionConfig:
+	case *copilot.ResumeSessionOptions:
 		c := *tempC
-		expected, ok := m.expected.(copilot.ResumeSessionConfig)
+		expected, ok := m.expected.(copilot.ResumeSessionOptions)
 		require.True(m.t, ok)
 
 		require.NotEqual(m.t, m.sourceDir, c.WorkingDirectory)
 		require.NotEmpty(m.t, c.WorkingDirectory)
 
-		if expected.OnPermissionRequest == nil {
-			require.Nil(m.t, c.OnPermissionRequest)
+		if expected.Permissions.OnRequest == nil {
+			require.Nil(m.t, c.Permissions.OnRequest)
 		} else {
-			require.NotNil(m.t, c.OnPermissionRequest)
+			require.NotNil(m.t, c.Permissions.OnRequest)
 		}
 
 		c.WorkingDirectory = ""
 
 		// Equal can't compare function ptrs..
-		expected.OnPermissionRequest = nil
-		c.OnPermissionRequest = nil
+		expected.Permissions.OnRequest = nil
+		c.Permissions.OnRequest = nil
 
-		if expected.Streaming == nil && c.Streaming != nil && !*c.Streaming {
-			c.Streaming = nil
+		if expected.Events.Streaming == nil && c.Events.Streaming != nil && !*c.Events.Streaming {
+			c.Events.Streaming = nil
 		}
 
 		require.Equal(m.t, expected, c)
@@ -910,14 +986,14 @@ func TestCopilotCreateSession_InjectsSkillSystemMessage(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
+		expected: copilot.CreateSessionOptions{
+			Model: "gpt-4o-mini",
 			SystemMessage: &copilot.SystemMessageConfig{
 				Mode:    "append",
 				Content: expectedSystemMsg,
 			},
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
 		},
 	}
 
@@ -960,14 +1036,14 @@ func TestCopilotCreateSession_InjectsTriggerSkillRoutingSystemMessage(t *testing
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
+		expected: copilot.CreateSessionOptions{
+			Model: "gpt-4o-mini",
 			SystemMessage: &copilot.SystemMessageConfig{
 				Mode:    "append",
 				Content: expectedSystemMsg,
 			},
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
 		},
 	}
 
@@ -1022,14 +1098,14 @@ func TestCopilotCreateSession_InjectsInstructionSystemMessage(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
+		expected: copilot.CreateSessionOptions{
+			Model: "gpt-4o-mini",
 			SystemMessage: &copilot.SystemMessageConfig{
 				Mode:    "append",
 				Content: expectedSystemMsg,
 			},
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
 		},
 	}
 
@@ -1075,11 +1151,11 @@ func TestCopilotCreateSession_PassesMCPServers(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.SessionConfig{
-			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
-			MCPServers:          mcpServers,
+		expected: copilot.CreateSessionOptions{
+			Model:       "gpt-4o-mini",
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
+			MCP:         copilot.SessionMCPOptions{Servers: mcpServers},
 		},
 	}
 
@@ -1130,15 +1206,15 @@ func TestCopilotResumeSession_PassesMCPServersAndSystemMessage(t *testing.T) {
 	expectedConfig := sessionConfigMatcher{
 		t:         t,
 		sourceDir: sourceDir,
-		expected: copilot.ResumeSessionConfig{
-			Model:               "gpt-4o-mini",
-			SkillDirectories:    []string{sourceDir},
-			OnPermissionRequest: allowAllTools,
+		expected: copilot.ResumeSessionOptions{
+			Model: "gpt-4o-mini",
 			SystemMessage: &copilot.SystemMessageConfig{
 				Mode:    "append",
 				Content: expectedSystemMsg,
 			},
-			MCPServers: mcpServers,
+			Permissions: copilot.SessionPermissionOptions{OnRequest: allowAllTools},
+			Skills:      copilot.SessionSkillOptions{Directories: []string{sourceDir}},
+			MCP:         copilot.SessionMCPOptions{Servers: mcpServers},
 		},
 	}
 

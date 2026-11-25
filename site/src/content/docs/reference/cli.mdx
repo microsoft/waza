@@ -2151,7 +2151,7 @@ Copilot-backed runs query the SDK's typed `session.usage.getMetrics` after compl
 | `summary.usage.model_metrics.<model>.ai_credits` | Final AI Credits attributed to a model |
 | `summary.usage.model_metrics.<model>.{input,output,cache_read,cache_write}_tokens` | Token-category diagnostics |
 
-The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. The current source uses `github.com/github/copilot-sdk/go` v1.0.34 with bundled CLI 1.0.112. Standalone v0.40.0 uses SDK v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
+The CLI usage summary prints `AI Credits` (and a per-model column) at nano-unit precision, and the classic dashboard shows **AI Credits** plus a **Usage by model** table. Totals include task, trigger, and prompt-grader sessions initiated by waza, not account-wide Copilot usage. A run or model aggregate with missing contributing metrics is unavailable, never a partial subtotal. The current source uses `github.com/microsoft/copilot-sdk/go/v2` v2.0.1 with bundled CLI 1.0.114. Standalone v0.42.0 uses `github.com/github/copilot-sdk/go` v1.0.34 with bundled CLI 1.0.112; standalone v0.40.0 uses SDK v1.0.28 with bundled CLI 1.0.105; published standalone `v0.39.1` uses SDK v1.0.21 and CLI 1.0.85. Older result artifacts show `—` in the dashboard (`n/a` in the CLI) rather than an estimate.
 
 ## waza telemetry
 
@@ -2388,7 +2388,7 @@ A newer version of waza is available: v0.24.0 → v0.28.0. Run: curl -fsSL ... |
 | Variable | Description |
 |----------|-------------|
 | `GITHUB_TOKEN` | Token for Copilot SDK execution |
-| `COPILOT_CLI_PATH` | Explicit path to a GitHub Copilot CLI binary. When unset, Waza uses its bundled CLI and does not fall back to an unrelated `copilot` on `PATH`. |
+| `COPILOT_CLI_PATH` | Explicit path to a GitHub Copilot CLI binary. When unset, Waza uses its bundled CLI and does not fall back to an unrelated `copilot` on `PATH`. The selected CLI must speak SDK runtime protocol 4; older CLIs (for example 1.0.85, protocol 3) fail at startup with `SDK protocol version mismatch`. |
 | `COPILOT_HOME` | Copilot configuration root. When set, the bundled CLI and runtime assets are installed under `COPILOT_HOME/cache/copilot-sdk`; otherwise the system user cache is used. |
 | `COPILOT_CLI_INSTALL_VERBOSE` | Set to `1` to print SDK installation diagnostics when the bundled CLI cannot be installed. |
 | `COPILOT_BASE_URL` / `COPILOT_PROVIDER_BASE_URL` | Custom Copilot SDK provider endpoint. When set, Waza skips the default Copilot auth check and passes provider config to the SDK. |

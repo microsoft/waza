@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -22,19 +22,19 @@ func TestNoSkillsDoesNotReintroduceSourceDirectory(t *testing.T) {
 			stopped := errors.New("stop before any model call")
 			if sessionID == "" {
 				client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
-						require.Empty(t, cfg.SkillDirectories)
-						require.NotNil(t, cfg.EnableSkills)
-						require.False(t, *cfg.EnableSkills)
+					func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
+						require.Empty(t, cfg.Skills.Directories)
+						require.NotNil(t, cfg.Skills.Enabled)
+						require.False(t, *cfg.Skills.Enabled)
 						require.Nil(t, cfg.SystemMessage)
 						return nil, stopped
 					})
 			} else {
 				client.EXPECT().ResumeSessionWithOptions(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
-						require.Empty(t, cfg.SkillDirectories)
-						require.NotNil(t, cfg.EnableSkills)
-						require.False(t, *cfg.EnableSkills)
+					func(_ context.Context, _ string, cfg *copilot.ResumeSessionOptions) (CopilotSession, error) {
+						require.Empty(t, cfg.Skills.Directories)
+						require.NotNil(t, cfg.Skills.Enabled)
+						require.False(t, *cfg.Skills.Enabled)
 						require.Nil(t, cfg.SystemMessage)
 						return nil, stopped
 					})
@@ -61,16 +61,16 @@ func TestScenarioExplicitContextPreservesSDKDiscovery(t *testing.T) {
 			stopped := errors.New("stop before any model call")
 			if sessionID == "" {
 				client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(_ context.Context, cfg *copilot.SessionConfig) (CopilotSession, error) {
-						require.Contains(t, cfg.SkillDirectories, dir)
-						require.Nil(t, cfg.EnableSkills, "explicit paths must preserve SDK defaults")
+					func(_ context.Context, cfg *copilot.CreateSessionOptions) (CopilotSession, error) {
+						require.Contains(t, cfg.Skills.Directories, dir)
+						require.Nil(t, cfg.Skills.Enabled, "explicit paths must preserve SDK defaults")
 						return nil, stopped
 					})
 			} else {
 				client.EXPECT().ResumeSessionWithOptions(gomock.Any(), sessionID, gomock.Any()).DoAndReturn(
-					func(_ context.Context, _ string, cfg *copilot.ResumeSessionConfig) (CopilotSession, error) {
-						require.Contains(t, cfg.SkillDirectories, dir)
-						require.Nil(t, cfg.EnableSkills, "explicit paths must preserve SDK defaults")
+					func(_ context.Context, _ string, cfg *copilot.ResumeSessionOptions) (CopilotSession, error) {
+						require.Contains(t, cfg.Skills.Directories, dir)
+						require.Nil(t, cfg.Skills.Enabled, "explicit paths must preserve SDK defaults")
 						return nil, stopped
 					})
 			}

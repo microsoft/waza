@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/commandmock"
 	"github.com/microsoft/waza/internal/embedded"
 )
@@ -126,7 +126,7 @@ func sharedClientOptions(logLevel string, cliArgs []string) (*copilot.ClientOpti
 		return nil, err
 	}
 	conn.Env = env
-	return &copilot.ClientOptions{LogLevel: logLevel, Connection: conn}, nil
+	return newSpawnedClientOptions(logLevel, conn), nil
 }
 
 func clientOptions(logLevel string, cliArgs []string) (*copilot.ClientOptions, error) {
@@ -134,15 +134,23 @@ func clientOptions(logLevel string, cliArgs []string) (*copilot.ClientOptions, e
 	if err != nil {
 		return nil, err
 	}
-	return &copilot.ClientOptions{LogLevel: logLevel, Connection: conn}, nil
+	return newSpawnedClientOptions(logLevel, conn), nil
 }
 
-func clientConnection(cliArgs []string) (copilot.StdioConnection, error) {
-	// SDK v1.0.0: CLIArgs/CLIPath/AutoStart/AutoRestart moved onto the
-	// Connection (StdioConnection) or were removed. AutoStart/AutoRestart
-	// are managed internally by the SDK now. StdioConnection is consumed
-	// by value, so we set Path before assigning it to opts.Connection.
-	conn := copilot.StdioConnection{
+// newSpawnedClientOptions selects the coding-agent runtime over spawned stdio.
+// SDK v2 otherwise defaults to in-process hosting.
+func newSpawnedClientOptions(logLevel string, conn copilot.SpawnedStdioConnection) *copilot.ClientOptions {
+	return &copilot.ClientOptions{
+		Mode:          copilot.ModeCodingAgent,
+		Observability: copilot.ClientObservabilityOptions{LogLevel: logLevel},
+		Runtime:       conn,
+	}
+}
+
+func clientConnection(cliArgs []string) (copilot.SpawnedStdioConnection, error) {
+	// An empty Path would select the SDK's own bundled runtime, so Path is
+	// always resolved explicitly and never falls back to PATH.
+	conn := copilot.SpawnedStdioConnection{
 		Args: append([]string{}, cliArgs...),
 		Env:  os.Environ(),
 	}
@@ -150,10 +158,10 @@ func clientConnection(cliArgs []string) (copilot.StdioConnection, error) {
 	if cliPath := os.Getenv("COPILOT_CLI_PATH"); cliPath != "" {
 		info, err := os.Stat(cliPath)
 		if err != nil {
-			return copilot.StdioConnection{}, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: %w", cliPath, err)
+			return copilot.SpawnedStdioConnection{}, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: %w", cliPath, err)
 		}
 		if info.IsDir() {
-			return copilot.StdioConnection{}, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: path is a directory", cliPath)
+			return copilot.SpawnedStdioConnection{}, fmt.Errorf("COPILOT_CLI_PATH %q is not usable: path is a directory", cliPath)
 		}
 		conn.Path = cliPath
 		slog.Info("using Copilot CLI", "source", "COPILOT_CLI_PATH", "path", cliPath)
@@ -162,7 +170,7 @@ func clientConnection(cliArgs []string) (copilot.StdioConnection, error) {
 
 	cliPath, err := embeddedCLIPath()
 	if err != nil {
-		return copilot.StdioConnection{}, fmt.Errorf("embedded Copilot CLI is unavailable and COPILOT_CLI_PATH is not set; refusing to fall back to PATH: %w", err)
+		return copilot.SpawnedStdioConnection{}, fmt.Errorf("embedded Copilot CLI is unavailable and COPILOT_CLI_PATH is not set; refusing to fall back to PATH: %w", err)
 	}
 	conn.Path = cliPath
 	slog.Info("using Copilot CLI", "source", "embedded", "path", cliPath)
@@ -173,7 +181,7 @@ type startupErrorClient struct {
 	err error
 }
 
-func (c *startupErrorClient) CreateSession(context.Context, *copilot.SessionConfig) (CopilotSession, error) {
+func (c *startupErrorClient) CreateSession(context.Context, *copilot.CreateSessionOptions) (CopilotSession, error) {
 	return nil, c.err
 }
 
@@ -189,7 +197,7 @@ func (c *startupErrorClient) Stop() error {
 	return nil
 }
 
-func (c *startupErrorClient) ResumeSessionWithOptions(context.Context, string, *copilot.ResumeSessionConfig) (CopilotSession, error) {
+func (c *startupErrorClient) ResumeSessionWithOptions(context.Context, string, *copilot.ResumeSessionOptions) (CopilotSession, error) {
 	return nil, c.err
 }
 
@@ -197,7 +205,7 @@ func (c *startupErrorClient) DeleteSession(context.Context, string) error {
 	return c.err
 }
 
-func (c *startupErrorClient) ListModels(context.Context) ([]copilot.ModelInfo, error) {
+func (c *startupErrorClient) ListModels(context.Context) ([]copilot.Model, error) {
 	return nil, c.err
 }
 

@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/stretchr/testify/require"
@@ -269,19 +269,19 @@ func TestNativeExactPromptDirectEngineDeniesHostileBuiltins(t *testing.T) {
 				client.send =
 					func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error) {
 						config := client.config
-						require.NotNil(t, config.OnPermissionRequest)
-						require.NotNil(t, config.EnableSkills)
-						require.False(t, *config.EnableSkills)
-						decision, err := config.OnPermissionRequest(
+						require.NotNil(t, config.Permissions.OnRequest)
+						require.NotNil(t, config.Skills.Enabled)
+						require.False(t, *config.Skills.Enabled)
+						decision, err := config.Permissions.OnRequest(
 							&copilot.PermissionRequestShell{FullCommandText: "echo candidate-injected-command"},
 							copilot.PermissionInvocation{})
 						require.NoError(t, err)
 						if present {
-							require.ElementsMatch(t, []string{"custom:set_waza_grade_pass", "custom:set_waza_grade_fail"}, config.AvailableTools)
-							require.NotNil(t, config.Hooks)
+							require.ElementsMatch(t, []string{"custom:set_waza_grade_pass", "custom:set_waza_grade_fail"}, config.Tools.AvailableTools)
+							require.NotNil(t, config.Hooks.Handlers)
 							require.IsType(t, &rpc.PermissionDecisionReject{}, decision)
 							for _, hostile := range []string{"bash", "web_fetch", "edit", "view"} {
-								out, err := config.Hooks.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: hostile}, copilot.HookInvocation{})
+								out, err := config.Hooks.Handlers.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: hostile}, copilot.HookInvocation{})
 								require.NoError(t, err)
 								require.Equal(t, "deny", out.PermissionDecision)
 							}
@@ -291,11 +291,11 @@ func TestNativeExactPromptDirectEngineDeniesHostileBuiltins(t *testing.T) {
 								assertExactCallbackBoundary(t, config)
 							}
 						} else {
-							require.Nil(t, config.AvailableTools)
-							require.Nil(t, config.Hooks)
+							require.Nil(t, config.Tools.AvailableTools)
+							require.Nil(t, config.Hooks.Handlers)
 							require.IsType(t, &rpc.PermissionDecisionApproveOnce{}, decision)
 						}
-						_, err = config.Tools[1].Handler(copilot.ToolInvocation{Arguments: map[string]any{"reason": "native fail callback"}})
+						_, err = config.Tools.Definitions[1].Handler(copilot.ToolInvocation{Arguments: map[string]any{"reason": "native fail callback"}})
 						require.NoError(t, err)
 						return nil, nil
 					}
@@ -339,7 +339,7 @@ func TestNativeExactPromptDirectEngineDeniesHostileBuiltins(t *testing.T) {
 	}
 }
 
-func assertExactCallbackBoundary(t *testing.T, config *copilot.SessionConfig) {
+func assertExactCallbackBoundary(t *testing.T, config *copilot.CreateSessionOptions) {
 	t.Helper()
 	for _, request := range []copilot.PermissionRequest{
 		nil, (*copilot.PermissionRequestCustomTool)(nil),
@@ -355,7 +355,7 @@ func assertExactCallbackBoundary(t *testing.T, config *copilot.SessionConfig) {
 		&copilot.RawPermissionRequest{Discriminator: "unknown", Raw: json.RawMessage(`{"kind":"unknown"}`)},
 		&copilot.RawPermissionRequest{Discriminator: "factory", Raw: json.RawMessage(`{"kind":"factory","name":"custom:set_waza_grade_pass"}`)},
 	} {
-		decision, err := config.OnPermissionRequest(request, copilot.PermissionInvocation{})
+		decision, err := config.Permissions.OnRequest(request, copilot.PermissionInvocation{})
 		require.NoError(t, err)
 		require.IsType(t, &rpc.PermissionDecisionReject{}, decision, "%T", request)
 	}
@@ -363,16 +363,16 @@ func assertExactCallbackBoundary(t *testing.T, config *copilot.SessionConfig) {
 		"", "unknown", "bash", "builtin:set_waza_grade_pass", "mcp:custom-set_waza_grade_pass",
 		"web_fetch", "read", "write", "task", "delegate", "set_waza_grade_pass_extra",
 	} {
-		out, err := config.Hooks.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: name}, copilot.HookInvocation{})
+		out, err := config.Hooks.Handlers.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: name}, copilot.HookInvocation{})
 		require.NoError(t, err)
 		require.NotNil(t, out)
 		require.Equal(t, "deny", out.PermissionDecision, name)
 	}
-	for _, tool := range config.Tools {
-		decision, err := config.OnPermissionRequest(&copilot.PermissionRequestCustomTool{ToolName: tool.Name}, copilot.PermissionInvocation{})
+	for _, tool := range config.Tools.Definitions {
+		decision, err := config.Permissions.OnRequest(&copilot.PermissionRequestCustomTool{ToolName: tool.Name}, copilot.PermissionInvocation{})
 		require.NoError(t, err)
 		require.IsType(t, &rpc.PermissionDecisionApproveOnce{}, decision)
-		out, err := config.Hooks.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: tool.Name}, copilot.HookInvocation{})
+		out, err := config.Hooks.Handlers.OnPreToolUse(copilot.PreToolUseHookInput{ToolName: tool.Name}, copilot.HookInvocation{})
 		require.NoError(t, err)
 		require.Nil(t, out)
 		_, err = tool.Handler(copilot.ToolInvocation{Arguments: map[string]any{"reason": "automatic callback"}})
@@ -416,8 +416,8 @@ func TestNativeExactPromptUnsupportedPolicyFailsBeforeSend(t *testing.T) {
 type exactPolicyClient struct {
 	execution.CopilotClient
 	execution.CopilotSession
-	config                         *copilot.SessionConfig
-	resumeConfig                   *copilot.ResumeSessionConfig
+	config                         *copilot.CreateSessionOptions
+	resumeConfig                   *copilot.ResumeSessionOptions
 	sessionError                   error
 	send                           func(context.Context, copilot.MessageOptions) (*copilot.SessionEvent, error)
 	disconnected, deleted, stopped bool
@@ -431,16 +431,15 @@ func (c *exactPolicyClient) Stop() error {
 func (c *exactPolicyClient) GetAuthStatus(context.Context) (*copilot.GetAuthStatusResponse, error) {
 	return &copilot.GetAuthStatusResponse{IsAuthenticated: true}, nil
 }
-func (c *exactPolicyClient) CreateSession(_ context.Context, config *copilot.SessionConfig) (execution.CopilotSession, error) {
+func (c *exactPolicyClient) CreateSession(_ context.Context, config *copilot.CreateSessionOptions) (execution.CopilotSession, error) {
 	c.config = config
 	return c, c.sessionError
 }
-func (c *exactPolicyClient) ResumeSessionWithOptions(_ context.Context, _ string, config *copilot.ResumeSessionConfig) (execution.CopilotSession, error) {
+func (c *exactPolicyClient) ResumeSessionWithOptions(_ context.Context, _ string, config *copilot.ResumeSessionOptions) (execution.CopilotSession, error) {
 	c.resumeConfig = config
-	c.config = &copilot.SessionConfig{
-		AvailableTools: config.AvailableTools, Tools: config.Tools,
-		OnPermissionRequest: config.OnPermissionRequest, Hooks: config.Hooks,
-		EnableSkills: config.EnableSkills,
+	c.config = &copilot.CreateSessionOptions{
+		Tools: config.Tools, Permissions: config.Permissions, Hooks: config.Hooks,
+		Skills: config.Skills,
 	}
 	return c, c.sessionError
 }

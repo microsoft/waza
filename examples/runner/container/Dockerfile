@@ -15,18 +15,18 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /build/web/dist/ web/dist/
-RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${WAZA_VERSION}" -o /waza ./cmd/waza
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -tags copilot_no_inprocess -trimpath -buildvcs=false -ldflags="-s -w -X main.version=${WAZA_VERSION}" -o /waza ./cmd/waza
 RUN /waza runner capabilities
 
 FROM build AS controls-build
-RUN CGO_ENABLED=0 GOTOOLCHAIN=local go test -count=1 ./.github/scripts/testdata/runner-runtime
-RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /synthetic-runtime ./.github/scripts/testdata/runner-runtime
-RUN CGO_ENABLED=0 GOTOOLCHAIN=local go test -c -o /embedded.test ./internal/embedded
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go test -tags copilot_no_inprocess -count=1 ./.github/scripts/testdata/runner-runtime
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -tags copilot_no_inprocess -trimpath -buildvcs=false -o /synthetic-runtime ./.github/scripts/testdata/runner-runtime
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go test -tags copilot_no_inprocess -c -o /embedded.test ./internal/embedded
 
 FROM build AS native-controls-build
 COPY .github/scripts/testdata/native-bundle-probe/ /build/.github/scripts/testdata/native-bundle-probe/
-RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /native-bundle-probe ./.github/scripts/testdata/native-bundle-probe/harness
-RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /sdk-positive ./.github/scripts/testdata/native-bundle-probe/positive
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -tags copilot_no_inprocess -trimpath -buildvcs=false -o /native-bundle-probe ./.github/scripts/testdata/native-bundle-probe/harness
+RUN CGO_ENABLED=0 GOTOOLCHAIN=local go build -tags copilot_no_inprocess -trimpath -buildvcs=false -o /sdk-positive ./.github/scripts/testdata/native-bundle-probe/positive
 
 FROM scratch AS synthetic-test
 COPY --from=build /waza /waza

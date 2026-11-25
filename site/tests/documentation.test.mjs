@@ -1124,7 +1124,7 @@ test('release entry points agree on published versions and the current runner re
     .find((line) => line.startsWith('- **Bounded local compatibility'));
   assert.match(changelogEntry ?? '', new RegExp(`writer schema ${escapedReleaseWriter}\\b`));
 
-  const sdk = read('go.mod').match(/github\.com\/github\/copilot-sdk\/go v(\S+)/)?.[1];
+  const sdk = read('go.mod').match(/github\.com\/microsoft\/copilot-sdk\/go\/v2 v(\S+)/)?.[1];
   const bundledCLI = read('internal/embedded/zcopilot_darwin_arm64.go').match(/Version:\s+"([^"]+)"/)?.[1];
   assert.ok(sdk && bundledCLI);
   for (const path of embeddedFiles) {
@@ -1145,7 +1145,7 @@ test('release entry points agree on published versions and the current runner re
     }
   }
   assert.ok(read('site/src/content/docs/reference/cli.mdx').includes(
-    `github.com/github/copilot-sdk/go\` v${sdk} with bundled CLI ${bundledCLI}`,
+    `github.com/microsoft/copilot-sdk/go/v2\` v${sdk} with bundled CLI ${bundledCLI}`,
   ));
   const runtimeEntry = read('CHANGELOG.md').split('\n')
     .find((line) => line.startsWith('- **Copilot runtime dependencies**'));
@@ -1288,7 +1288,8 @@ test('tagged source builds explicitly stamp the release rather than trusting sta
   const makefile = read('Makefile');
   assert.match(makefile, /^VERSION\?=0\.0\.0-dev$/m);
   assert.match(makefile, /^LDFLAGS=-ldflags "-X main\.version=\$\(VERSION\)"$/m);
-  assert.match(makefile, /go build \$\(LDFLAGS\) -o \$\(BUILD_DIR\)\/\$\(BINARY_NAME\) \.\/cmd\/waza/);
+  assert.match(makefile, /^GO_BUILD_TAGS=-tags copilot_no_inprocess$/m);
+  assert.match(makefile, /go build \$\(GO_BUILD_TAGS\) \$\(LDFLAGS\) -o \$\(BUILD_DIR\)\/\$\(BINARY_NAME\) \.\/cmd\/waza/);
   const release = read('.github/workflows/release-qualification.yml');
   assert.match(release, /version="\$\{EVENT_REF#refs\/tags\/v\}"/);
   assert.match(release, /test "\$VERSION_INPUT" = "\$version"/);

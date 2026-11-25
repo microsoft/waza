@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/embedded"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -114,14 +114,16 @@ func TestEvidenceJudgePinnedRuntimeIsolation(t *testing.T) {
 	t.Setenv("COPILOT_CUSTOM_INSTRUCTIONS", "ACTOR_ENV_INSTRUCTION_CANARY")
 	t.Setenv("COPILOT_MCP_CONFIG", filepath.Join(actor, ".copilot/mcp-config.json"))
 	t.Setenv("COPILOT_CLI_PATH", cli)
-	t.Log("using embedded headless runtime 1.0.112 (its entrypoint deliberately does not implement --version)")
+	t.Log("using embedded headless runtime 1.0.114 (its entrypoint deliberately does not implement --version)")
 
 	for _, test := range []struct {
 		name        string
 		intercepted bool
 		attack      string
+		model       string
 	}{
 		{name: "direct_loopback"},
+		{name: "slash_wire_model", model: "anthropic/claude-sonnet-4"},
 		{name: "request_handler", intercepted: true},
 		{name: "unknown_builtin", intercepted: true, attack: "bash"},
 		{name: "builtin_grade_spoof", intercepted: true, attack: "builtin:set_waza_grade_pass"},
@@ -167,7 +169,7 @@ func TestEvidenceJudgePinnedRuntimeIsolation(t *testing.T) {
 			defer transport.client.CloseIdleConnections()
 			if test.intercepted {
 				executor.newClient = func(options *copilot.ClientOptions) evidenceJudgeClient {
-					options.RequestHandler = &copilot.CopilotRequestHandler{
+					options.Models.RequestHandler = &copilot.CopilotRequestHandler{
 						Transport: transport,
 						OpenWebSocket: func(*copilot.CopilotRequestContext) (copilot.CopilotWebSocketHandler, error) {
 							return nil, fmt.Errorf("runtime probe denies WebSockets")
@@ -178,6 +180,9 @@ func TestEvidenceJudgePinnedRuntimeIsolation(t *testing.T) {
 			}
 			req := evidenceJudgeTestRequest()
 			req.ModelID, req.ReasoningEffort = "gpt-4.1", ""
+			if test.model != "" {
+				req.ModelID = test.model
+			}
 			var callbacks atomic.Int32
 			req.Tools[0].Handler = func(copilot.ToolInvocation) (copilot.ToolResult, error) {
 				callbacks.Add(1)
@@ -205,12 +210,14 @@ func TestEvidenceJudgePinnedRuntimeIsolation(t *testing.T) {
 			require.NotEmpty(t, requests, "must inspect an actual model request, not just configured flags")
 			for _, request := range requests {
 				var payload struct {
+					Model    string `json:"model"`
 					Messages []struct{ Role, Content string }
 					Tools    []struct {
 						Function struct{ Name string } `json:"function"`
 					} `json:"tools"`
 				}
 				require.NoError(t, json.Unmarshal(request, &payload))
+				require.Equal(t, req.ModelID, payload.Model, "the provider must receive the configured model name")
 				var names []string
 				for _, tool := range payload.Tools {
 					names = append(names, tool.Function.Name)
@@ -236,6 +243,77 @@ func TestEvidenceJudgePinnedRuntimeIsolation(t *testing.T) {
 			require.True(t, parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "::1")
 		})
 	}
+	t.Run("engine_shared_client_wire_models", func(t *testing.T) {
+		testCustomProviderSharedClientWireModels(t)
+	})
+}
+
+// testCustomProviderSharedClientWireModels proves that the "/"→"__" local
+// model ID registered for one session cannot capture a different session's
+// already underscore-qualified model on the same runtime client, across both
+// create and resume.
+func testCustomProviderSharedClientWireModels(t *testing.T) {
+	home := t.TempDir()
+	for _, name := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME"} {
+		t.Setenv(name, home)
+	}
+	t.Setenv("COPILOT_HOME", filepath.Join(home, ".copilot"))
+	for _, name := range []string{"NODE_OPTIONS", "COPILOT_CUSTOM_INSTRUCTIONS", "COPILOT_MCP_CONFIG"} {
+		t.Setenv(name, "")
+	}
+	var mu sync.Mutex
+	var models []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&payload); err != nil {
+			t.Errorf("decoding local model request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		models = append(models, payload.Model)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := io.WriteString(w, `{"id":"wire","object":"chat.completion","model":"wire","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`); err != nil {
+			t.Errorf("writing local model response: %v", err)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("COPILOT_BASE_URL", server.URL+"/v1")
+
+	engine := NewCopilotEngineBuilder("", &CopilotEngineBuilderOptions{OwnClient: true, DisableAmbientDiscovery: true}).Build()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	require.NoError(t, engine.Initialize(ctx))
+	defer func() { require.NoError(t, engine.Shutdown(context.Background())) }()
+
+	const slash, underscored = "vendor/model", "vendor__model"
+	execute := func(model, sessionID string) string {
+		t.Helper()
+		mu.Lock()
+		before := len(models)
+		mu.Unlock()
+		resp, err := engine.Execute(ctx, &ExecutionRequest{
+			ModelID: model, SessionID: sessionID, Message: "Reply with done.",
+			NoSkills: true, SkipWorkspaceCapture: true,
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.SessionID)
+		mu.Lock()
+		defer mu.Unlock()
+		require.Greater(t, len(models), before, "must inspect an actual transmitted model request")
+		for _, sent := range models[before:] {
+			require.Equal(t, model, sent, "session for %q (resume=%t) transmitted another model", model, sessionID != "")
+		}
+		return resp.SessionID
+	}
+	slashSession := execute(slash, "")
+	underscoredSession := execute(underscored, "")
+	require.NotEqual(t, slashSession, underscoredSession)
+	execute(slash, slashSession)
+	execute(underscored, underscoredSession)
 }
 
 func TestEvidenceJudgeRuntimeCanaryProcess(t *testing.T) {

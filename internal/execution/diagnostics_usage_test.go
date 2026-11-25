@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -461,7 +461,7 @@ func TestDiagnosticConcurrentNewSessionsDoNotShareFailures(t *testing.T) {
 	var originHandler copilot.SessionEventHandler
 	for i, session := range sessions {
 		id := []string{"failed-id", "successful-id"}[i]
-		client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+		client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 			if config.WorkingDirectory == requests[0].WorkspaceDir {
 				return sessions[0], nil
 			}
@@ -521,8 +521,8 @@ func TestDiagnosticRetainsSendFailureAfterToolCallback(t *testing.T) {
 	}}}
 	session := NewMockCopilotSession(gomock.NewController(t))
 	var tools []copilot.Tool
-	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
-		tools = config.Tools
+	client.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
+		tools = config.Tools.Definitions
 		return session, nil
 	})
 	session.EXPECT().SessionID().Return("judge-id")

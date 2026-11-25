@@ -450,7 +450,7 @@ func sdkVersion() *string {
 		return nil
 	}
 	for _, dep := range info.Deps {
-		if dep.Path != "github.com/github/copilot-sdk/go" {
+		if dep.Path != "github.com/microsoft/copilot-sdk/go/v2" {
 			continue
 		}
 		if dep.Replace != nil {

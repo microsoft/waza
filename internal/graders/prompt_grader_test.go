@@ -12,8 +12,9 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/copilotevents"
+	"github.com/microsoft/waza/internal/embedded"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/utils"
@@ -261,6 +262,19 @@ func TestPromptUsingTools(t *testing.T) {
 	})
 }
 
+// liveSpawnedRuntime mirrors production client selection: SDK v2 otherwise
+// defaults to in-process hosting, which copilot_no_inprocess builds reject.
+func liveSpawnedRuntime(t *testing.T) copilot.SpawnedStdioConnection {
+	t.Helper()
+	path := os.Getenv("COPILOT_CLI_PATH")
+	if path == "" {
+		var err error
+		path, err = embedded.Path()
+		require.NoError(t, err)
+	}
+	return copilot.SpawnedStdioConnection{Path: path}
+}
+
 func TestUsingPreviousSessionID(t *testing.T) {
 	skipIfCopilotNotEnabled(t)
 
@@ -270,12 +284,14 @@ func TestUsingPreviousSessionID(t *testing.T) {
 		// we're going to create a session and "store" a number in it, and then see if we can recall it in our
 		// prompt evaluation below.
 		client := copilot.NewClient(&copilot.ClientOptions{
-			UseLoggedInUser: utils.Ptr(true),
+			Mode:    copilot.ModeCodingAgent,
+			Runtime: liveSpawnedRuntime(t),
+			GitHub:  copilot.ClientGitHubOptions{UseLoggedInUser: utils.Ptr(true)},
 		})
 
-		session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
-			Model:               basicModel,
-			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
+		session, err := client.CreateSession(context.Background(), &copilot.CreateSessionOptions{
+			Model:       basicModel,
+			Permissions: copilot.SessionPermissionOptions{OnRequest: copilot.PermissionHandler.ApproveAll},
 		})
 		require.NoError(t, err)
 

@@ -15,7 +15,7 @@ import (
 	"runtime"
 	"testing"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/microsoft/waza/internal/execution"
 	"github.com/microsoft/waza/internal/judgeevidence"
 	"github.com/microsoft/waza/internal/models"
@@ -267,9 +267,9 @@ func TestBenchmarkBaselineOnlyOperationalErrorClassification(t *testing.T) {
 	withSkills, withoutSkills := 0, 0
 	var sessionSkills [][]string
 	newRunEngine = func(models.Config) (execution.AgentEngine, error) {
-		client := &copilotfake.Client{Send: func(cfg *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
-			sessionSkills = append(sessionSkills, append([]string(nil), cfg.SkillDirectories...))
-			if len(cfg.SkillDirectories) == 0 {
+		client := &copilotfake.Client{Send: func(cfg *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+			sessionSkills = append(sessionSkills, append([]string(nil), cfg.Skills.Directories...))
+			if len(cfg.Skills.Directories) == 0 {
 				withoutSkills++
 				return nil, errors.New("baseline operational failure")
 			}
@@ -328,7 +328,7 @@ func TestFrozenJudgeSetupErrorCLIClassification(t *testing.T) {
 	})
 	newRunEngine = func(cfg models.Config) (execution.AgentEngine, error) {
 		require.Equal(t, "copilot-sdk", cfg.EngineType)
-		client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+		client := &copilotfake.Client{Send: func(_ *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 			return []copilot.SessionEvent{
 				{Data: &copilot.UserMessageData{Content: options.Prompt}},
 				{Data: &copilot.AssistantMessageData{Content: "CAPTURED_OUTPUT_CANARY"}},
@@ -544,7 +544,7 @@ func TestMultiModelOperationalErrorCannotBeErasedByLaterFailure(t *testing.T) {
 		resetRunGlobals()
 	})
 	newRunEngine = func(cfg models.Config) (execution.AgentEngine, error) {
-		client := &copilotfake.Client{Send: func(_ *copilot.SessionConfig, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
+		client := &copilotfake.Client{Send: func(_ *copilot.CreateSessionOptions, options copilot.MessageOptions) ([]copilot.SessionEvent, error) {
 			if cfg.ModelID == "operational-model" {
 				return nil, errors.New("observed operational failure")
 			}

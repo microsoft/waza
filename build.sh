@@ -66,7 +66,7 @@ for PLATFORM in "${PLATFORMS[@]}"; do
     [ -f "$OUTPUT_NAME" ] && rm -f "$OUTPUT_NAME"
 
     # Set environment variables for Go build
-    GOOS=$OS GOARCH=$ARCH go build \
+    GOOS=$OS GOARCH=$ARCH go build -tags copilot_no_inprocess \
         -ldflags="-X 'main.version=$VERSION'" \
         -o "$OUTPUT_NAME" \
         ./cmd/waza

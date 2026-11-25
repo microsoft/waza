@@ -170,12 +170,12 @@ jobs:
         if: matrix.os == 'windows-latest'
         run: |
           log="$(mktemp)"
-          go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths)$' ./.github/scripts | sed 's/\r$//' | tee "$log"
+          go test -count=1 -v -timeout=5m -run '^Test(CompletenessGoLintShellExecution|OrdinaryShellOverridesAndDisabledPaths|PowerShellBuildNativeFree)$' ./.github/scripts | sed 's/\r$//' | tee "$log"
           if grep -q -- '--- SKIP:' "$log"; then
             echo "Native Windows shell controls must not skip." >&2
             exit 1
           fi
-          for control in TestCompletenessGoLintShellExecution TestOrdinaryShellOverridesAndDisabledPaths; do
+          for control in TestCompletenessGoLintShellExecution TestOrdinaryShellOverridesAndDisabledPaths TestPowerShellBuildNativeFree; do
             grep -Fxq "=== RUN   $control" "$log"
             grep -Eq "^--- PASS: $control \([0-9.]+s\)$" "$log"
           done

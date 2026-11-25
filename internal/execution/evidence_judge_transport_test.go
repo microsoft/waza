@@ -7,13 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -102,32 +103,39 @@ func TestEvidenceJudgeSDKWireAndBoundedDisconnect(t *testing.T) {
 					response := map[string]any{"jsonrpc": "2.0", "id": request.ID}
 					switch request.Method {
 					case "connect":
-						response["result"] = map[string]any{"ok": true, "protocolVersion": 3, "version": "offline-wire"}
+						response["result"] = map[string]any{"ok": true, "protocolVersion": 4, "version": "offline-wire"}
 					case "session.create":
 						creates.Add(1)
 						require.NoError(t, json.Unmarshal(request.Params["sessionId"], &id))
 						require.NotEmpty(t, id)
 						for key, want := range map[string]bool{
-							"enableConfigDiscovery": false, "skipEmbeddingRetrieval": true,
-							"enableOnDemandInstructionDiscovery": false, "enableFileHooks": false,
-							"enableHostGitOperations": false, "enableSessionStore": false,
-							"enableSkills": false, "skipCustomInstructions": true,
-							"isExperimentalMode": false, "enableSessionTelemetry": false,
-							"enableFileChangeTracking": false, "coauthorEnabled": false, "manageScheduleEnabled": false,
+							"enableConfigDiscovery": false, "state.skipEmbeddingRetrieval": true,
+							"instructions.onDemandDiscovery": false, "hooks.enableRepositoryHooks": false,
+							"git.enableHostGitOperations": false, "state.enableCrossSessionStore": false,
+							"skills.enabled": false, "instructions.skipCustomInstructions": true,
+							"experiments.enableExperimentalMode": false, "github.telemetryEnabled": false,
+							"filesystem.trackFileChanges": false, "git.coauthorEnabled": false, "tools.manageScheduleEnabled": false,
+							"agents.localDiscoveryOnly": true, "github.capi.enabled": false,
 						} {
-							actual, present := request.Params[key]
+							actual, present := judgeWireField(t, request.Params, key)
 							require.True(t, present, "wire must explicitly carry %s", key)
 							require.JSONEq(t, fmt.Sprint(want), string(actual), key)
 						}
 						var filter []string
-						require.NoError(t, json.Unmarshal(request.Params["availableTools"], &filter))
+						filterJSON, present := judgeWireField(t, request.Params, "tools.availableTools")
+						require.True(t, present, "wire must explicitly carry tools.availableTools")
+						require.NoError(t, json.Unmarshal(filterJSON, &filter))
 						require.ElementsMatch(t, evidenceJudgeToolNames, filter)
 						var system copilot.SystemMessageConfig
 						require.NoError(t, json.Unmarshal(request.Params["systemMessage"], &system))
 						require.Equal(t, "replace", system.Mode)
 						require.Equal(t, evidenceJudgeSystemMessage, system.Content)
-						for _, field := range []string{"mcpServers", "customAgents", "skillDirectories", "pluginDirectories", "instructionDirectories"} {
-							require.NotContains(t, request.Params, field)
+						for _, field := range []string{
+							"mcpServers", "customAgents", "skillDirectories", "pluginDirectories", "instructionDirectories",
+							"mcp.servers", "agents.definitions", "skills.directories", "plugins", "instructions.directories", "hooks.directories",
+						} {
+							_, present := judgeWireField(t, request.Params, field)
+							require.False(t, present, "wire must not carry %s", field)
 						}
 						if test.unsupported && !test.patchError {
 							response["error"] = map[string]any{"code": -32602, "message": privateFailure}
@@ -148,14 +156,15 @@ func TestEvidenceJudgeSDKWireAndBoundedDisconnect(t *testing.T) {
 					case "session.sendAndWait":
 						response["error"] = map[string]any{"code": -32601, "message": "offline fixture uses callback completion"}
 					case "session.options.update":
-						for key, want := range map[string]bool{
-							"skipCustomInstructions": true, "customAgentsLocalOnly": true,
-							"coauthorEnabled": false, "manageScheduleEnabled": false,
+						for key, want := range map[string]string{
+							"instructions.skipCustomInstructions": "true", "agents.localDiscoveryOnly": "true",
+							"git.coauthorEnabled": "false", "tools.manageScheduleEnabled": "false",
+							"plugins.installed": "[]", "skills.includedBuiltinSkills": "[]",
 						} {
-							require.JSONEq(t, fmt.Sprint(want), string(request.Params[key]), key)
+							actual, present := judgeWireField(t, request.Params, key)
+							require.True(t, present, "mode patch must explicitly carry %s", key)
+							require.JSONEq(t, want, string(actual), key)
 						}
-						require.JSONEq(t, "[]", string(request.Params["installedPlugins"]))
-						require.JSONEq(t, "[]", string(request.Params["includedBuiltinSkills"]))
 						if test.patchError {
 							response["error"] = map[string]any{"code": -32602, "message": privateFailure}
 						} else {
@@ -245,8 +254,8 @@ func TestEvidenceJudgeSDKWireAndBoundedDisconnect(t *testing.T) {
 			}
 			executor.resolveCLI = func(context.Context, *evidenceJudgeDirs) (string, error) { return "/never/launched", nil }
 			executor.newClient = func(options *copilot.ClientOptions) evidenceJudgeClient {
-				options.Connection = copilot.URIConnection{URL: listener.Addr().String()}
-				options.UseLoggedInUser, options.GitHubToken = nil, ""
+				useTCPRuntime(t, options, listener.Addr().String())
+				options.GitHub.UseLoggedInUser, options.GitHub.Token = nil, ""
 				return &observedEvidenceJudgeClient{
 					evidenceJudgeClient: newEvidenceJudgeClient(options), record: record, timeoutStage: test.timeoutStage,
 					afterStart: func() {
@@ -385,7 +394,7 @@ func (c *observedEvidenceJudgeClient) Start(ctx context.Context) error {
 	return err
 }
 
-func (c *observedEvidenceJudgeClient) CreateSession(ctx context.Context, config *copilot.SessionConfig) (CopilotSession, error) {
+func (c *observedEvidenceJudgeClient) CreateSession(ctx context.Context, config *copilot.CreateSessionOptions) (CopilotSession, error) {
 	c.record("create:begin", ctx, nil)
 	if c.timeoutStage == "create" {
 		<-ctx.Done()
@@ -400,4 +409,25 @@ func (c *observedEvidenceJudgeClient) CreateSession(ctx context.Context, config 
 		c.afterCreate()
 	}
 	return session, err
+}
+
+// judgeWireField resolves a dotted path through the grouped v2 JSON-RPC params.
+func judgeWireField(t *testing.T, params map[string]json.RawMessage, path string) (json.RawMessage, bool) {
+	t.Helper()
+	parts := strings.Split(path, ".")
+	current := params
+	for i, part := range parts {
+		value, ok := current[part]
+		if !ok {
+			return nil, false
+		}
+		if i == len(parts)-1 {
+			return value, true
+		}
+		current = nil
+		if err := json.Unmarshal(value, &current); err != nil || current == nil {
+			return nil, false
+		}
+	}
+	return nil, false
 }

@@ -119,7 +119,7 @@ func TestRunnerInventoryRecordsEmbeddedCopilotPayloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A real platform payload exercises the CLI binding without rescanning every bundled asset.
-	payload := "zcopilot_1.0.112_" + runtime.GOOS + "_" + runtime.GOARCH + ".zst"
+	payload := "zcopilot_1.0.114_" + runtime.GOOS + "_" + runtime.GOARCH + ".zst"
 	if runtime.GOOS == "windows" {
 		payload = strings.TrimSuffix(payload, ".zst") + ".exe.zst"
 	}

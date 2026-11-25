@@ -67,6 +67,7 @@ try {
         $env:GOARCH = $ARCH
 
         go build `
+            -tags copilot_no_inprocess `
             -ldflags="-X 'main.version=$VERSION'" `
             -o $OUTPUT_NAME `
             ./cmd/waza

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	waza "github.com/microsoft/waza"
 	"github.com/microsoft/waza/internal/copilotevents"
 	"github.com/microsoft/waza/internal/dataset"

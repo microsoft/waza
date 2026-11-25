@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
-	"github.com/github/copilot-sdk/go/rpc"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
+	"github.com/microsoft/copilot-sdk/go/v2/rpc"
 	"github.com/microsoft/waza/internal/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -65,7 +65,7 @@ func usageRPCSession(t *testing.T, failMethod string, events []copilot.SessionEv
 			} else {
 				switch req.Method {
 				case "connect":
-					response["result"] = map[string]any{"ok": true, "protocolVersion": 3, "version": "test"}
+					response["result"] = map[string]any{"ok": true, "protocolVersion": 4, "version": "test"}
 				case "session.create", "session.resume":
 					response["result"] = map[string]any{"sessionId": "usage-session"}
 				case "session.usage.getMetrics":
@@ -91,7 +91,7 @@ func usageRPCSession(t *testing.T, failMethod string, events []copilot.SessionEv
 			}
 		}
 	}()
-	client := copilot.NewClient(&copilot.ClientOptions{Connection: copilot.URIConnection{URL: listener.Addr().String()}})
+	client := copilot.NewClient(&copilot.ClientOptions{Mode: copilot.ModeCodingAgent, Runtime: tcpRuntime(t, listener.Addr().String())})
 	t.Cleanup(func() {
 		err := client.Stop()
 		if failMethod == "session.detach" {
@@ -107,7 +107,7 @@ func usageRPCSession(t *testing.T, failMethod string, events []copilot.SessionEv
 		}
 	})
 	require.NoError(t, client.Start(t.Context()))
-	session, err := (&copilotClientWrapper{inner: client}).CreateSession(t.Context(), &copilot.SessionConfig{SessionID: "usage-session"})
+	session, err := (&copilotClientWrapper{inner: client}).CreateSession(t.Context(), &copilot.CreateSessionOptions{SessionID: "usage-session"})
 	require.NoError(t, err)
 	return session, func() []string {
 		mu.Lock()

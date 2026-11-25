@@ -22,7 +22,7 @@ func TestDockerGoCacheContract(t *testing.T) {
 		}
 		for _, command := range []string{
 			"RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \\\n    go mod download\n",
-			"RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \\\n    --mount=type=cache,id=waza-go-build,target=/root/.cache/go-build \\\n    CGO_ENABLED=0 GOOS=linux go build -ldflags '-s -w' -o waza ./cmd/waza\n",
+			"RUN --mount=type=cache,id=waza-go-mod,target=/go/pkg/mod \\\n    --mount=type=cache,id=waza-go-build,target=/root/.cache/go-build \\\n    CGO_ENABLED=0 GOOS=linux go build -tags copilot_no_inprocess -ldflags '-s -w' -o waza ./cmd/waza\n",
 			`RUN test "$(od -An -tx1 -N4 ./waza | tr -d ' \n')" = 7f454c46`,
 			"ldd /bin/sh && ./waza --version && \\\n    if ldd ./waza >/tmp/waza-ldd.txt 2>&1; then",
 			"grep -Fq './waza: Not a valid dynamic program' /tmp/waza-ldd.txt",
@@ -56,8 +56,9 @@ func TestDockerGoCacheContract(t *testing.T) {
 		{"missing-frontend", "# syntax=docker/dockerfile:1\n", ""},
 		{"missing-module-cache", "id=waza-go-mod", "id=another-module-cache"},
 		{"missing-compiler-cache", "target=/root/.cache/go-build", "target=/unused"},
-		{"forced-recompile", "go build -ldflags", "go build -a -ldflags"},
-		{"obsolete-install-suffix", "go build -ldflags", "go build -installsuffix cgo -ldflags"},
+		{"forced-recompile", "go build -tags", "go build -a -tags"},
+		{"obsolete-install-suffix", "go build -tags", "go build -installsuffix cgo -tags"},
+		{"inprocess-ffi-linked", "-tags copilot_no_inprocess ", ""},
 		{"dynamic-linking", "CGO_ENABLED=0", "CGO_ENABLED=1"},
 		{"lost-linker-flags", "-ldflags '-s -w'", ""},
 		{"missing-elf-admission", "= 7f454c46", "= 00000000"},

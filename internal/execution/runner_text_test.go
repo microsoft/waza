@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	copilot "github.com/github/copilot-sdk/go"
+	copilot "github.com/microsoft/copilot-sdk/go/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,7 +59,7 @@ func TestRunnerTextUsageFallbackTransport(t *testing.T) {
 					}
 					engine := NewCopilotEngineBuilder("fixed-model", &CopilotEngineBuilderOptions{
 						NewCopilotClient: func(options *copilot.ClientOptions) CopilotClient {
-							options.Connection = copilot.URIConnection{URL: address}
+							useTCPRuntime(t, options, address)
 							return NewOwnedCopilotClient(options)
 						},
 						DisableCommandMocks: true, DisableAmbientDiscovery: restricted,
@@ -133,7 +133,7 @@ func TestRunnerTextDiscoveryTransport(t *testing.T) {
 				})
 				engine := NewCopilotEngineBuilder("fixed-model", &CopilotEngineBuilderOptions{
 					NewCopilotClient: func(options *copilot.ClientOptions) CopilotClient {
-						options.Connection = copilot.URIConnection{URL: address}
+						useTCPRuntime(t, options, address)
 						return NewOwnedCopilotClient(options)
 					},
 					DisableCommandMocks:     true,
@@ -181,11 +181,11 @@ func TestRunnerTextDiscoveryTransport(t *testing.T) {
 				require.Equal(t, method, request.Method)
 				require.Equal(t, 1, server.count(method, ""))
 				for name, value := range map[string][]byte{
-					"enableConfigDiscovery":              request.Params.EnableConfigDiscovery,
-					"enableFileHooks":                    request.Params.EnableFileHooks,
-					"enableOnDemandInstructionDiscovery": request.Params.EnableOnDemandInstructionDiscovery,
-					"enableSessionStore":                 request.Params.EnableSessionStore,
-					"enableHostGitOperations":            request.Params.EnableHostGitOperations,
+					"enableConfigDiscovery":          request.Params.EnableConfigDiscovery,
+					"hooks.enableRepositoryHooks":    request.Params.Hooks.EnableRepositoryHooks,
+					"instructions.onDemandDiscovery": request.Params.Instructions.OnDemandDiscovery,
+					"state.enableCrossSessionStore":  request.Params.State.EnableCrossSessionStore,
+					"git.enableHostGitOperations":    request.Params.Git.EnableHostGitOperations,
 				} {
 					if disabled {
 						require.Equal(t, "false", string(value), "%s must be explicitly false, not omitted/null", name)
@@ -194,13 +194,13 @@ func TestRunnerTextDiscoveryTransport(t *testing.T) {
 					}
 				}
 				for name, value := range map[string][]byte{
-					"skipCustomInstructions": request.Params.SkipCustomInstructions,
-					"skipEmbeddingRetrieval": request.Params.SkipEmbeddingRetrieval,
-					"memory":                 request.Params.Memory,
+					"instructions.skipCustomInstructions": request.Params.Instructions.SkipCustomInstructions,
+					"state.skipEmbeddingRetrieval":        request.Params.State.SkipEmbeddingRetrieval,
+					"state.memory":                        request.Params.State.Memory,
 				} {
 					if disabled {
 						expected := "true"
-						if name == "memory" {
+						if name == "state.memory" {
 							expected = `{"enabled":false}`
 						}
 						require.JSONEq(t, expected, string(value), name)
@@ -212,7 +212,7 @@ func TestRunnerTextDiscoveryTransport(t *testing.T) {
 					select {
 					case update := <-captured:
 						require.Equal(t, "session.options.update", update.Method)
-						require.Equal(t, "true", string(update.Params.SkipCustomInstructions))
+						require.Equal(t, "true", string(update.Params.Instructions.SkipCustomInstructions))
 					case <-ctx.Done():
 						t.Fatal("SDK did not emit the required custom-instruction option update")
 					}
