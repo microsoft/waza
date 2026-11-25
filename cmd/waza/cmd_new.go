@@ -323,7 +323,7 @@ func scaffoldStandalone(cmd *cobra.Command, skillName, skillMD string, existing,
 			return fmt.Errorf("checking existing workflow %s: %w", workflowPath, err)
 		}
 		if _, lstatErr := os.Lstat(workflowPath); lstatErr == nil {
-			return fmt.Errorf("existing workflow %s cannot be resolved: %w", workflowPath, err)
+			return fmt.Errorf("existing workflow %s cannot be resolved (possibly a dangling symlink): %w", workflowPath, err)
 		} else if !os.IsNotExist(lstatErr) {
 			return fmt.Errorf("checking existing workflow %s: %w", workflowPath, lstatErr)
 		}
