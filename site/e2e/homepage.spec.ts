@@ -1,4 +1,27 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
+
+async function contrastAgainstBackground(
+  locator: Locator,
+  property: 'color' | 'outlineColor',
+  backgroundSelector: string
+) {
+  return locator.evaluate((element, { property, backgroundSelector }) => {
+    const background = element.closest(backgroundSelector);
+    if (!background) throw new Error(`Missing background: ${backgroundSelector}`);
+    const luminance = (color: string) => {
+      const values = color.match(/\d+(?:\.\d+)?/g);
+      if (!values || values.length < 3) throw new Error(`Unsupported computed color: ${color}`);
+      const [red, green, blue] = values.slice(0, 3).map((value) => {
+        const component = Number(value) / 255;
+        return component <= 0.04045 ? component / 12.92 : ((component + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    };
+    const foreground = luminance(getComputedStyle(element)[property]);
+    const surface = luminance(getComputedStyle(background).backgroundColor);
+    return (Math.max(foreground, surface) + 0.05) / (Math.min(foreground, surface) + 0.05);
+  }, { property, backgroundSelector });
+}
 
 test('homepage exposes the full feedback loop with working documentation CTAs', async ({ page, request }) => {
   const response = await page.goto('/waza/');
@@ -97,6 +120,44 @@ test('homepage retains the unavailable public chat entry point without making re
   expect(requests).toEqual([]);
 });
 
+test('homepage chat links have a visible focus indicator in both themes', async ({ page }) => {
+  await page.goto('/waza/');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => localStorage.setItem('starlight-theme', value), theme);
+    await page.reload();
+    await page.getByRole('button', { name: 'Ask Waza', exact: true }).click();
+    const link = page.getByRole('dialog', { name: 'Ask Waza' }).getByRole('link', { name: 'CLI reference' });
+    await page.keyboard.press('Tab');
+    await link.focus();
+    await expect(link).toHaveCSS('outline-style', 'solid');
+    expect(await contrastAgainstBackground(link, 'outlineColor', 'dialog'), `${theme} chat focus contrast`)
+      .toBeGreaterThanOrEqual(3);
+    await page.keyboard.press('Escape');
+  }
+});
+
+test('homepage search results retain hover and focus contrast in both themes', async ({ page }) => {
+  await page.goto('/waza/');
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => localStorage.setItem('starlight-theme', value), theme);
+    await page.reload();
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Search' });
+    await dialog.getByRole('textbox', { name: 'Search' }).fill('preflight');
+    const link = dialog.locator('.pagefind-ui__result-link[href="/waza/guides/preflight/"]');
+    await expect(link).toBeVisible();
+    await link.hover();
+    expect(await contrastAgainstBackground(link, 'color', '.pagefind-ui__result-title'), `${theme} search hover contrast`)
+      .toBeGreaterThanOrEqual(4.5);
+    await page.keyboard.press('Tab');
+    await link.focus();
+    await expect(link).toHaveCSS('outline-style', 'solid');
+    expect(await contrastAgainstBackground(link, 'outlineColor', '.pagefind-ui__result-title'), `${theme} search focus contrast`)
+      .toBeGreaterThanOrEqual(3);
+    await page.keyboard.press('Escape');
+  }
+});
+
 test('docs links meet text contrast in both themes and reduced motion is respected', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/waza/');
@@ -105,23 +166,9 @@ test('docs links meet text contrast in both themes and reduced motion is respect
   for (const theme of ['light', 'dark']) {
     await page.evaluate((value) => localStorage.setItem('starlight-theme', value), theme);
     await page.reload();
-    const contrast = await page.locator('main .sl-markdown-content a').first().evaluate((link) => {
-      const channels = (color: string) => {
-        const values = color.match(/\d+(?:\.\d+)?/g);
-        if (!values || values.length < 3) throw new Error(`Unsupported computed color: ${color}`);
-        return values.slice(0, 3).map((value) => {
-          const component = Number(value) / 255;
-          return component <= 0.04045 ? component / 12.92 : ((component + 0.055) / 1.055) ** 2.4;
-        });
-      };
-      const luminance = (color: string) => {
-        const [red, green, blue] = channels(color);
-        return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-      };
-      const foreground = luminance(getComputedStyle(link).color);
-      const background = luminance(getComputedStyle(document.body).backgroundColor);
-      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
-    });
+    const contrast = await contrastAgainstBackground(
+      page.locator('main .sl-markdown-content a').first(), 'color', 'body'
+    );
     expect(contrast, `${theme} documentation link contrast`).toBeGreaterThanOrEqual(4.5);
   }
 });

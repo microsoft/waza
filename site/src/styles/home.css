@@ -105,7 +105,7 @@ h1, h2, h3, p { margin-top: 0; }
 .brand-dot { color: var(--mint); }
 .site-header nav { display: flex; align-items: center; gap: 2.25rem; font-size: .85rem; }
 .site-header nav a { padding-block: .7rem; }
-.site-header nav a:hover, .site-footer a:hover { color: var(--mint); }
+.site-header nav > a:hover, .site-footer a:hover { color: var(--mint); }
 .theme-toggle { color: var(--chalk); background: transparent; border: 1px solid #4a4a50; padding: .35rem .7rem; font-size: .75rem; cursor: pointer; }
 .theme-toggle:hover { border-color: var(--mint); }
 .github-link { border-left: 1px solid var(--dark-line); padding-left: 2.25rem; }
@@ -116,6 +116,7 @@ site-search kbd { display: none !important; }
 site-search .dialog-frame { display: flex; }
 site-search [data-close-modal] { display: flex; }
 .site-header site-search dialog a, .site-header [data-chat-root] dialog a { padding: 0; color: var(--sl-color-text-accent); text-decoration: underline; }
+.site-header site-search dialog a:focus-visible, .site-header [data-chat-root] dialog a:focus-visible { outline-color: var(--sl-color-text-accent); }
 .site-header [data-chat-root] .chat-launcher { min-height: 2rem; margin: 0; padding: .35rem .6rem; font-size: .75rem; }
 
 /* Shared type */
