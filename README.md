@@ -417,16 +417,20 @@ See [Optimizer Adapters](site/src/content/docs/guides/optimizer-adapters.mdx).
 
 ### `waza isolation preflight` (available in v0.42.0)
 
-Probe the isolation boundaries a host declaration claims (filesystem,
-environment/secrets, network, subprocesses, remote tools) by attempting each
-violation, then match them against a request. Waza enforces nothing itself and
-reports a boundary as restricted only when a probe proved it; the Copilot-native
-sandbox (#544) is reported absent. The host provider can prove only off-host network
-and remote-tool boundaries; filesystem, environment and subprocess restrictions
-are reported unavailable. Exit 0 admitted, 1 rejected, 2 invalid input.
+Probe the isolation boundaries a host declaration or the Copilot-native sandbox
+claims (filesystem, environment/secrets, network, subprocesses, remote tools)
+by attempting each violation, then match them against a request. Waza enforces
+nothing itself and reports a boundary as restricted only when a probe proved
+it. The host provider can prove only off-host network and remote-tool
+boundaries. The Copilot-native sandbox provider probes the `config.sandbox`
+policy of evals passed with `--eval` (or selected by `run`) and can prove
+filesystem and non-loopback network boundaries; environment and subprocess
+restrictions are reported unavailable. Exit 0 admitted, 1 rejected, 2 invalid
+input.
 
 ```bash
 waza isolation preflight --request request.json --host host.json -o isolation.json
+waza isolation preflight --request request.json --eval eval.yaml
 waza run eval.yaml --isolation-request request.json --isolation-host host.json --isolation-report isolation.json
 ```
 
@@ -1863,7 +1867,7 @@ See the [task schema reference](https://microsoft.github.io/waza/reference/schem
 ```yaml
 name: my-eval
 skill: my-skill
-schemaVersion: "1.2"
+schemaVersion: "1.3"
 version: "1.0"
 
 config:
@@ -2283,6 +2287,33 @@ config:
 
 The skill remains available to the Copilot SDK through its configured skill directories, but Waza does not add either the target `<skill_context>` block or a synthetic `<available_skills>` summary. `disabled_skills: ["*"]` still disables all skill loading.
 
+### Copilot-native sandbox
+
+`copilot-sdk` scenario evaluations (`schemaVersion: "2.0"`) can opt into Copilot CLI's native OS sandbox; legacy `1.x` evals reject the field:
+
+```yaml
+schemaVersion: "2.0"
+scenario: my-workflow
+
+config:
+  executor: copilot-sdk
+  sandbox:
+    enabled: true
+    allow_dev_tool_caches: false
+    allow_outbound_network: false
+    allow_local_network: false
+    git_auth: false
+    gh_auth: false
+    readonly_paths: []
+    readwrite_paths: []
+```
+
+Waza grants read/write access to each fresh task workspace and read-only access only to the concrete target and `required_skills` directories discovered beneath `skill_directories`; the discovery roots themselves and undeclared sibling skills are not granted. Copilot loads the selected directories through its native skill mechanism, so bundled skill scripts remain executable without copying or making the source writable. Fixtures and Git resources are materialised inside the workspace. Other host paths, all valid temporary roots declared through `TMPDIR`, `TEMP`, or `TMP`, and sandbox bypass requests are denied. The optional capability flags default to `false`. Optional `readonly_paths` and `readwrite_paths` accept absolute paths, `~`, and environment-variable expansion for declared host prerequisites such as package caches or CA bundles; both default to empty. Paths must exist, are canonicalised before use, cannot overlap a denied temporary root, and cannot receive conflicting read-only and read/write grants. Enable only access required by the evaluation. Omitting `sandbox` preserves the existing session policy and process environment; `enabled: false` likewise sends no policy-changing RPC. Sandboxed Copilot CLI processes receive an explicit operational environment allowlist rather than arbitrary host variables. Invalid temporary-directory environment values and proxy URLs that contain credentials are omitted. GitHub tokens are passed through the SDK authentication channel, with persisted login as the fallback.
+
+Copilot applies the OS sandbox to model-visible shell commands and local MCP/LSP subprocesses; the bundled Copilot CLI 1.0.85 enforces the configured filesystem and network policy for in-process built-in file and URL tools. Waza delegates permission requests for those built-in operations and configured custom or MCP tools, while rejecting unsupported Copilot control-plane capabilities and unknown request types. Model-backed prompt graders retain the task sandbox. Remote MCP servers and trusted post-execution program graders remain separate trust boundaries; program-grader commands run with host permissions. Copilot local sandboxing is a public-preview feature; on Windows it currently requires a Windows Insiders build. `command_mocks` are rejected when the sandbox is enabled because the mock shims run from the denied system temporary directory; use an unsandboxed evaluation for CLI mocks.
+
+### Trigger skill routing
+
 For trigger-precision evals where fluent model answers can mask skipped skill routing, opt into the scoped routing control:
 
 ```yaml
@@ -2291,7 +2322,6 @@ config:
   inject_skill_body: false
   trigger_skill_routing: true
 ```
-
 `trigger_skill_routing` only has an effect when `inject_skill_body: false`; it adds an eval-only instruction to invoke the target skill when the task is in scope, without injecting the skill body or changing ordinary evaluation behavior.
 
 ### CSV Dataset Support

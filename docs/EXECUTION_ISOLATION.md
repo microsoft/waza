@@ -7,7 +7,8 @@
 Waza can now **declare, discover and check** isolation boundaries before an
 execution starts. It does **not enforce** any boundary itself. Enforcement
 belongs to whatever encloses the Waza process (a container, VM, sandbox or OS
-policy) or to a runtime provider such as the Copilot-native sandbox (#544).
+policy) or to a runtime provider such as the Copilot-native sandbox of evals
+that enable `config.sandbox`.
 Waza's job is to refuse to start when a requested boundary cannot be shown to
 hold, and never to report a boundary it cannot prove.
 
@@ -100,19 +101,44 @@ follow from the probes.
 
 | Provider | Status in this build |
 |----------|----------------------|
-| `copilot-native-sandbox` | Always `absent`: the Copilot-native sandbox (#544) is not integrated. It claims no boundary. |
+| `copilot-native-sandbox` | `absent` unless a selected eval enables `config.sandbox`; `unavailable` when any selected eval does not, or when Copilot reports that the host cannot run its sandboxed shell; otherwise `available` and its claims are probed under each eval's policy. |
 | `host-declaration` | `absent` without `--host`/`--isolation-host`; otherwise `available` and its claims are probed. |
 
 ```mermaid
 flowchart LR
   R[Request] --> P[Preflight]
   H[Host declaration] --> D[Discover providers]
-  N[copilot-native-sandbox: absent] --> D
+  N[copilot-native-sandbox: selected eval policies] --> D
   D --> Q[Probe each claimed dimension]
   Q --> P
   P -->|every restricted request enforced| A[admitted: execution starts]
   P -->|any restricted request unavailable| X[rejected: nothing runs]
 ```
+
+### Copilot-native sandbox provider (#544)
+
+The native provider proves boundaries that Copilot CLI's native OS sandbox
+(Seatbelt on macOS, bubblewrap on Linux) enforces for the selected evals'
+`config.sandbox` policies. It never trusts the policy: for each distinct
+policy it starts a sandboxed Copilot CLI with the same allowlisted environment
+as a sandboxed evaluation, opens a fresh probe workspace under the sandboxed
+task-workspace root, and runs the probe as a user-requested shell command.
+That request goes through the session's sandboxed shell tool, the same tool
+model commands use, and sends no model turn, so probes consume no premium
+requests. Each claim is a differential:
+
+| Dimension | Claimed when every selected policy | Probe |
+|-----------|-------------------------------------|-------|
+| `filesystem` | declares no `readwrite_paths` and leaves `allow_dev_tool_caches` off | The Waza process first creates and removes a file in the workspace parent, the home directory and the current directory; locations it cannot write are skipped. The sandboxed shell then writes inside the workspace (positive control) and attempts the same writes outside it. Waza checks the host afterwards and removes anything created. Any created file is `violated`; `enforced` requires the workspace write to succeed and every outside write to fail. |
+| `network` | leaves `allow_outbound_network` and `allow_local_network` off | Waza listens on the first non-loopback IPv4 address whose connection it can complete and accept itself (managed network extensions that intercept local connections are skipped). The sandboxed shell attempts a TCP connection to it. Any accepted connection is `violated`. Loopback is not covered, and when no such address exists the probe is `inconclusive`. |
+
+`environment`, `subprocess` and `remote_tools` are never claimed. Sandboxed
+evaluations withhold secrets through Waza's allowlisted Copilot process
+environment, not through the native sandbox, and Waza does not prove a boundary
+it enforces itself; the sandboxed shell starts child processes by design; and
+remote MCP servers are a separate trust boundary. The provider is
+`unavailable` on Windows because its probes target the macOS and Linux sandbox
+shells.
 
 ## CLI
 
@@ -123,9 +149,17 @@ waza isolation preflight --host host.json
 # Match a request; exit 1 when a requested boundary is unavailable
 waza isolation preflight --request request.json --host host.json -o isolation.json
 
+# Probe the Copilot-native sandbox policy of one or more evals
+waza isolation preflight --request request.json --eval eval.yaml
+
 # Gate a run: rejected before any engine, workspace or result is created
 waza run eval.yaml --isolation-request request.json --isolation-host host.json --isolation-report isolation.json
 ```
+
+`waza run` validates the isolation flags first, then runs the preflight once
+the selected evals (including all `--discover` skills) are loaded, so the
+native provider probes their actual sandbox policies. Every selected eval must
+enable `config.sandbox` for the native provider to claim a boundary.
 
 `waza isolation preflight` exits `0` when admitted, `1` when rejected and `2`
 for invalid input. `waza run` exits `2` when the isolation preflight rejects
@@ -209,8 +243,9 @@ is reported as a violation even when `environment` is not requested.
   without a probe is `inconclusive`.
 - Never make Waza enforce a boundary to satisfy a probe, and never report
   `enforced` without blocked-violation evidence.
-- The Copilot-native sandbox (#544) plugs in as a provider; until it lands it
-  is reported `absent` with a reason.
+- The Copilot-native sandbox provider follows these rules: it claims only
+  boundaries the native sandbox enforces, under every selected policy, and
+  proves each with a host-side positive control and a blocked violation.
 
 ## Troubleshooting
 

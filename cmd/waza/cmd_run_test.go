@@ -69,7 +69,8 @@ func resetRunGlobals() {
 	isolationHostPath = ""
 	isolationReportPath = ""
 	admittedIsolation = nil
-	pendingIsolationReport = nil
+	isolationGate = nil
+	nativeSandboxRunner = execution.NativeSandboxProbeRunner{}
 	publishedIsolationReport = nil
 	otelExporter = ""
 	otelFile = ""

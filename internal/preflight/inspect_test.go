@@ -345,6 +345,64 @@ mcp_mocks:
 	require.NotContains(t, string(data), "invalid.example")
 }
 
+func TestInspectSandboxCapabilityIsRequestedNotVerified(t *testing.T) {
+	sandboxed := strings.ReplaceAll(recoveryEval("2.0"), "  model: harness", "  model: harness\n  sandbox:\n    enabled: true")
+	for _, tc := range []struct {
+		name, eval string
+		capability State
+		requested  bool
+	}{
+		{"mock executor", validEval, Unsupported, false},
+		{"copilot without sandbox", strings.ReplaceAll(validEval, "executor: mock", "executor: copilot-sdk"), Verified, false},
+		{"copilot sandbox requested", sandboxed, Verified, true},
+		{"copilot sandbox disabled", strings.ReplaceAll(sandboxed, "enabled: true", "enabled: false"), Verified, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := writeSuite(t, tc.eval, validTask)
+			r := Inspect(path, Options{})
+			require.Contains(t, r.Capabilities, Capability{Name: "native_sandbox", State: tc.capability,
+				Meaning: "Static capability only; not proof of configuration enforcement or task success."})
+			require.Equal(t, tc.requested, hasDiagnostic(r, "sandbox.requested_policy", Unresolved), "%+v", r.Diagnostics)
+			require.False(t, hasDiagnostic(r, "sandbox.requested_policy", Verified), "preflight never verifies enforcement")
+			require.False(t, r.Failed(false), "%+v", r.Diagnostics)
+		})
+	}
+}
+
+func TestInspectSandboxRejectsTaskCommandMocks(t *testing.T) {
+	sandboxed := strings.ReplaceAll(recoveryEval("2.0"), "  model: harness", "  model: harness\n  sandbox:\n    enabled: true")
+	mocked := validTask + "\ncommand_mocks:\n  - name: offline-tool\n    responses: [{args: []}]\n"
+	for _, tc := range []struct {
+		name, eval, task string
+		invalid          bool
+	}{
+		{"enabled sandbox with task mocks", sandboxed, mocked, true},
+		{"disabled sandbox with task mocks", strings.ReplaceAll(sandboxed, "enabled: true", "enabled: false"), mocked, false},
+		{"enabled sandbox with mocks disabled", sandboxed, validTask + "\ncommand_mocks: []\n", false},
+		{"enabled sandbox without task mocks", sandboxed, validTask, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, _ := writeSuite(t, tc.eval, tc.task)
+			r := Inspect(path, Options{})
+			require.Equal(t, tc.invalid, hasDiagnostic(r, "sandbox.command_mocks", Invalid), "%+v", r.Diagnostics)
+			require.Equal(t, tc.invalid, r.Failed(false))
+		})
+	}
+
+	legacy := strings.ReplaceAll(sandboxed, "schemaVersion: \"2.0\"\nscenario: recovery", `schemaVersion: "1.4"`)
+	require.NotEqual(t, sandboxed, legacy, "fixture must switch to a legacy schema")
+	path, _ := writeSuite(t, legacy, validTask)
+	r := Inspect(path, Options{})
+	require.True(t, hasDiagnostic(r, "eval.configuration", Invalid), "legacy evals reject sandbox: %+v", r.Diagnostics)
+	require.True(t, r.Failed(false))
+
+	evalMocks := sandboxed + "command_mocks:\n  - name: offline-tool\n    responses: [{args: []}]\n"
+	path, _ = writeSuite(t, evalMocks, validTask)
+	r = Inspect(path, Options{})
+	require.True(t, hasDiagnostic(r, "eval.configuration", Invalid), "%+v", r.Diagnostics)
+	require.True(t, r.Failed(false))
+}
+
 func nativeUserInputEval(version string) string {
 	return strings.Replace(recoveryEval(version), "executor: copilot-sdk", "executor: copilot-sdk\n  native_user_input: true", 1)
 }

@@ -20,3 +20,22 @@ func ResolvePaths(paths []string, baseDir string) []string {
 	}
 	return resolved
 }
+
+// IsFilteredPath reports whether path was explicitly configured but removed
+// from filteredPaths. Paths are compared after resolving them against baseDir.
+func IsFilteredPath(path string, configuredPaths, filteredPaths []string, baseDir string) bool {
+	if path == "" {
+		return false
+	}
+	target := filepath.Clean(ResolvePaths([]string{path}, baseDir)[0])
+	allowed := make(map[string]bool, len(filteredPaths))
+	for _, resolved := range ResolvePaths(filteredPaths, baseDir) {
+		allowed[filepath.Clean(resolved)] = true
+	}
+	for _, resolved := range ResolvePaths(configuredPaths, baseDir) {
+		if filepath.Clean(resolved) == target {
+			return !allowed[target]
+		}
+	}
+	return false
+}

@@ -28,6 +28,7 @@ import (
 	"github.com/microsoft/waza/internal/mcpmock"
 	"github.com/microsoft/waza/internal/models"
 	"github.com/microsoft/waza/internal/responder"
+	"github.com/microsoft/waza/internal/safeio"
 	"github.com/microsoft/waza/internal/skill"
 	"github.com/microsoft/waza/internal/snapshot"
 	"github.com/microsoft/waza/internal/telemetry"
@@ -336,7 +337,13 @@ func NewEvalRunner(cfg *config.EvalConfig, engine execution.AgentEngine, opts ..
 		now:            time.Now,
 	}
 	r.newClassifier = func(cfg models.ResponderConfig, defaultModel string) responderClassifier {
-		return responder.NewWithReasoningEffort(r.engine, cfg, defaultModel, r.cfg.Spec().Config.ReasoningEffort)
+		return responder.NewWithOptions(
+			r.engine,
+			cfg,
+			defaultModel,
+			r.cfg.Spec().Config.ReasoningEffort,
+			r.cfg.Spec().Config.Sandbox,
+		)
 	}
 	for _, o := range opts {
 		o(r)
@@ -2345,7 +2352,11 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 		return nil, err
 	}
 	r.setRequestInputRole("resource")
-	resources = append(resources, r.loadResources(tc)...)
+	taskResources, err := r.loadResources(tc)
+	if err != nil {
+		return nil, err
+	}
+	resources = append(resources, taskResources...)
 	r.setRequestInputRole("instruction")
 	instructions, instructionResources, err := r.loadInstructionFiles(tc)
 	if err != nil {
@@ -2390,6 +2401,7 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 		WorkDir:           tc.Stimulus.WorkDir,
 		Instructions:      instructions,
 		SkillName:         spec.SkillName,
+		RequiredSkills:    append([]string(nil), spec.Config.RequiredSkills...),
 		TaskName:          tc.DisplayName,
 		TaskDescription:   tc.Summary,
 		SkillPaths:        resolvedSkillPaths,
@@ -2401,6 +2413,7 @@ func (r *EvalRunner) buildExecutionRequestWithMCP(tc *models.TestCase, resolveMC
 		CommandMocks:          effectiveCommandMocks(tc, spec),
 		CommandMocksBaseDir:   r.cfg.SpecDir(),
 		FirstEventTimeout:     r.firstEventTimeout(tc),
+		Sandbox:               spec.Config.Sandbox,
 		ToolPolicy:            resolveToolPolicy(fm),
 		ModelID:               spec.Config.ModelID,
 		ReasoningEffort:       spec.Config.ReasoningEffort,
@@ -2611,14 +2624,19 @@ func (r *EvalRunner) taskSkillPaths(tc *models.TestCase) []string {
 }
 
 func (r *EvalRunner) resolveTaskAgent(tc *models.TestCase) (string, *skill.AgentFrontmatter, error) {
-	if r.cfg.Spec().SkillsDisabledForTask(tc.SkillPaths) {
+	spec := r.cfg.Spec()
+	if spec.SkillsDisabledForTask(tc.SkillPaths) {
 		return "", nil, nil
+	}
+	skillPaths := r.taskSkillPaths(tc)
+	if spec.Config.Sandbox != nil && spec.Config.Sandbox.Enabled {
+		return execution.ResolveAgentDefinition(skillPaths, spec.SkillName)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", nil, fmt.Errorf("resolving agent working directory: %w", err)
 	}
-	return execution.ResolveAgentDefinition(append([]string{cwd}, r.taskSkillPaths(tc)...), r.cfg.Spec().SkillName)
+	return execution.ResolveAgentDefinition(append([]string{cwd}, skillPaths...), spec.SkillName)
 }
 
 func (r *EvalRunner) executionTimeout(tc *models.TestCase) (time.Duration, error) {
@@ -2931,7 +2949,7 @@ func buildSkillInvocations(invocations []execution.SkillInvocation) []models.Ski
 	return result
 }
 
-func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile {
+func (r *EvalRunner) loadResources(tc *models.TestCase) ([]execution.ResourceFile, error) {
 	var resources []execution.ResourceFile
 
 	// Determine fixture directory (for loading resource files)
@@ -2939,6 +2957,16 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 	if tc.ContextRoot != "" {
 		fixtureDir = tc.ContextRoot
 	}
+
+	var root *safeio.Root
+	var err error
+	defer func() {
+		if root != nil {
+			if err := root.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close fixture directory %s: %v\n", fixtureDir, err)
+			}
+		}
+	}()
 
 	for _, ref := range tc.Stimulus.Resources {
 		if ref.Body != "" {
@@ -2960,30 +2988,21 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 				continue
 			}
 
-			fullPath := filepath.Join(fixtureDir, cleanPath)
-
-			// Ensure the resolved path is still within fixtureDir
-			absFixtureDir, err := filepath.Abs(fixtureDir)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to get absolute path for fixture dir: %v\n", err)
-				continue
+			var content []byte
+			if r.requestInputs != nil || r.requestFiles != nil {
+				content, err = r.inputFiles().ReadFile(filepath.Join(fixtureDir, cleanPath))
+			} else {
+				if root == nil {
+					root, err = safeio.OpenRoot(fixtureDir)
+					if err != nil {
+						return nil, fmt.Errorf("opening fixture directory for resources: %w", err)
+					}
+				}
+				content, _, err = root.ReadRegularFile(cleanPath, 0)
 			}
-
-			absFullPath, err := filepath.Abs(fullPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to get absolute path for resource: %v\n", err)
-				continue
-			}
-
-			if !strings.HasPrefix(absFullPath, absFixtureDir+string(filepath.Separator)) {
-				fmt.Fprintf(os.Stderr, "Warning: resource path %q escapes fixture directory\n", ref.Location)
-				continue
-			}
-
-			content, err := r.inputFiles().ReadFile(fullPath)
 			if err != nil {
 				// Log error but continue - let the test fail if resource is critical
-				fmt.Fprintf(os.Stderr, "Warning: failed to load resource file %s: %v\n", fullPath, err)
+				fmt.Fprintf(os.Stderr, "Warning: failed to load resource file %s: %v\n", ref.Location, err)
 				continue
 			}
 			resources = append(resources, execution.ResourceFile{
@@ -2993,7 +3012,7 @@ func (r *EvalRunner) loadResources(tc *models.TestCase) []execution.ResourceFile
 		}
 	}
 
-	return resources
+	return resources, nil
 }
 
 func (r *EvalRunner) loadContextFixtureResources(tc *models.TestCase) ([]execution.ResourceFile, error) {
@@ -3127,15 +3146,34 @@ func (r *EvalRunner) loadInstructionFiles(tc *models.TestCase) ([]execution.Inst
 		return nil, nil, fmt.Errorf("instruction_files require a context/fixtures directory")
 	}
 
+	var root *safeio.Root
+	if r.requestInputs == nil && r.requestFiles == nil {
+		var err error
+		root, err = safeio.OpenRoot(fixtureDir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("opening context directory for instruction_files: %w", err)
+		}
+		defer func() {
+			if err := root.Close(); err != nil {
+				slog.Warn("closing instruction file context directory", "path", fixtureDir, "error", err)
+			}
+		}()
+	}
+
 	instructions := make([]execution.InstructionFile, 0, len(paths))
 	resources := make([]execution.ResourceFile, 0, len(paths))
 	for _, path := range paths {
-		cleanPath, fullPath, err := resolveContextFile(fixtureDir, path, "instruction_files")
+		cleanPath, _, err := resolveContextFile(fixtureDir, path, "instruction_files")
 		if err != nil {
 			return nil, nil, err
 		}
 
-		content, err := r.inputFiles().ReadFile(fullPath)
+		var content []byte
+		if root != nil {
+			content, _, err = root.ReadRegularFile(cleanPath, 0)
+		} else {
+			content, err = r.inputFiles().ReadFile(filepath.Join(fixtureDir, cleanPath))
+		}
 		if err != nil {
 			return nil, nil, fmt.Errorf("reading instruction file %q: %w", path, err)
 		}
@@ -3169,21 +3207,7 @@ func resolveContextFile(baseDir, relPath, field string) (string, string, error) 
 		return "", "", fmt.Errorf("%s path must not be empty", field)
 	}
 
-	fullPath := filepath.Join(baseDir, cleanPath)
-	absBaseDir, err := filepath.Abs(baseDir)
-	if err != nil {
-		return "", "", fmt.Errorf("resolving context directory: %w", err)
-	}
-	absFullPath, err := filepath.Abs(fullPath)
-	if err != nil {
-		return "", "", fmt.Errorf("resolving %s path %q: %w", field, relPath, err)
-	}
-
-	if absFullPath != absBaseDir && !strings.HasPrefix(absFullPath, absBaseDir+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("%s path %q escapes context directory", field, relPath)
-	}
-
-	return cleanPath, fullPath, nil
+	return cleanPath, filepath.Join(baseDir, cleanPath), nil
 }
 
 func containsPathTraversal(path string) bool {
@@ -3223,6 +3247,7 @@ func (r *EvalRunner) buildGraderContext(tc *models.TestCase, resp *execution.Exe
 		Metadata:           make(map[string]any),
 		WorkspaceDir:       resp.WorkspaceDir,
 		WorkspaceFiles:     resp.WorkspaceFiles,
+		Sandbox:            r.cfg.Spec().Config.Sandbox,
 		SkillInvocations:   resp.SkillInvocations,
 		SessionID:          resp.SessionID,
 		Session:            &sessionDigest,

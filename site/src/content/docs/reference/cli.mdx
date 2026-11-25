@@ -1766,14 +1766,17 @@ See [manifest examples, recovery and migration](../../guides/immutable-artifacts
 Available in v0.42.0. Probes the isolation boundaries an available
 provider claims by attempting each violation, then matches them against a
 request and prints the `waza.execution-isolation-preflight` 1.0 report. Waza
-enforces no boundary itself; the Copilot-native sandbox (#544) is reported
-`absent`. See [Execution isolation](../../guides/execution-isolation/).
+enforces no boundary itself. With `--eval`, the Copilot-native sandbox provider
+probes each named eval's `config.sandbox` policy through Copilot's sandboxed
+shell (no model turn); without it that provider is `absent`. See
+[Execution isolation](../../guides/execution-isolation/).
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--request` | | string | | Isolation request JSON; without it every dimension is unrestricted (discovery only) |
 | `--host` | | string | | Host isolation declaration JSON; each claimed dimension is probed |
 | `--workspace` | | string | fresh temp dir | Workspace used by the filesystem probe |
+| `--eval` | | string (repeatable) | | Eval YAML whose `config.sandbox` policy the Copilot-native provider probes |
 | `--output` | `-o` | string | | Also write the report to this file; it must not be the request or host file and must not already exist |
 
 Exit codes: `0` admitted, `1` a requested boundary is unavailable, `2` invalid input.
@@ -1781,6 +1784,7 @@ Exit codes: `0` admitted, `1` a requested boundary is unavailable, `2` invalid i
 ```bash
 waza isolation preflight --host host.json
 waza isolation preflight --request request.json --host host.json -o isolation.json
+waza isolation preflight --request request.json --eval eval.yaml
 ```
 
 ## waza runner

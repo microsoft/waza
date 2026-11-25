@@ -206,6 +206,24 @@ func CacheKeyWithInputs(spec *models.EvalSpec, task *models.TestCase, fixtureDir
 	if err := writeInt(h, spec.Config.MaxAttempts); err != nil {
 		return "", err
 	}
+	// Only an enabled sandbox contributes to the key, so omitted and disabled
+	// blocks keep the keys computed before sandboxing existed.
+	if sandbox := spec.Config.Sandbox; sandbox != nil && sandbox.Enabled {
+		resolved, err := sandbox.ResolvePaths()
+		if err != nil {
+			return "", fmt.Errorf("resolving sandbox configuration: %w", err)
+		}
+		if err := writeString(h, "native-sandbox-v1"); err != nil {
+			return "", err
+		}
+		sandboxJSON, err := json.Marshal(resolved)
+		if err != nil {
+			return "", fmt.Errorf("marshaling sandbox configuration: %w", err)
+		}
+		if _, err := h.Write(sandboxJSON); err != nil {
+			return "", err
+		}
+	}
 	if err := writeBool(h, spec.Config.TriggerSkillRouting); err != nil {
 		return "", err
 	}

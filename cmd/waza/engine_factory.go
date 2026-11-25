@@ -13,7 +13,8 @@ var newRunEngine = func(cfg models.Config) (execution.AgentEngine, error) {
 		return execution.NewMockEngine(cfg.ModelID), nil
 	case "copilot-sdk":
 		return execution.NewCopilotEngineBuilder(cfg.ModelID, &execution.CopilotEngineBuilderOptions{
-			NewCopilotClient: newCopilotClientFn,
+			NewCopilotClient:    newCopilotClientFn,
+			SanitizeEnvironment: cfg.Sandbox != nil && cfg.Sandbox.Enabled,
 		}).Build(), nil
 	default:
 		return nil, fmt.Errorf("unknown engine type: %s", cfg.EngineType)

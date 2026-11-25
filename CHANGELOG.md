@@ -25,6 +25,18 @@ on every platform or deployment-specific assurance.
 
 ### Added
 
+- **Copilot-native evaluation sandbox (#544).** Scenario evals
+  (`schemaVersion: "2.0"`) can set `config.sandbox` to run model-visible
+  `copilot-sdk` tools inside Copilot CLI's native OS sandbox: the fresh task
+  workspace is read/write, selected skill directories are read-only, and
+  network, developer-tool caches, credentials, host paths and sandbox bypass
+  are denied by default. Legacy `1.x` evals reject the field. The
+  `copilot-native-sandbox` isolation provider now probes the selected evals'
+  sandbox policies through Copilot's sandboxed shell without a model turn and
+  can prove `filesystem` and non-loopback `network` boundaries; `waza
+  isolation preflight --eval` selects the evals to probe, and `waza run` runs
+  the isolation preflight after loading its selected evals. See
+  [Execution isolation](docs/EXECUTION_ISOLATION.md).
 - **Product usage telemetry (#1045).** Added opt-out product
   usage telemetry with a closed v1 event contract
   (`schemas/usage-telemetry-1.0.schema.json`, 4 KiB max) for
@@ -154,8 +166,7 @@ on every platform or deployment-specific assurance.
   `probe_inconclusive` diagnostics; Waza enforces no boundary itself and never
   reports one it cannot prove. `waza run --isolation-request/--isolation-host/--isolation-report`
   rejects a run before any execution when a requested boundary is unavailable.
-  The Copilot-native sandbox (#544) is modelled as a provider that is absent in
-  this build. The host provider can detect but never prove secret withholding,
+  The host provider can detect but never prove secret withholding,
   so `filesystem: restricted`, `environment: restricted` and
   `subprocess: restricted` are rejected until
   such a provider exists, and

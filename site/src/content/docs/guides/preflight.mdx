@@ -218,6 +218,14 @@ dependencies and reports independent diagnostics instead of assuming they are
 unused. `waza run` applies the same dependency rule to the tasks selected to run.
 MCP fixture responses and matchers are parsed
 without starting a mock. External schema references are not fetched.
+
+The `native_sandbox` capability reports whether the selected executor can apply
+Copilot's native OS sandbox. An enabled `config.sandbox` block adds an
+`unresolved` `sandbox.requested_policy` diagnostic and a `boundary` dependency:
+preflight records the requested policy but never verifies host support, runtime
+version or enforcement. Nonempty eval or task `command_mocks` with an enabled
+sandbox are invalid, matching execution; an explicit empty task list remains
+valid because it disables inherited mocks.
 Fixture and inline `input_schema` must be a JSON object when supplied; strings, numbers,
 booleans and arrays are invalid. Omitting it retains the default tool schema.
 Input schemas are checked independently of response matchers: an unavailable

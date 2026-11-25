@@ -1455,7 +1455,7 @@ test('execution isolation guide, CLI reference and schema route stay wired', () 
   assert.equal(JSON.parse(read('schemas/execution-isolation-1.0.schema.json')).$id,
     'https://microsoft.github.io/waza/schemas/execution-isolation-1.0.schema.json');
   const cli = read('site/src/content/docs/reference/cli.mdx');
-  for (const flag of ['## waza isolation preflight', '`--isolation-request`', '`--isolation-host`', '`--isolation-report`']) {
+  for (const flag of ['## waza isolation preflight', '`--eval`', '`--isolation-request`', '`--isolation-host`', '`--isolation-report`']) {
     assert.ok(cli.includes(flag), `${flag} missing from CLI reference`);
   }
   const guide = read('site/src/content/docs/guides/execution-isolation.mdx');
