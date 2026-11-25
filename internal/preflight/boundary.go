@@ -1,6 +1,7 @@
 package preflight
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -29,7 +30,13 @@ func inspectBoundaryPolicy(r *Report, task *models.TestCase, spec *models.EvalSp
 	agentPath, frontmatter, err := execution.ResolveAgentDefinitionOffline(append([]string{cwd}, paths...), spec.SkillName)
 	if err != nil {
 		r.untrackedPaths = true
-		r.add("boundary.agent", Invalid, source, task.TestID, "", fmt.Sprintf("Selected agent definition cannot be read or parsed: %v", err), "Correct the selected .agent.md frontmatter and use regular readable definition files; discovery follows runtime precedence.")
+		message := fmt.Sprintf("Selected agent definition cannot be read or parsed: %v", err)
+		var parseErr *execution.AgentDefinitionParseError
+		if errors.As(err, &parseErr) {
+			// Parser errors can quote frontmatter values; report only the file.
+			message = fmt.Sprintf("Selected agent definition %q has invalid frontmatter.", parseErr.Path)
+		}
+		r.add("boundary.agent", Invalid, source, task.TestID, "", message, "Correct the selected .agent.md frontmatter and use regular readable definition files; discovery follows runtime precedence.")
 		return
 	}
 	if agentPath != "" {

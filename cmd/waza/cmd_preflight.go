@@ -35,7 +35,8 @@ Workspace mode also accepts --skills-dir, --evals-dir, and --eval-file to
 override those settings. When skill discovery is enabled and no eval-level
 directories are specified, --skills-dir also selects the required-skill discovery
 root. It does not change the configuration used by a later run.
-Unavailable discovery symlinks are errors. Native workspace discovery does not
+Unavailable discovery symlinks are errors, except a dangling eval.yaml fallback
+shadowed by the selected configured eval file. Native workspace discovery does not
 follow symlinked skill-scan roots or skill directories; workspace preflight
 reports those unsupported paths instead of returning an empty inventory.
 Resolvable resource links are allowed when they contain no discoverable skills.

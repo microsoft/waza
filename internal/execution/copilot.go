@@ -1794,10 +1794,23 @@ func resolveAgentDefinition(skillDirs []string, skillName string, reader definit
 	}
 	fm, _, err := skill.ParseAgentFrontmatter(sd.Content)
 	if err != nil {
-		return "", nil, fmt.Errorf("parsing agent %q: %w", sd.Path, err)
+		return "", nil, &AgentDefinitionParseError{Path: sd.Path, Err: err}
 	}
 	return sd.Path, fm, nil
 }
+
+// AgentDefinitionParseError reports malformed agent frontmatter. Err may quote
+// frontmatter values, so reports that must not disclose them should use Path.
+type AgentDefinitionParseError struct {
+	Path string
+	Err  error
+}
+
+func (e *AgentDefinitionParseError) Error() string {
+	return fmt.Sprintf("parsing agent %q: %v", e.Path, e.Err)
+}
+
+func (e *AgentDefinitionParseError) Unwrap() error { return e.Err }
 
 // ResolveSkillDefinitionPath returns the SKILL.md or agent file selected for
 // skillName with the same discovery used for system-message injection.
@@ -1980,7 +1993,7 @@ func loadSkillDefinitionWithReader(dir string, logRaw bool, reader definitionRea
 			content := string(agentData)
 			fm, _, parseErr := skill.ParseAgentFrontmatter(content)
 			if parseErr != nil {
-				return nil, fmt.Errorf("parsing agent %q: %w", agentPath, parseErr)
+				return nil, &AgentDefinitionParseError{Path: agentPath, Err: parseErr}
 			}
 			name, desc := fm.Name, fm.Description
 			if name == "" {

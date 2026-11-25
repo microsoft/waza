@@ -777,3 +777,63 @@ func TestPreflightDoesNotChangeOtherUpdateChecks(t *testing.T) {
 		require.True(t, shouldRunUpdateCheck(cmd, false), strings.Join([]string{name, "retains prior behavior"}, " "))
 	}
 }
+
+func TestPreflightRedactsFrontmatterParseValues(t *testing.T) {
+	const agentSentinel = "SNTL4242"
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	for _, d := range []string{agentsDir} {
+		require.NoError(t, os.MkdirAll(d, 0o700))
+	}
+	agentPath := filepath.Join(agentsDir, "example.agent.md")
+	require.NoError(t, os.WriteFile(agentPath, []byte("---\nname: example\ntools: "+agentSentinel+"\n---\nBody\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "task.yaml"), []byte("id: task\nname: Task\ninputs: {prompt: ready}\n"), 0o600))
+	evalPath := filepath.Join(dir, "eval.yaml")
+	require.NoError(t, os.WriteFile(evalPath, []byte(`schemaVersion: "1.4"
+name: redaction
+skill: example
+config:
+  executor: mock
+  model: harness
+  trials_per_task: 1
+  timeout_seconds: 10
+  skill_directories: [agents]
+  required_skills: [absent]
+metrics: [{name: accuracy, weight: 1, threshold: 0.8}]
+tasks: [task.yaml]
+`), 0o600))
+	t.Chdir(t.TempDir())
+
+	for _, format := range []string{"human", "json"} {
+		t.Run(format, func(t *testing.T) {
+			cmd := newPreflightCommand()
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&out)
+			cmd.SilenceUsage = true
+			cmd.SetArgs([]string{evalPath, "--format", format})
+			var exit *ExitCodeError
+			require.ErrorAs(t, cmd.Execute(), &exit)
+			output := out.String()
+			require.NotContains(t, output, agentSentinel)
+			require.Contains(t, output, "boundary.agent")
+			require.Contains(t, output, "skill.required")
+			if format == "json" {
+				var report preflight.Report
+				require.NoError(t, json.Unmarshal(out.Bytes(), &report))
+				var agentMessage, requiredMessage string
+				for _, d := range report.Diagnostics {
+					switch d.Code {
+					case "boundary.agent":
+						agentMessage = d.Message
+					case "skill.required":
+						requiredMessage = d.Message
+					}
+				}
+				require.Contains(t, agentMessage, fmt.Sprintf("%q", agentPath))
+				require.Contains(t, agentMessage, "invalid frontmatter")
+				require.Contains(t, requiredMessage, "absent")
+			}
+		})
+	}
+}
