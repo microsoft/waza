@@ -74,7 +74,7 @@ jobs:
 
       - name: Setup Go Environment
         id: go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: '1.26'
           cache: ${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' }}
@@ -302,7 +302,7 @@ jobs:
         run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Setup Go Environment
         id: setup_go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: '1.26'
           cache: false
@@ -481,7 +481,7 @@ jobs:
           node-version: '22'
 
       - name: Setup Go Environment
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: '1.26'
 
