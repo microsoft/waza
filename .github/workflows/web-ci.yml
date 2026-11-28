@@ -113,7 +113,7 @@ jobs:
       - name: Setup Go for real runner API browser coverage
         id: go
         if: steps.filter.outputs.web == 'true' || github.event_name != 'pull_request' || inputs.pr_completeness_plan != ''
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: '1.26'
           cache: ${{ env.CI_EVIDENCE_COLD_REQUESTED != 'true' }}
